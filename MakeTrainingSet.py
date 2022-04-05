@@ -2,20 +2,15 @@
 
 import scipy, time,sys, warnings, math
 from scipy.integrate import quad
-from scipy.interpolate import interp1d
-from scipy.io import FortranFile
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from numpy import exp, log, log10, cos, sin, pi, cosh, sinh , sqrt, amin, amax, mean, dot, power, conj
-import matplotlib
-from matplotlib import pyplot as plt
 from scipy.misc import derivative
 import camb
 from camb import model, initialpower
 #from ctypes import c_double, c_int, cdll, byref
 from multiprocessing import Pool
 from itertools import repeat
-from scipy.stats import qmc
 from mpi4py import MPI
 
 sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
