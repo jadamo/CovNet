@@ -100,6 +100,9 @@ def init_normal(m):
         nn.init.normal_(m.weight, mean=0, std=0.01)
         nn.init.zeros_(m.bias)
 
+def xavier(m):
+    if type(m) == nn.Linear:
+        nn.init.xavier_uniform_(m.weight)
 
 def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, train_loader, valid_loader):
     """
@@ -140,10 +143,10 @@ def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
 
     x = range(num_epochs)
     plt.title("Fully-Connected Network")
-    plt.plot(x, train_loss, marker=".", color="blue", label="training set")
+    plt.plot(x, train_loss, color="blue", label="training set")
     plt.plot(x, valid_loss, color="red", ls="--", label="validation set")
     plt.xlabel("epoch")
-    plt.ylim(0, 510000)
+    #plt.ylim(0, 510000)
     plt.ylabel("L1 Loss")
     plt.legend()
     plt.savefig(save_dir+"loss-plot.png")
@@ -162,23 +165,23 @@ def main():
 
     batch_size = 25
     lr = 0.2
-    num_epochs = 100
+    num_epochs = 50
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
 
     # initialize network
-    NN_Full = Network_Full(6, 100*100)
-    NN_Full.apply(init_normal)
+    #net = Network_Full(6, 100*100)
+    net = Network_TCNN(6, batch_size)
 
-    NN_TConvolution = Network_TCNN(6, batch_size)
-    NN_TConvolution.apply(init_normal)
+    #net.apply(init_normal)
+    net.apply(xavier)
 
     # use MSE loss function
     Loss = nn.L1Loss()
 
     # Define the optimizer
-    optimizer = torch.optim.Adam(NN_Full.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
     # get the training / test datasets
     t1 = time.time()
@@ -195,11 +198,14 @@ def main():
 
     # Train the network!
     t1 = time.time()
-    NN_Full, train_loss, valid_loss = train(NN_Full, num_epochs, N_train, N_valid, batch_size, Loss, optimizer, train_loader, valid_loader)
+    net, train_loss, valid_loss = train(net, num_epochs, N_train, N_valid, batch_size, Loss, optimizer, train_loader, valid_loader)
     t2 = time.time()
     print("Done training!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
-    plot_loss(train_loss, valid_loss, num_epochs, NN_Full, save_dir)
+    # Save the network to disk
+    torch.save(net.state_dict(), 'network.params')
+
+    plot_loss(train_loss, valid_loss, num_epochs, net, save_dir)
 
 if __name__ == "__main__":
     main()

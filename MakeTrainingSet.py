@@ -334,29 +334,16 @@ def main():
     Pfit[4]=np.loadtxt(dire+'P4_fit_Patchy.dat')
     t1 = time.time(); t2 = t1
 
-    # These parameters are set in main so that we can more-easily manipulate them
-    # bounds taken from table 8 of Wadekar et al 2020 (mean value +- 2x 1sigma interval)
-    # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf, since Wadekar uses A = As / As_planck
-    # ---Cosmology parameters sample bounds---
-    Omega_m_bounds = [0.2699, 0.3459]     # Omega matter
-    H0_bounds      = [66.5, 75.5]         # Hubble constant
-    As_bounds  =     [1.707e-9, 1.78e-9]  # Amplitude of Primordial Power spectrum <- double check this look at planck 1sigma range
-    omch2_bounds   = [0.1157, 0.1535]     # Omega_cdm h^2
-    b1_bounds      = [1.806, 2.04]        # Linear bias
-    b2_bounds      = [-2.962, 0.458]      # non-linear bias?
-    
-    # sample the distribution of points using a Latin Hypercube
-    sampler = qmc.LatinHypercube(d=6)
-    dist = sampler.random(n=N)
+    data = np.loadtxt("Sample-params.txt", skiprows=1)
 
     # ---Cosmology parameters---
-    Omega_m = dist[:,0]*(Omega_m_bounds[1] - Omega_m_bounds[0]) + Omega_m_bounds[0]
-    H0 = dist[:,1]*(H0_bounds[1] - H0_bounds[0]) + H0_bounds[0]
-    As = dist[:,2]*(As_bounds[1] - As_bounds[0]) + As_bounds[0]
-    omch2 = dist[:,3]*(omch2_bounds[1] - omch2_bounds[0]) + omch2_bounds[0]
+    Omega_m = data[:,0]
+    H0 = data[:,1]
+    As = data[:,2]
+    omch2 = data[:,3]
     ombh2=0.022  # Omega_b h^2 - this value is fixed
-    b1 = dist[:,4]*(b1_bounds[1] - b1_bounds[0]) + b1_bounds[0]
-    b2 = dist[:,5]*(b2_bounds[1] - b2_bounds[0]) + b2_bounds[0]
+    b1 = data[:,4]
+    b2 = data[:,5]
 
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
     # and non-linear bias (b_i) from peak-background split fit of 
