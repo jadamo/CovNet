@@ -16,6 +16,7 @@ from camb import model, initialpower
 from multiprocessing import Pool
 from itertools import repeat
 from scipy.stats import qmc
+from mpi4py import MPI
 
 sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 import T0
@@ -26,6 +27,7 @@ import T0
 
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 save_dir = "/home/joeadamo/Research/Data/"
+home_dir = "/home/joeadamo/Research/CovA-NN-Emulator/"
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
@@ -39,7 +41,7 @@ k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 # Number of matrices to make
 N = 1000
 # Number of processors to use
-N_PROC = 14
+N_PROC = 2
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
@@ -317,7 +319,7 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     header_str = "H0, Omega_m, omc2, As, sigma8, b1, b2\n"
     header_str += str(H0) + ", " + str(Omega_m) + ", " + str(omch2) + ", " + str(As) + ", " + str(s8[0]) + ", " + str(b1) + ", " + str(b2)
     idx = f'{i:04d}'
-    np.savetxt("/home/joeadamo/Research/scripts/Matrix-Emulator/Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
+    np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
     #return covAnl
 
 #-------------------------------------------------------------------
@@ -325,6 +327,10 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
 #-------------------------------------------------------------------
 def main():
     
+    comm = MPI.COMM_WORLD
+    size = MPI.COMM_WORLD.Get_size()
+    rank = MPI.COMM_WORLD.Get_rank()
+
     # TEMP: ignore integration warnings to make output more clean
     warnings.filterwarnings("ignore")
     
@@ -334,7 +340,14 @@ def main():
     Pfit[4]=np.loadtxt(dire+'P4_fit_Patchy.dat')
     t1 = time.time(); t2 = t1
 
-    data = np.loadtxt("Sample-params.txt", skiprows=1)
+    # Split up data to multiple MPI ranks
+    send_chunk = None
+    if rank == 0:
+        send_data = np.loadtxt("Sample-params.txt", skiprows=1)
+        send_chunk = np.array_split(send_data, size, axis=0)
+    data = np.empty((int(N/size),6), dtype=np.float64)
+    data = comm.scatter(send_chunk, root=0)
+    #comm.Scatter([send_chunk, MPI.DOUBLE], [data, MPI.DOUBLE], root=0)
 
     # ---Cosmology parameters---
     Omega_m = data[:,0]
@@ -360,7 +373,13 @@ def main():
     z = 0.58 #mean redshift of the high-Z chunk
     be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
     
-    i = range(N)
+    # split up workload to different nodes
+    send_i = np.empty(N, dtype=np.int)
+    if rank == 0:
+        send_i = np.arange(N, dtype=np.int)
+        send_chunk = np.array_split(send_i, size, axis=0)
+    i = np.empty(int(N / size), dtype=np.int)
+    i = comm.scatter(send_chunk, root=0)
 
     # initialize pool for multiprocessing
     t1 = time.time()
