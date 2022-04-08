@@ -385,7 +385,6 @@ def main():
     t2 = time.time()
     
     # save this matrix to a file
-    #np.savetxt(save_dir+"CovA-survey.txt", covaAnl)
     print("Done! Took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
     print("Made " + str(N) + " matrices")
     
