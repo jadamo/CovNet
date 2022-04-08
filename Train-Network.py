@@ -159,7 +159,17 @@ def symmetric_exp(m):
     sym_exp(x) = -10^-x, x < 0
     This is the reverse operation of symmetric_log
     """
-    return m
+    pos_m, neg_m = np.zeros(m.shape), np.zeros(m.shape)
+    pos_idx = np.where(m >= 0)
+    neg_idx = np.where(m < 0)
+    pos_m[pos_idx] = m[pos_idx]
+    neg_m[neg_idx] = m[neg_idx]
+
+    pos_m = 10**pos_m
+    pos_m[(pos_m == 1)] = 0
+    # for negative numbers, treat log(x) = -log(-x)
+    neg_m[neg_idx] = -10**(-1*neg_m[neg_idx])
+    return torch.from_numpy(pos_m + neg_m)
 
 def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, train_loader, valid_loader):
     """
@@ -185,13 +195,21 @@ def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, trai
         # run through the validation set
         net.eval()
         avg_valid_loss = 0.
+        min_val = 1e30; max_val = -1e10
+        min_pre = 1e30; max_pre = -1e10
         for params, matrix in valid_loader:
             prediction = net(params).view(batch_size, 100, 100)
             loss = F_loss(prediction, matrix)
             avg_valid_loss+= loss.item()
+            min_pre = min(torch.min(prediction), min_pre)
+            max_pre = max(torch.max(prediction), max_pre)
+            min_val = min(torch.min(matrix), min_val)
+            max_val = max(torch.max(matrix), max_val)
 
         # Aggregate loss information
         print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / num_batches, avg_valid_loss / math.ceil(N_valid / batch_size)))
+        print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
+        print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / num_batches
         valid_loss[epoch] = avg_valid_loss / math.ceil(N_valid / batch_size)
     return net, train_loss, valid_loss
@@ -199,21 +217,24 @@ def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, trai
 def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
 
     x = range(num_epochs)
+    max_y = max(train_loss[1], valid_loss[1] * 1.1)
     plt.title("Fully-Connected Network")
     plt.plot(x, train_loss, color="blue", label="training set")
     plt.plot(x, valid_loss, color="red", ls="--", label="validation set")
     plt.xlabel("epoch")
-    plt.ylim(0, 1.)
+    plt.ylim(0, max_y)
     plt.ylabel("L1 Loss")
     plt.legend()
     plt.savefig(save_dir+"loss-plot.png")
 
     plt.figure()
-    params = torch.tensor([0.307115, 67.5, 2e-9, 0.122, 1.94853182918671, -0.5386588802904639])
+    params = torch.tensor([71.30941428788515, 0.29445535560999114, 0.13842482982125812, 1.7164337170568933e-09, 2.01291521504162, 0.3273341556889142])
     matrix = net(params)
+    print(torch.min(matrix), torch.max(matrix))
     matrix = matrix.view(100,100).detach().numpy()
     if train_log == True:
         plt.imshow(matrix, cmap="RdBu")
+        #plt.imshow(matrix, cmap="RdBu", norm=colors.SymLogNorm(linthresh=1., vmin=np.amin(matrix), vmax=np.amax(matrix)))
         cbar = plt.colorbar()
         cbar.set_label("log value")
     else:
@@ -226,16 +247,19 @@ def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
 
 def main():
 
+    print("Training with inverse matrices: " + str(train_inverse))
+    print("Training with log matrices:     " + str(train_log))
+
     batch_size = 25
     lr = 0.2
-    num_epochs = 50
+    num_epochs = 30
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
 
     # initialize network
-    net = Network_Full(6, 100*100)
-    #net = Network_ReverseVGG(6)
+    #net = Network_Full(6, 100*100)
+    net = Network_ReverseVGG(6)
 
     #net.apply(init_normal)
     net.apply(xavier)
@@ -266,7 +290,7 @@ def main():
     print("Done training!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
     # Save the network to disk
-    torch.save(net.state_dict(), 'network.params')
+    torch.save(net.state_dict(), 'network-VGG.params')
 
     plot_loss(train_loss, valid_loss, num_epochs, net, save_dir)
 
