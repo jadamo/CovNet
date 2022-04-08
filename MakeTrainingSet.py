@@ -34,7 +34,7 @@ WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 
 # Number of matrices to make
-N = 1000
+N = 8
 # Number of processors to use
 N_PROC = 2
 
@@ -298,7 +298,7 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     # initializing bias parameters for trispectrum
     T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
-    num_matrices = 0; tmin = 1e10; tmax = 0
+    #num_matrices = 0; tmin = 1e10; tmax = 0
     #while t2 - t1 < 60*60*24:
     # Get initial power spectrum
     pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
@@ -336,12 +336,17 @@ def main():
     t1 = time.time(); t2 = t1
 
     # Split up data to multiple MPI ranks
-    send_chunk = None
-    if rank == 0:
-        send_data = np.loadtxt("Sample-params.txt", skiprows=1)
-        send_chunk = np.array_split(send_data, size, axis=0)
-    data = np.empty((int(N/size),6), dtype=np.float64)
-    data = comm.scatter(send_chunk, root=0)
+    # Aparently MPI scatter doesn't work on Puma, so this uses a different way
+    assert N % size == 0
+    offset = int((N / size) * rank)
+    data_len = int(N / size)
+    data = np.loadtxt("Sample-params.txt", skiprows=1+offset, max_rows = data_len)
+    # send_chunk = None
+    # if rank == 0:
+    #     send_data = np.loadtxt("Sample-params.txt", skiprows=1)
+    #     send_chunk = np.array_split(send_data, size, axis=0)
+    # data = np.empty((int(N/size),6), dtype=np.float64)
+    # data = comm.scatter(send_chunk, root=0)
     #comm.Scatter([send_chunk, MPI.DOUBLE], [data, MPI.DOUBLE], root=0)
 
     # ---Cosmology parameters---
@@ -369,12 +374,13 @@ def main():
     be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
     
     # split up workload to different nodes
-    send_i = np.empty(N, dtype=np.int)
-    if rank == 0:
-        send_i = np.arange(N, dtype=np.int)
-        send_chunk = np.array_split(send_i, size, axis=0)
-    i = np.empty(int(N / size), dtype=np.int)
-    i = comm.scatter(send_chunk, root=0)
+    i = np.arange(offset, offset+data_len, dtype=np.int)
+    # send_i = np.empty(N, dtype=np.int)
+    # if rank == 0:
+    #     send_i = np.arange(N, dtype=np.int)
+    #     send_chunk = np.array_split(send_i, size, axis=0)
+    # i = np.empty(int(N / size), dtype=np.int)
+    # i = comm.scatter(send_chunk, root=0)
 
     # initialize pool for multiprocessing
     t1 = time.time()
