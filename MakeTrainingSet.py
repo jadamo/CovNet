@@ -21,7 +21,6 @@ import T0
 #-------------------------------------------------------------------
 
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-save_dir = "/home/joeadamo/Research/Data/"
 home_dir = "/home/joeadamo/Research/CovA-NN-Emulator/"
 
 #Using the window kernels calculated from the survey random catalog as input
@@ -34,9 +33,9 @@ WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 
 # Number of matrices to make
-N = 8
+N = 2000
 # Number of processors to use
-N_PROC = 2
+N_PROC = 15
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
