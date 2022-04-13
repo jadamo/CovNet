@@ -45,39 +45,39 @@ class Network_ReverseVGG(nn.Module):
         self.f2 = nn.Linear(50, 100) 
         self.f3 = nn.Linear(100, 100)  # 10x10
 
-        self.C1_1 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C1_2 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C1_3 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
+        self.C1_1 = nn.ConvTranspose2d(1, 1, kernel_size=3) #12x12
+        self.C1_2 = nn.ConvTranspose2d(1, 1, kernel_size=3) #14x14
+        self.C1_3 = nn.ConvTranspose2d(1, 1, kernel_size=3) #16x16
 
-        self.C2_1 = nn.ConvTranspose2d(1, 1, kernel_size=10, stride=2) # 28x28
-        self.C2_2 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C2_3 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C2_4 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
+        self.C2_1 = nn.ConvTranspose2d(1, 1, kernel_size=8) # 23x23
+        self.C2_2 = nn.ConvTranspose2d(1, 1, kernel_size=3) # 25x25
+        self.C2_3 = nn.ConvTranspose2d(1, 1, kernel_size=3) # 27x27
+        self.C2_4 = nn.ConvTranspose2d(1, 1, kernel_size=3) # 29x29
 
-        self.C3_1 = nn.ConvTranspose2d(1, 1, kernel_size=10) #37x27
-        self.C3_2 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C3_3 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C3_4 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
+        self.C3_1 = nn.ConvTranspose2d(1, 1, kernel_size=8, stride=2) #64x64
+        self.C3_2 = nn.ConvTranspose2d(1, 1, kernel_size=3) #66x66
+        self.C3_3 = nn.ConvTranspose2d(1, 1, kernel_size=3) #68x68
+        self.C3_4 = nn.ConvTranspose2d(1, 1, kernel_size=3) #70x70
 
-        self.C4_1 = nn.ConvTranspose2d(1, 1, kernel_size=10) # 46x46
-        self.C4_2 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.C4_3 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
+        self.C4_1 = nn.ConvTranspose2d(1, 1, kernel_size=9) #78x78
+        self.C4_2 = nn.ConvTranspose2d(1, 1, kernel_size=4) #81x81
+        self.C4_3 = nn.ConvTranspose2d(1, 1, kernel_size=4) #84x84
 
-        self.C5_1 = nn.ConvTranspose2d(1, 1, kernel_size=10, stride=2) #106x106
-        self.C5_2 = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1)
-        self.out = nn.ConvTranspose2d(1, 1, kernel_size=3, padding=1) # output layer
+        self.C5_1 = nn.ConvTranspose2d(1, 1, kernel_size=11) #94x94
+        self.C5_2 = nn.ConvTranspose2d(1, 1, kernel_size=4)  #97x97
+        self.out  = nn.ConvTranspose2d(1, 1, kernel_size=4) # output layer
 
     # Define the forward propagation of the model
     def forward(self, X):
         # Work thru the fully connected part first
-        w = F.relu(self.f3(F.relu(self.f2(F.relu(self.f1(X))))))
+        w = F.leaky_relu(self.f3(F.leaky_relu(self.f2(F.leaky_relu(self.f1(X))))))
         w = w.view(-1, 1, 10, 10) # reshape into an "image"
 
-        w = F.relu(self.C1_3(F.relu(self.C1_2(F.relu(self.C1_1(w))))))
-        w = F.relu(self.C2_4(F.relu(self.C2_3(F.relu(self.C2_2(F.relu(self.C2_1(w))))))))
-        w = F.relu(self.C3_4(F.relu(self.C3_3(F.relu(self.C3_2(F.relu(self.C3_1(w))))))))
-        w = F.relu(self.C4_3(F.relu(self.C4_2(F.relu(self.C4_1(w))))))
-        w = F.relu(self.out(F.relu(self.C5_2(F.relu(self.C5_1(w))))))
+        w = F.leaky_relu(self.C1_3(F.leaky_relu(self.C1_2(F.leaky_relu(self.C1_1(w))))))
+        w = F.leaky_relu(self.C2_4(F.leaky_relu(self.C2_3(F.leaky_relu(self.C2_2(F.leaky_relu(self.C2_1(w))))))))
+        w = F.leaky_relu(self.C3_4(F.leaky_relu(self.C3_3(F.leaky_relu(self.C3_2(F.leaky_relu(self.C3_1(w))))))))
+        w = F.leaky_relu(self.C4_3(F.leaky_relu(self.C4_2(F.leaky_relu(self.C4_1(w))))))
+        w = F.leaky_relu(self.out(F.leaky_relu(self.C5_2(F.leaky_relu(self.C5_1(w))))))
         return w
 
 
@@ -117,6 +117,20 @@ class MatrixDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         return self.params[idx], self.matrices[idx]
+
+
+def matrix_loss(prediction, target, norm):
+    """
+    Custom loss function that includes a penalizing term for non-symmetric outputs
+    """
+    l1 = torch.pow(prediction - target, norm)
+    l1 = torch.mean(l1)
+
+    asymmetric_predict = prediction - torch.transpose(prediction,1,2)
+    l2 = torch.pow(asymmetric_predict, norm)
+    l2 = torch.mean(l2)
+
+    return l1 + l2
 
 
 def symmetric_log(m):

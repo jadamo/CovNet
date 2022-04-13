@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 #sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
-from CovNet import Network_Full, Network_ReverseVGG, MatrixDataset
+from CovNet import Network_Full, Network_ReverseVGG, MatrixDataset, matrix_loss
 
 # Total number of matrices in the training + validation + test set
 N = 52500
+#N = 5000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -28,7 +29,7 @@ def xavier(m):
     if type(m) == nn.Linear:
         nn.init.xavier_uniform_(m.weight)
 
-def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, train_loader, valid_loader):
+def train(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader):
     """
     Train the given network
     """
@@ -42,7 +43,7 @@ def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, trai
         for (i, batch) in enumerate(train_loader):
             params = batch[0]; matrix = batch[1]
             prediction = net(params).view(batch_size, 100, 100)
-            loss = F_loss(prediction, matrix)
+            loss = matrix_loss(prediction, matrix, norm)
             assert loss != np.nan and loss != np.inf
             avg_train_loss += loss.item()
             optimizer.zero_grad()
@@ -56,7 +57,7 @@ def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, trai
         min_pre = 1e30; max_pre = -1e10
         for params, matrix in valid_loader:
             prediction = net(params).view(batch_size, 100, 100)
-            loss = F_loss(prediction, matrix)
+            loss = matrix_loss(prediction, matrix, norm)
             avg_valid_loss+= loss.item()
             min_pre = min(torch.min(prediction), min_pre)
             max_pre = max(torch.max(prediction), max_pre)
@@ -74,7 +75,7 @@ def train(net, num_epochs, N_train, N_valid, batch_size, F_loss, optimizer, trai
 def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
 
     x = range(num_epochs)
-    max_y = max(train_loss[1], valid_loss[1] * 1.1)
+    max_y = max(train_loss[5], valid_loss[5] * 1.1)
     plt.title("Fully-Connected Network")
     plt.plot(x, train_loss, color="blue", label="training set")
     plt.plot(x, valid_loss, color="red", ls="--", label="validation set")
@@ -91,7 +92,6 @@ def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
     matrix = matrix.view(100,100).detach().numpy()
     if train_log == True:
         plt.imshow(matrix, cmap="RdBu")
-        #plt.imshow(matrix, cmap="RdBu", norm=colors.SymLogNorm(linthresh=1., vmin=np.amin(matrix), vmax=np.amax(matrix)))
         cbar = plt.colorbar()
         cbar.set_label("log value")
     else:
@@ -107,7 +107,7 @@ def main():
     print("Training with inverse matrices: " + str(train_inverse))
     print("Training with log matrices:     " + str(train_log))
 
-    batch_size = 30
+    batch_size = 25
     lr = 0.2
     num_epochs = 30
 
@@ -116,24 +116,25 @@ def main():
 
     # initialize network
     net = Network_Full(6, 100*100)
-    #net = CovNet.Network_ReverseVGG(6)
+    #net = Network_ReverseVGG(6)
 
     #net.apply(init_normal)
     net.apply(xavier)
 
     # use MSE loss function
-    Loss = nn.L1Loss()
+    norm = 2
+    #Loss = nn.L1Loss()
+    #Loss = nn.MSELoss()
 
     # Define the optimizer
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
     # get the training / test datasets
     t1 = time.time()
-    training_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Training-Set/"
+    training_dir = "/home/joeadamo/Research/Data/Training-Set/"
     save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Plots/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_inverse)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_inverse)
-    # test_data = MatrixDataset(training_dir, int(N*0.1), int(N*0.9))
     
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
@@ -143,12 +144,14 @@ def main():
 
     # Train the network!
     t1 = time.time()
-    net, train_loss, valid_loss = train(net, num_epochs, N_train, N_valid, batch_size, Loss, optimizer, train_loader, valid_loader)
+    net, train_loss, valid_loss = train(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader)
     t2 = time.time()
     print("Done training!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
-    # Save the network to disk
-    torch.save(net.state_dict(), 'network-VGG.params')
+    # Save the network and loss data to disk
+    torch.save(train_loss, "train_loss.dat")
+    torch.save(valid_loss, "valid_loss.dat")
+    torch.save(net.state_dict(), 'network.params')
 
     plot_loss(train_loss, valid_loss, num_epochs, net, save_dir)
 
