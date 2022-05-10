@@ -123,9 +123,11 @@ def matrix_loss(prediction, target, norm):
     """
     Custom loss function that includes a penalizing term for non-symmetric outputs
     """
+    # normal l-n norm term
     l1 = torch.pow(prediction - target, norm)
     l1 = torch.mean(l1)
 
+    # term that's non-zero for non-symmetric matrices
     asymmetric_predict = prediction - torch.transpose(prediction,1,2)
     l2 = torch.pow(asymmetric_predict, norm)
     l2 = torch.mean(l2)

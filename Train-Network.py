@@ -115,8 +115,8 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize network
-    net = Network_Full(6, 100*100)
-    #net = Network_ReverseVGG(6)
+    #net = Network_Full(6, 100*100)
+    net = Network_ReverseVGG(6)
 
     #net.apply(init_normal)
     net.apply(xavier)
