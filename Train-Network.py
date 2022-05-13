@@ -8,11 +8,12 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 #sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
-from CovNet import Network_Full, Network_ReverseVGG, Network_VAE, MatrixDataset, VAE_loss, matrix_loss
+from CovNet import Network_Full, Network_Features, Block_Encoder, Block_Decoder, \
+                   Network_VAE, MatrixDataset, VAE_loss, matrix_loss
 
 # Total number of matrices in the training + validation + test set
-N = 52500
-#N = 20000
+#N = 52500
+N = 5000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -74,7 +75,7 @@ def train(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_
 
 def train_VAE(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader):
     """
-    Train the given network
+    Train the VAE network
     """
 
     num_batches = math.ceil(N_train / batch_size)
@@ -120,6 +121,52 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, tr
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
     return net, train_loss, valid_loss
 
+def train_features(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_loader, valid_loader):
+    """
+    Train the features network
+    """
+
+    train_loss = torch.zeros([num_epochs])
+    valid_loss = torch.zeros([num_epochs])
+    for epoch in range(num_epochs):
+        # Run through the training set and update weights
+        net.train()
+        avg_train_loss = 0.
+        for (i, batch) in enumerate(train_loader):
+            params = batch[0]; features = batch[2]
+            prediction = net(params)
+            #prediction = prediction.view(batch_size, 100, 100)
+            #print(torch.min(prediction), torch.max(prediction))
+            loss = VAE_loss(prediction, features)
+            assert torch.isnan(loss) == False and torch.isinf(loss) == False
+
+            avg_train_loss += loss.item()
+            optimizer.zero_grad()
+            loss.backward()        
+            optimizer.step()
+
+        # run through the validation set
+        net.eval()
+        avg_valid_loss = 0.
+        min_val = 1e30; max_val = -1e10
+        min_pre = 1e30; max_pre = -1e10
+        for params, matrix, features in valid_loader:
+            prediction = net(params)
+            #prediction = prediction.view(batch_size, 100, 100)
+            loss = VAE_loss(prediction, features)
+            avg_valid_loss+= loss.item()
+            min_pre = min(torch.min(prediction), min_pre)
+            max_pre = max(torch.max(prediction), max_pre)
+            min_val = min(torch.min(matrix), min_val)
+            max_val = max(torch.max(matrix), max_val)
+
+        # Aggregate loss information
+        print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
+        print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
+        train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
+        valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
+    return net, train_loss, valid_loss
+
 def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
 
     x = range(num_epochs)
@@ -132,22 +179,6 @@ def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
     plt.ylabel("L1 Loss")
     plt.legend()
     plt.savefig(save_dir+"loss-plot.png")
-
-    # plt.figure()
-    # params = torch.tensor([71.30941428788515, 0.29445535560999114, 0.13842482982125812, 1.7164337170568933e-09, 2.01291521504162, 0.3273341556889142])
-    # matrix = net(params)
-    # print(torch.min(matrix), torch.max(matrix))
-    # matrix = matrix.view(100,100).detach().numpy()
-    # if train_log == True:
-    #     plt.imshow(matrix, cmap="RdBu")
-    #     cbar = plt.colorbar()
-    #     cbar.set_label("log value")
-    # else:
-    #     plt.imshow(matrix, cmap="RdBu", norm=colors.SymLogNorm(linthresh=1., vmin=np.amin(matrix), vmax=np.amax(matrix)))
-    #     cbar = plt.colorbar()
-    #     cbar.set_label("value")
-    # plt.savefig(save_dir+"network-matrix.png")
-
     plt.show()
 
 def main():
@@ -157,7 +188,7 @@ def main():
 
     batch_size = 50
     lr = 0.01
-    num_epochs = 60
+    num_epochs = 30
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
@@ -169,6 +200,7 @@ def main():
     #net = Network_Full(6, 100*100).to(device)
     #net = Network_ReverseVGG(6).to(device)
     net = Network_VAE().to(device)
+    net_2 = Network_Features(6, 100).to(device)
 
     #net.apply(init_normal)
     net.apply(xavier)
@@ -194,14 +226,44 @@ def main():
 
     # Train the network!
     t1 = time.time()
-    net, train_loss, valid_loss = train_VAE(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader)
+    net, train_loss, valid_loss = train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_loader, valid_loader)
     t2 = time.time()
-    print("Done training!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
+    print("Done training VAE!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
     # Save the network and loss data to disk
-    torch.save(train_loss, "train_loss.dat")
-    torch.save(valid_loss, "valid_loss.dat")
-    torch.save(net.state_dict(), 'network.params')
+    #torch.save(train_loss, "train_loss.dat")
+    #torch.save(valid_loss, "valid_loss.dat")
+    #torch.save(net.state_dict(), 'network.params')
+
+    # next, train the secondary network with the features from the VAE as the output
+
+    encoder = Block_Encoder()
+    decoder = Block_Decoder()
+    encoder.load_state_dict(net.Encoder.state_dict())
+    decoder.load_state_dict(net.Decoder.state_dict())
+
+    train_features = torch.zeros(N_train, 100)
+    valid_features = torch.zeros(N_valid, 100)
+    for n in range(N_train):
+        matrix = train_data[n][1].view(1,1,100,100)
+        z, mu, log_var = encoder(matrix)
+        train_features[n] = z.view(100)
+    for n in range(N_valid):
+        matrix = valid_data[n][1].view(1,1,100,100)
+        z, mu, log_var = encoder(matrix)
+        valid_features[n] = z.view(100)
+
+    # add feature data to the training set and reinitialize the data loaders
+    train_data.add_features(train_features)
+    valid_data.add_features(valid_features)
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
+
+    t1 = time.time()
+    net_2, train_loss, valid_loss = train_features(net_2, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader)
+    t2 = time.time()
+    print("Done training feature net!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
+
 
     plot_loss(train_loss, valid_loss, num_epochs, net, save_dir)
 

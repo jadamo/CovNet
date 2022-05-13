@@ -23,61 +23,36 @@ class Network_Full(nn.Module):
     def forward(self, X):
         # Note here we use the funtional version of ReLU defined in the
         # nn.functional module.
-        w = F.relu(self.h1(X))
-        w = F.relu(self.h2(w))
-        w = F.relu(self.h3(w))
-        w = F.relu(self.h4(w))
-        w = F.relu(self.h5(w))
-        w = F.relu(self.h6(w))
-        w = F.relu(self.h7(w))
+        w = F.leaky_relu(self.h1(X))
+        w = F.leaky_relu(self.h2(w))
+        w = F.leaky_relu(self.h3(w))
+        w = F.leaky_relu(self.h4(w))
+        w = F.leaky_relu(self.h5(w))
+        w = F.leaky_relu(self.h6(w))
+        w = F.leaky_relu(self.h7(w))
         return self.out(w)
 
-class Network_ReverseVGG(nn.Module):
-    """
-    Right now this network is pretty much a reverse of VGG, with the exception that there isn't
-    any "un-pooling" layers.
-    """
-    def __init__(self, D_in):
-
+#network to go from parameters to features
+class Network_Features(nn.Module):
+    def __init__(self, num_params, num_features):
         super().__init__()
-        self.f1 = nn.Linear(D_in, 50)
-        self.f2 = nn.Linear(50, 100) 
-        self.f3 = nn.Linear(100, 100)  # 10x10
-
-        self.C1_1 = nn.ConvTranspose2d(1, 1, kernel_size=3) #12x12
-        self.C1_2 = nn.ConvTranspose2d(1, 1, kernel_size=3) #14x14
-        self.C1_3 = nn.ConvTranspose2d(1, 1, kernel_size=3) #16x16
-
-        self.C2_1 = nn.ConvTranspose2d(1, 1, kernel_size=8) # 23x23
-        self.C2_2 = nn.ConvTranspose2d(1, 1, kernel_size=3) # 25x25
-        self.C2_3 = nn.ConvTranspose2d(1, 1, kernel_size=3) # 27x27
-        self.C2_4 = nn.ConvTranspose2d(1, 1, kernel_size=3) # 29x29
-
-        self.C3_1 = nn.ConvTranspose2d(1, 1, kernel_size=8, stride=2) #64x64
-        self.C3_2 = nn.ConvTranspose2d(1, 1, kernel_size=3) #66x66
-        self.C3_3 = nn.ConvTranspose2d(1, 1, kernel_size=3) #68x68
-        self.C3_4 = nn.ConvTranspose2d(1, 1, kernel_size=3) #70x70
-
-        self.C4_1 = nn.ConvTranspose2d(1, 1, kernel_size=9) #78x78
-        self.C4_2 = nn.ConvTranspose2d(1, 1, kernel_size=4) #81x81
-        self.C4_3 = nn.ConvTranspose2d(1, 1, kernel_size=4) #84x84
-
-        self.C5_1 = nn.ConvTranspose2d(1, 1, kernel_size=11) #94x94
-        self.C5_2 = nn.ConvTranspose2d(1, 1, kernel_size=4)  #97x97
-        self.out  = nn.ConvTranspose2d(1, 1, kernel_size=4) # output layer
+        self.h1 = nn.Linear(num_params, 10)  # Hidden layer
+        self.h2 = nn.Linear(10, 25)
+        self.h3 = nn.Linear(25, 50)
+        self.h4 = nn.Linear(50, 75)  # Hidden layer
+        self.h5 = nn.Linear(75, num_features)
+        self.out = nn.Linear(num_features, num_features)  # Output layer
 
     # Define the forward propagation of the model
     def forward(self, X):
-        # Work thru the fully connected part first
-        w = F.leaky_relu(self.f3(F.leaky_relu(self.f2(F.leaky_relu(self.f1(X))))))
-        w = w.view(-1, 1, 10, 10) # reshape into an "image"
-
-        w = F.leaky_relu(self.C1_3(F.leaky_relu(self.C1_2(F.leaky_relu(self.C1_1(w))))))
-        w = F.leaky_relu(self.C2_4(F.leaky_relu(self.C2_3(F.leaky_relu(self.C2_2(F.leaky_relu(self.C2_1(w))))))))
-        w = F.leaky_relu(self.C3_4(F.leaky_relu(self.C3_3(F.leaky_relu(self.C3_2(F.leaky_relu(self.C3_1(w))))))))
-        w = F.leaky_relu(self.C4_3(F.leaky_relu(self.C4_2(F.leaky_relu(self.C4_1(w))))))
-        w = F.leaky_relu(self.out(F.leaky_relu(self.C5_2(F.leaky_relu(self.C5_1(w))))))
-        return w
+        # Note here we use the funtional version of ReLU defined in the
+        # nn.functional module.
+        w = F.leaky_relu(self.h1(X))
+        w = F.leaky_relu(self.h2(w))
+        w = F.leaky_relu(self.h3(w))
+        w = F.leaky_relu(self.h4(w))
+        w = F.leaky_relu(self.h5(w))
+        return self.out(w)
 
 class Block_Encoder(nn.Module):
     """
@@ -182,8 +157,11 @@ class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_inverse):
         self.params = torch.zeros([N, 6])
         self.matrices = torch.zeros([N, 100, 100])
+        self.features = torch.zeros(N, 100)
         self.offset = offset
         self.N = N
+
+        self.has_features = False
 
         for i in range(N):
 
@@ -193,7 +171,7 @@ class MatrixDataset(torch.utils.data.Dataset):
             #    continue
 
             file = data_dir+"CovA-"+f'{idx:05d}'+".txt"
-            
+
             # TODO: Convert this to pytorch so it can directly load to GPU
             # load in parameters
             f = open(file)
@@ -208,12 +186,17 @@ class MatrixDataset(torch.utils.data.Dataset):
             if train_log == True:
                 self.matrices[i] = symmetric_log(self.matrices[i])
 
+    def add_features(self, z):
+        self.features = z
 
     def __len__(self):
         return self.N
 
     def __getitem__(self, idx):
-        return self.params[idx], self.matrices[idx]
+        if self.has_features:
+            return self.params[idx], self.matrices[idx], self.features[idx]
+        else:
+            return self.params[idx], self.matrices[idx]
 
 def VAE_loss(prediction, target, mu, log_var):
     """
