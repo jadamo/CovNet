@@ -32,12 +32,11 @@ class Network_Full(nn.Module):
         w = F.relu(self.h7(w))
         return self.out(w)
 
-"""
-Right now this network is pretty much a reverse of VGG, with the exception that there isn't
-any "un-pooling" layers.
-"""
 class Network_ReverseVGG(nn.Module):
-
+    """
+    Right now this network is pretty much a reverse of VGG, with the exception that there isn't
+    any "un-pooling" layers.
+    """
     def __init__(self, D_in):
 
         super().__init__()
@@ -80,6 +79,122 @@ class Network_ReverseVGG(nn.Module):
         w = F.leaky_relu(self.out(F.leaky_relu(self.C5_2(F.leaky_relu(self.C5_1(w))))))
         return w
 
+class Block_Encoder(nn.Module):
+    """
+    Encoder block for a Variational Autoencoder (VAE). Input is an analytical covariance matrix, 
+    and the output is the normal distribution of a latent feature space
+    """
+    def __init__(self):
+        super().__init__()
+        # TODO: find out if using channels and batch normalization would be good to include
+        self.C1 = nn.Conv2d(1, 2, 4, stride=2, padding=1) # 50x50
+        self.C2 = nn.Conv2d(2, 2, 3, padding=1) # 50x50
+        self.C3 = nn.Conv2d(2, 4, 4, stride=2, padding=1) # 25x25
+        self.C4 = nn.Conv2d(4, 4, 3) # 23x23
+        self.C5 = nn.Conv2d(4, 6, 3, stride=2, padding=1) # 12x12
+        self.C6 = nn.Conv2d(6, 6, 3) # 10x10
+
+        self.f1 = nn.Linear(600, 400)
+        self.f2 = nn.Linear(400, 200)
+        # 2 seperate layers - one for mu and one for log_var
+        self.fmu = nn.Linear(200, 100)
+        self.fvar = nn.Linear(200, 100)
+
+    def reparameterize(self, mu, log_var):
+        if self.training:
+            std = torch.exp(0.5*log_var)
+            #eps = torch.randn_like(std)
+            eps = std.data.new(std.size()).normal_()
+            return mu + (eps * std) # sampling as if coming from the input space
+        else:
+            return mu
+
+    def forward(self, X):
+        X = F.relu(self.C1(X))
+        #print()
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C2(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C3(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C4(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C5(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C6(X))
+        #print(torch.min(X), torch.max(X))
+
+        X = X.view(-1, 1, 600)
+        X = F.relu(self.f1(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.f2(X))
+        #print(torch.min(X), torch.max(X))
+        mu = F.relu(self.fmu(X))
+        #print(torch.min(X), torch.max(X))
+        log_var = F.relu(self.fvar(X))
+        #print(torch.min(X), torch.max(X))
+
+        z = self.reparameterize(mu, log_var)
+        return z, mu, log_var
+
+class Block_Decoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.f1 = nn.Linear(100, 200)  # Hidden layer
+        self.f2 = nn.Linear(200, 400)
+        self.f3 = nn.Linear(400, 600)
+
+        self.C1 = nn.ConvTranspose2d(6, 6, 3) #12x12
+        self.C2 = nn.ConvTranspose2d(6, 4, 3, stride=2, padding=1) #23x23
+        self.C3 = nn.ConvTranspose2d(4, 4, 3) #25x25
+        self.C4 = nn.ConvTranspose2d(4, 2, 3, stride=2, padding=1) #47x47
+        #self.C5 = nn.ConvTranspose2d(1, 1, 3) #49x49
+        self.out = nn.ConvTranspose2d(2, 1, 6, stride=2, padding=1) #100x100
+
+    def forward(self, X):
+        X = F.relu(self.f1(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.f2(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.f3(X))
+        #print(torch.min(X), torch.max(X))
+
+        X = X.view(-1, 6, 10, 10)
+        X = F.relu(self.C1(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C2(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C3(X))
+        #print(torch.min(X), torch.max(X))
+        X = F.relu(self.C4(X))
+        #print(torch.min(X), torch.max(X))
+        #X = F.relu(self.C5(X))
+        X = F.relu(self.out(X))
+        #print(torch.min(X), torch.max(X))
+        X = X.view(-1, 100, 100)
+        return X
+
+class Network_VAE(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.Encoder = Block_Encoder()
+        self.Decoder = Block_Decoder()
+
+    def forward(self, X):
+        # run through the encoder
+        z, mu, log_var = self.Encoder(X)#.view(-1, 2, 50)
+        assert not True in torch.isnan(z)
+        #print("After encoder:",  torch.min(z), torch.max(z))
+        # The encoder outputs a distribution, so we need to draw some random sample from that
+        # distribution in order to go through the decoder
+        # mu = X[:, 0, :] # the first feature values as mean
+        # log_var = X[:, 1, :] # the other feature values as variance
+        # z = self.reparameterize(mu, log_var)
+
+        # run through the decoder
+        X = self.Decoder(z)
+        assert not True in torch.isnan(X)
+        return X, mu, log_var
 
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
@@ -118,6 +233,16 @@ class MatrixDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         return self.params[idx], self.matrices[idx]
 
+def VAE_loss(prediction, target, mu, log_var):
+    """
+    Calculates the KL Divergence and reconstruction terms and returns the full loss function
+    """
+    #BCE = F.binary_cross_entropy(prediction, target, reduction="sum")
+    RLoss = (abs(prediction - target)**1).sum()
+    KLD = 0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))
+    #print(RLoss, KLD)
+    #print(mu, log_var, log_var.exp())
+    return RLoss + KLD
 
 def matrix_loss(prediction, target, norm):
     """
@@ -137,12 +262,13 @@ def matrix_loss(prediction, target, norm):
 
 def symmetric_log(m):
     """
-    Takes a a matrix and returns the piece-wise logarithm for post-processing
-    sym_log(x) =  log10(x),  x > 0
+    Takes a a matrix and returns a piece-wise logarithm for post-processing
+    NOTE: entries between 0 and 1 are treated as equal to 1
+    sym_log(x) =  log10(x),  x > 1
     sym_log(x) = -log10(-x), x < 0
     """
     pos_m, neg_m = np.ones(m.shape), np.zeros(m.shape)
-    pos_idx = np.where(m >= 0)
+    pos_idx = np.where(m >= 1)
     neg_idx = np.where(m < 0)
     pos_m[pos_idx] = m[pos_idx]
     neg_m[neg_idx] = m[neg_idx]
@@ -155,6 +281,7 @@ def symmetric_log(m):
 def symmetric_exp(m):
     """
     Takes a matrix and returns the piece-wise exponent
+    NOTE: this assumes there are no entries with true values between 0 and 1
     sym_exp(x) = 10^x,   x > 0
     sym_exp(x) = -10^-x, x < 0
     This is the reverse operation of symmetric_log
