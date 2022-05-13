@@ -11,8 +11,8 @@ import matplotlib.colors as colors
 from CovNet import Network_Full, Network_ReverseVGG, Network_VAE, MatrixDataset, VAE_loss, matrix_loss
 
 # Total number of matrices in the training + validation + test set
-#N = 52500
-N = 10000
+N = 52500
+#N = 20000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -156,7 +156,7 @@ def main():
     print("Training with log matrices:     " + str(train_log))
 
     batch_size = 50
-    lr = 0.02
+    lr = 0.01
     num_epochs = 60
 
     N_train = int(N*0.8)

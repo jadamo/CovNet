@@ -110,29 +110,18 @@ class Block_Encoder(nn.Module):
             return mu
 
     def forward(self, X):
-        X = F.relu(self.C1(X))
-        #print()
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C2(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C3(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C4(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C5(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C6(X))
-        #print(torch.min(X), torch.max(X))
+        X = F.leaky_relu(self.C1(X))
+        X = F.leaky_relu(self.C2(X))
+        X = F.leaky_relu(self.C3(X))
+        X = F.leaky_relu(self.C4(X))
+        X = F.leaky_relu(self.C5(X))
+        X = F.leaky_relu(self.C6(X))
 
         X = X.view(-1, 1, 600)
-        X = F.relu(self.f1(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.f2(X))
-        #print(torch.min(X), torch.max(X))
-        mu = F.relu(self.fmu(X))
-        #print(torch.min(X), torch.max(X))
-        log_var = F.relu(self.fvar(X))
-        #print(torch.min(X), torch.max(X))
+        X = F.leaky_relu(self.f1(X))
+        X = F.leaky_relu(self.f2(X))
+        mu = F.leaky_relu(self.fmu(X))
+        log_var = torch.sigmoid(self.fvar(X))
 
         z = self.reparameterize(mu, log_var)
         return z, mu, log_var
@@ -152,25 +141,17 @@ class Block_Decoder(nn.Module):
         self.out = nn.ConvTranspose2d(2, 1, 6, stride=2, padding=1) #100x100
 
     def forward(self, X):
-        X = F.relu(self.f1(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.f2(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.f3(X))
-        #print(torch.min(X), torch.max(X))
+        X = F.leaky_relu(self.f1(X))
+        X = F.leaky_relu(self.f2(X))
+        X = F.leaky_relu(self.f3(X))
 
         X = X.view(-1, 6, 10, 10)
-        X = F.relu(self.C1(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C2(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C3(X))
-        #print(torch.min(X), torch.max(X))
-        X = F.relu(self.C4(X))
-        #print(torch.min(X), torch.max(X))
-        #X = F.relu(self.C5(X))
-        X = F.relu(self.out(X))
-        #print(torch.min(X), torch.max(X))
+        X = F.leaky_relu(self.C1(X))
+        X = F.leaky_relu(self.C2(X))
+        X = F.leaky_relu(self.C3(X))
+        X = F.leaky_relu(self.C4(X))
+        #X = F.leaky_relu(self.C5(X))
+        X = F.leaky_relu(self.out(X))
         X = X.view(-1, 100, 100)
         return X
 
@@ -212,7 +193,8 @@ class MatrixDataset(torch.utils.data.Dataset):
             #    continue
 
             file = data_dir+"CovA-"+f'{idx:05d}'+".txt"
-            #TODO: Convert this to pytorch so it can directly load to GPU
+            
+            # TODO: Convert this to pytorch so it can directly load to GPU
             # load in parameters
             f = open(file)
             header = f.readline()
@@ -238,7 +220,7 @@ def VAE_loss(prediction, target, mu, log_var):
     Calculates the KL Divergence and reconstruction terms and returns the full loss function
     """
     #BCE = F.binary_cross_entropy(prediction, target, reduction="sum")
-    RLoss = (abs(prediction - target)**1).sum()
+    RLoss = F.l1_loss(prediction, target, reduction="sum")
     KLD = 0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))
     #print(RLoss, KLD)
     #print(mu, log_var, log_var.exp())
