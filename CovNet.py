@@ -69,11 +69,11 @@ class Block_Encoder(nn.Module):
         self.C5 = nn.Conv2d(4, 6, 3, stride=2, padding=1) # 12x12
         self.C6 = nn.Conv2d(6, 6, 3) # 10x10
 
-        self.f1 = nn.Linear(600, 400)
-        self.f2 = nn.Linear(400, 200)
+        self.f1 = nn.Linear(600, 300)
+        self.f2 = nn.Linear(300, 100)
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(200, 100)
-        self.fvar = nn.Linear(200, 100)
+        self.fmu = nn.Linear(100, 40)
+        self.fvar = nn.Linear(100, 40) # try smaller dimensionsl (10 - 20 is good maybe)
 
     def reparameterize(self, mu, log_var):
         if self.training:
@@ -95,7 +95,7 @@ class Block_Encoder(nn.Module):
         X = X.view(-1, 1, 600)
         X = F.leaky_relu(self.f1(X))
         X = F.leaky_relu(self.f2(X))
-        mu = F.leaky_relu(self.fmu(X))
+        mu = torch.sigmoid(self.fmu(X))
         log_var = torch.sigmoid(self.fvar(X))
 
         z = self.reparameterize(mu, log_var)
@@ -104,9 +104,9 @@ class Block_Encoder(nn.Module):
 class Block_Decoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.f1 = nn.Linear(100, 200)  # Hidden layer
-        self.f2 = nn.Linear(200, 400)
-        self.f3 = nn.Linear(400, 600)
+        self.f1 = nn.Linear(40, 100)  # Hidden layer
+        self.f2 = nn.Linear(100, 300)
+        self.f3 = nn.Linear(300, 600)
 
         self.C1 = nn.ConvTranspose2d(6, 6, 3) #12x12
         self.C2 = nn.ConvTranspose2d(6, 4, 3, stride=2, padding=1) #23x23
@@ -187,7 +187,8 @@ class MatrixDataset(torch.utils.data.Dataset):
                 self.matrices[i] = symmetric_log(self.matrices[i])
 
     def add_features(self, z):
-        self.features = z
+        self.features = z.detach()
+        self.has_features = True
 
     def __len__(self):
         return self.N
@@ -209,6 +210,10 @@ def VAE_loss(prediction, target, mu, log_var):
     #print(mu, log_var, log_var.exp())
     return RLoss + KLD
 
+def features_loss(prediction, target):
+    l1 = torch.pow(prediction - target, 2)
+    return torch.mean(l1)
+
 def matrix_loss(prediction, target, norm):
     """
     Custom loss function that includes a penalizing term for non-symmetric outputs
@@ -228,27 +233,26 @@ def matrix_loss(prediction, target, norm):
 def symmetric_log(m):
     """
     Takes a a matrix and returns a piece-wise logarithm for post-processing
-    NOTE: entries between 0 and 1 are treated as equal to 1
-    sym_log(x) =  log10(x),  x > 1
-    sym_log(x) = -log10(-x), x < 0
+    sym_log(x) =  log10(x+1),  x >= 0
+    sym_log(x) = -log10(-x+1), x < 0
     """
-    pos_m, neg_m = np.ones(m.shape), np.zeros(m.shape)
-    pos_idx = np.where(m >= 1)
+    pos_m, neg_m = np.zeros(m.shape), np.zeros(m.shape)
+    pos_idx = np.where(m >= 0)
     neg_idx = np.where(m < 0)
     pos_m[pos_idx] = m[pos_idx]
     neg_m[neg_idx] = m[neg_idx]
 
-    pos_m = np.log10(pos_m)
+    pos_m[pos_idx] = np.log10(pos_m[pos_idx] + 1)
     # for negative numbers, treat log(x) = -log(-x)
-    neg_m[neg_idx] = -np.log10(-1*neg_m[neg_idx])
+    neg_m[neg_idx] = -np.log10(-1*neg_m[neg_idx] + 1)
     return torch.from_numpy(pos_m + neg_m)
 
 def symmetric_exp(m):
     """
     Takes a matrix and returns the piece-wise exponent
     NOTE: this assumes there are no entries with true values between 0 and 1
-    sym_exp(x) = 10^x,   x > 0
-    sym_exp(x) = -10^-x, x < 0
+    sym_exp(x) = 10^x - 1,   x > 0
+    sym_exp(x) = -10^-x + 1, x < 0
     This is the reverse operation of symmetric_log
     """
     pos_m, neg_m = np.zeros(m.shape), np.zeros(m.shape)
@@ -257,8 +261,8 @@ def symmetric_exp(m):
     pos_m[pos_idx] = m[pos_idx]
     neg_m[neg_idx] = m[neg_idx]
 
-    pos_m = 10**pos_m
+    pos_m = 10**pos_m - 1
     pos_m[(pos_m == 1)] = 0
     # for negative numbers, treat log(x) = -log(-x)
-    neg_m[neg_idx] = -10**(-1*neg_m[neg_idx])
+    neg_m[neg_idx] = -10**(-1*neg_m[neg_idx]) + 1
     return torch.from_numpy(pos_m + neg_m)
