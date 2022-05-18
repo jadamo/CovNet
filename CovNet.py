@@ -36,11 +36,11 @@ class Network_Full(nn.Module):
 class Network_Features(nn.Module):
     def __init__(self, num_params, num_features):
         super().__init__()
-        self.h1 = nn.Linear(num_params, 10)  # Hidden layer
-        self.h2 = nn.Linear(10, 25)
-        self.h3 = nn.Linear(25, 50)
-        self.h4 = nn.Linear(50, 75)  # Hidden layer
-        self.h5 = nn.Linear(75, num_features)
+        self.h1 = nn.Linear(num_params, 6)  # Hidden layer
+        self.h2 = nn.Linear(6, 10)
+        self.h3 = nn.Linear(10, 12)
+        self.h4 = nn.Linear(12, 15)  # Hidden layer
+        self.h5 = nn.Linear(15, num_features)
         self.out = nn.Linear(num_features, num_features)  # Output layer
 
     # Define the forward propagation of the model
@@ -69,11 +69,11 @@ class Block_Encoder(nn.Module):
         self.C5 = nn.Conv2d(4, 6, 3, stride=2, padding=1) # 12x12
         self.C6 = nn.Conv2d(6, 6, 3) # 10x10
 
-        self.f1 = nn.Linear(600, 300)
-        self.f2 = nn.Linear(300, 100)
+        self.f1 = nn.Linear(600, 250)
+        self.f2 = nn.Linear(250, 80)
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(100, 40)
-        self.fvar = nn.Linear(100, 40) # try smaller dimensionsl (10 - 20 is good maybe)
+        self.fmu = nn.Linear(80, 20)
+        self.fvar = nn.Linear(80, 20) # try smaller dimensionsl (10 - 20 is good maybe)
 
     def reparameterize(self, mu, log_var):
         if self.training:
@@ -95,7 +95,7 @@ class Block_Encoder(nn.Module):
         X = X.view(-1, 1, 600)
         X = F.leaky_relu(self.f1(X))
         X = F.leaky_relu(self.f2(X))
-        mu = torch.sigmoid(self.fmu(X))
+        mu = F.leaky_relu(self.fmu(X))
         log_var = torch.sigmoid(self.fvar(X))
 
         z = self.reparameterize(mu, log_var)
@@ -104,9 +104,9 @@ class Block_Encoder(nn.Module):
 class Block_Decoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.f1 = nn.Linear(40, 100)  # Hidden layer
-        self.f2 = nn.Linear(100, 300)
-        self.f3 = nn.Linear(300, 600)
+        self.f1 = nn.Linear(20, 80)  # Hidden layer
+        self.f2 = nn.Linear(80, 250)
+        self.f3 = nn.Linear(250, 600)
 
         self.C1 = nn.ConvTranspose2d(6, 6, 3) #12x12
         self.C2 = nn.ConvTranspose2d(6, 4, 3, stride=2, padding=1) #23x23
@@ -128,6 +128,10 @@ class Block_Decoder(nn.Module):
         #X = F.leaky_relu(self.C5(X))
         X = F.leaky_relu(self.out(X))
         X = X.view(-1, 100, 100)
+        
+        # flip over the diagonal to ensure symmetry
+        L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
+        X = L + U
         return X
 
 class Network_VAE(nn.Module):
@@ -157,7 +161,7 @@ class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_inverse):
         self.params = torch.zeros([N, 6])
         self.matrices = torch.zeros([N, 100, 100])
-        self.features = torch.zeros(N, 100)
+        self.features = torch.zeros(N, 20)
         self.offset = offset
         self.N = N
 
@@ -205,7 +209,8 @@ def VAE_loss(prediction, target, mu, log_var):
     """
     #BCE = F.binary_cross_entropy(prediction, target, reduction="sum")
     RLoss = F.l1_loss(prediction, target, reduction="sum")
-    KLD = 0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))
+    #RLoss = F.mse_loss(prediction, target, reduction="sum")
+    KLD = 0.5 * torch.sum(log_var.exp().pow(2) - 2*log_var - 1 + mu.pow(2))
     #print(RLoss, KLD)
     #print(mu, log_var, log_var.exp())
     return RLoss + KLD
