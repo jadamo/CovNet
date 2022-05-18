@@ -20,7 +20,7 @@ train_inverse = False
 # wether to train using the log of the matrix
 train_log = True
 
-do_VAE = False; do_features = True
+do_VAE = True; do_features = True
 
 # Standard normal distribution
 def init_normal(m):
@@ -87,6 +87,7 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         # Run through the training set and update weights
         net.train()
         avg_train_loss = 0.
+        avg_train_KLD = 0.
         for (i, batch) in enumerate(train_loader):
             params = batch[0]; matrix = batch[1]
             prediction, mu, log_var = net(matrix.view(batch_size, 1, 100, 100))
@@ -96,6 +97,7 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
             assert torch.isnan(loss) == False and torch.isinf(loss) == False
 
             avg_train_loss += loss.item()
+            avg_train_KLD += (0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             optimizer.zero_grad()
             loss.backward()        
             optimizer.step()
@@ -103,6 +105,7 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         # run through the validation set
         net.eval()
         avg_valid_loss = 0.
+        avg_valid_KLD = 0.
         min_val = 1e30; max_val = -1e10
         min_pre = 1e30; max_pre = -1e10
         for params, matrix in valid_loader:
@@ -110,6 +113,7 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
             #prediction = prediction.view(batch_size, 100, 100)
             loss = VAE_loss(prediction, matrix, mu, log_var)
             avg_valid_loss+= loss.item()
+            avg_valid_KLD += (0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             min_pre = min(torch.min(prediction), min_pre)
             max_pre = max(torch.max(prediction), max_pre)
             min_val = min(torch.min(matrix), min_val)
@@ -117,8 +121,9 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
 
         # Aggregate loss information
         print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
-        print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
-        print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
+        print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(avg_train_KLD/len(train_loader.dataset), avg_valid_KLD/len(valid_loader.dataset)))
+        #print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
+        #print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
     return net, train_loss, valid_loss
@@ -188,7 +193,7 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.01
+    lr = 0.007
     lr_2 = 0.01
     num_epochs = 60
     num_epochs_2 = 100
@@ -203,14 +208,11 @@ def main():
     #net = Network_Full(6, 100*100).to(device)
     #net = Network_ReverseVGG(6).to(device)
     net = Network_VAE().to(device)
-    net_2 = Network_Features(6, 100).to(device)
+    net_2 = Network_Features(6, 20).to(device)
 
     #net.apply(init_normal)
     net.apply(xavier)
     net_2.apply(xavier)
-
-    # use MSE loss function
-    norm = 2
 
     # Define the optimizer
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
@@ -255,16 +257,16 @@ def main():
         decoder.load_state_dict(net.Decoder.state_dict())
 
         # gather feature data by running thru the trained encoder
-        train_f = torch.zeros(N_train, 100)
-        valid_f = torch.zeros(N_valid, 100)
+        train_f = torch.zeros(N_train, 20)
+        valid_f = torch.zeros(N_valid, 20)
         for n in range(N_train):
             matrix = train_data[n][1].view(1,1,100,100)
             z, mu, log_var = encoder(matrix)
-            train_f[n] = z.view(100)
+            train_f[n] = z.view(20)
         for n in range(N_valid):
             matrix = valid_data[n][1].view(1,1,100,100)
             z, mu, log_var = encoder(matrix)
-            valid_f[n] = z.view(100)
+            valid_f[n] = z.view(20)
 
         # add feature data to the training set and reinitialize the data loaders
         train_data.add_features(train_f)
