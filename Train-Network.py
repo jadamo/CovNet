@@ -13,7 +13,7 @@ from CovNet import Network_Full, Network_Features, Block_Encoder, Block_Decoder,
 
 # Total number of matrices in the training + validation + test set
 N = 52500
-#N = 20000
+#N = 10000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -172,7 +172,7 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
     return net, train_loss, valid_loss
 
-def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
+def plot_loss(train_loss, valid_loss, num_epochs, net):
 
     x = range(num_epochs)
     #max_y = max(train_loss[5], valid_loss[5] * 1.1)
@@ -183,7 +183,6 @@ def plot_loss(train_loss, valid_loss, num_epochs, net, save_dir):
     plt.yscale("log")
     plt.ylabel("L1 Loss")
     plt.legend()
-    plt.savefig(save_dir+"loss-plot.png")
     plt.show()
 
 def main():
@@ -193,8 +192,8 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.007
-    lr_2 = 0.01
+    lr = 0.006
+    lr_2 = 0.009
     num_epochs = 60
     num_epochs_2 = 100
 
@@ -221,7 +220,7 @@ def main():
     # get the training / test datasets
     t1 = time.time()
     training_dir = "/home/joeadamo/Research/Data/Training-Set/"
-    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Plots/"
+    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_inverse)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_inverse)
     
@@ -280,11 +279,11 @@ def main():
         t2 = time.time()
         print("Done training feature net!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
-        torch.save(train_loss, "train_loss-features.dat")
-        torch.save(valid_loss, "valid_loss-features.dat")
-        torch.save(net_2.state_dict(), 'network-features.params')
+        torch.save(train_loss, save_dir+"train_loss-features.dat")
+        torch.save(valid_loss, save_dir+"valid_loss-features.dat")
+        torch.save(net_2.state_dict(), save_dir+'network-features.params')
 
-    plot_loss(train_loss, valid_loss, num_epochs_2, net, save_dir)
+    plot_loss(train_loss, valid_loss, num_epochs_2, net)
 
 if __name__ == "__main__":
     main()

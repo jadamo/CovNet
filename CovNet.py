@@ -59,21 +59,32 @@ class Block_Encoder(nn.Module):
     Encoder block for a Variational Autoencoder (VAE). Input is an analytical covariance matrix, 
     and the output is the normal distribution of a latent feature space
     """
+    # def __init__(self):
+    #     super().__init__()
+    #     # TODO: find out if using channels and batch normalization would be good to include
+    #     self.C1 = nn.Conv2d(1, 2, 4, stride=2, padding=1) # 50x50
+    #     self.C2 = nn.Conv2d(2, 2, 3, padding=1) # 50x50
+    #     self.C3 = nn.Conv2d(2, 4, 4, stride=2, padding=1) # 25x25
+    #     self.C4 = nn.Conv2d(4, 4, 3) # 23x23
+    #     self.C5 = nn.Conv2d(4, 6, 3, stride=2, padding=1) # 12x12
+    #     self.C6 = nn.Conv2d(6, 6, 3) # 10x10
+
+    #     self.f1 = nn.Linear(600, 250)
+    #     self.f2 = nn.Linear(250, 80)
+    #     # 2 seperate layers - one for mu and one for log_var
+    #     self.fmu = nn.Linear(80, 20)
+    #     self.fvar = nn.Linear(80, 20) # try smaller dimensionsl (10 - 20 is good maybe)
+
     def __init__(self):
         super().__init__()
-        # TODO: find out if using channels and batch normalization would be good to include
-        self.C1 = nn.Conv2d(1, 2, 4, stride=2, padding=1) # 50x50
-        self.C2 = nn.Conv2d(2, 2, 3, padding=1) # 50x50
-        self.C3 = nn.Conv2d(2, 4, 4, stride=2, padding=1) # 25x25
-        self.C4 = nn.Conv2d(4, 4, 3) # 23x23
-        self.C5 = nn.Conv2d(4, 6, 3, stride=2, padding=1) # 12x12
-        self.C6 = nn.Conv2d(6, 6, 3) # 10x10
-
-        self.f1 = nn.Linear(600, 250)
-        self.f2 = nn.Linear(250, 80)
+        self.h1 = nn.Linear(100*100, 5000)
+        self.h2 = nn.Linear(5000, 1000)
+        self.h3 = nn.Linear(1000, 500)
+        self.h4 = nn.Linear(500, 100)
+        self.h5 = nn.Linear(100, 50)
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(80, 20)
-        self.fvar = nn.Linear(80, 20) # try smaller dimensionsl (10 - 20 is good maybe)
+        self.fmu = nn.Linear(50, 20)
+        self.fvar = nn.Linear(50, 20)
 
     def reparameterize(self, mu, log_var):
         if self.training:
@@ -85,16 +96,24 @@ class Block_Encoder(nn.Module):
             return mu
 
     def forward(self, X):
-        X = F.leaky_relu(self.C1(X))
-        X = F.leaky_relu(self.C2(X))
-        X = F.leaky_relu(self.C3(X))
-        X = F.leaky_relu(self.C4(X))
-        X = F.leaky_relu(self.C5(X))
-        X = F.leaky_relu(self.C6(X))
+        # X = F.leaky_relu(self.C1(X))
+        # X = F.leaky_relu(self.C2(X))
+        # X = F.leaky_relu(self.C3(X))
+        # X = F.leaky_relu(self.C4(X))
+        # X = F.leaky_relu(self.C5(X))
+        # X = F.leaky_relu(self.C6(X))
 
-        X = X.view(-1, 1, 600)
-        X = F.leaky_relu(self.f1(X))
-        X = F.leaky_relu(self.f2(X))
+        # X = X.view(-1, 1, 600)
+        # X = F.leaky_relu(self.f1(X))
+        # X = F.leaky_relu(self.f2(X))
+
+        X = X.view(-1, 100*100)
+        X = F.leaky_relu(self.h1(X))
+        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h3(X))
+        X = F.leaky_relu(self.h4(X))
+        X = F.leaky_relu(self.h5(X))
+
         mu = F.leaky_relu(self.fmu(X))
         log_var = torch.sigmoid(self.fvar(X))
 
@@ -102,33 +121,50 @@ class Block_Encoder(nn.Module):
         return z, mu, log_var
 
 class Block_Decoder(nn.Module):
+    #def __init__(self):
+        # super().__init__()
+        # self.f1 = nn.Linear(20, 80)  # Hidden layer
+        # self.f2 = nn.Linear(80, 250)
+        # self.f3 = nn.Linear(250, 600)
+
+        # self.C1 = nn.ConvTranspose2d(6, 6, 3) #12x12
+        # self.C2 = nn.ConvTranspose2d(6, 4, 3, stride=2, padding=1) #23x23
+        # self.C3 = nn.ConvTranspose2d(4, 4, 3) #25x25
+        # self.C4 = nn.ConvTranspose2d(4, 2, 4, stride=2, padding=1) #49x49
+        # self.C5 = nn.ConvTranspose2d(2, 2, 3, padding=1) #49x49
+        # self.out = nn.ConvTranspose2d(2, 1, 4, stride=2, padding=1) #100x100
+
     def __init__(self):
         super().__init__()
-        self.f1 = nn.Linear(20, 80)  # Hidden layer
-        self.f2 = nn.Linear(80, 250)
-        self.f3 = nn.Linear(250, 600)
-
-        self.C1 = nn.ConvTranspose2d(6, 6, 3) #12x12
-        self.C2 = nn.ConvTranspose2d(6, 4, 3, stride=2, padding=1) #23x23
-        self.C3 = nn.ConvTranspose2d(4, 4, 3) #25x25
-        self.C4 = nn.ConvTranspose2d(4, 2, 3, stride=2, padding=1) #47x47
-        #self.C5 = nn.ConvTranspose2d(1, 1, 3) #49x49
-        self.out = nn.ConvTranspose2d(2, 1, 6, stride=2, padding=1) #100x100
+        self.h1 = nn.Linear(20, 50)
+        self.h2 = nn.Linear(50, 100)
+        self.h3 = nn.Linear(100, 500)
+        self.h4 = nn.Linear(500, 1000)
+        self.h5 = nn.Linear(1000, 5000)
+        self.out = nn.Linear(5000, 100*100)
 
     def forward(self, X):
-        X = F.leaky_relu(self.f1(X))
-        X = F.leaky_relu(self.f2(X))
-        X = F.leaky_relu(self.f3(X))
+        # X = F.leaky_relu(self.f1(X))
+        # X = F.leaky_relu(self.f2(X))
+        # X = F.leaky_relu(self.f3(X))
 
-        X = X.view(-1, 6, 10, 10)
-        X = F.leaky_relu(self.C1(X))
-        X = F.leaky_relu(self.C2(X))
-        X = F.leaky_relu(self.C3(X))
-        X = F.leaky_relu(self.C4(X))
-        #X = F.leaky_relu(self.C5(X))
-        X = F.leaky_relu(self.out(X))
+        # X = X.view(-1, 6, 10, 10)
+        # X = F.leaky_relu(self.C1(X))
+        # X = F.leaky_relu(self.C2(X))
+        # X = F.leaky_relu(self.C3(X))
+        # X = F.leaky_relu(self.C4(X))
+        # X = F.leaky_relu(self.C5(X))
+        # X = F.leaky_relu(self.out(X))
+        # X = X.view(-1, 100, 100)
+
+        X = F.leaky_relu(self.h1(X))
+        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h3(X))
+        X = F.leaky_relu(self.h4(X))
+        X = F.leaky_relu(self.h5(X))
+        X = self.out(X)
         X = X.view(-1, 100, 100)
-        
+
         # flip over the diagonal to ensure symmetry
         L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
         X = L + U
