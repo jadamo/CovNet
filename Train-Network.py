@@ -25,12 +25,12 @@ do_VAE = True; do_features = True
 # Standard normal distribution
 def init_normal(m):
     if type(m) == nn.Linear:
-        nn.init.normal_(m.weight, mean=0, std=0.01)
+        nn.init.normal_(m.weight, mean=0., std=0.1)
         nn.init.zeros_(m.bias)
 
 def xavier(m):
     if type(m) == nn.Linear:
-        nn.init.xavier_uniform_(m.weight)
+        nn.init.xavier_normal_(m.weight)
 
 def train(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader):
     """
@@ -99,7 +99,9 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
             avg_train_loss += loss.item()
             avg_train_KLD += (0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             optimizer.zero_grad()
-            loss.backward()        
+            loss.backward()
+            # gradient clipping
+            torch.nn.utils.clip_grad_norm_(net.parameters(), 1e8)    
             optimizer.step()
 
         # run through the validation set
@@ -123,7 +125,7 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
         print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(avg_train_KLD/len(train_loader.dataset), avg_valid_KLD/len(valid_loader.dataset)))
         #print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
-        #print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
+        print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
     return net, train_loss, valid_loss
@@ -192,9 +194,9 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.006
+    lr = 0.01
     lr_2 = 0.009
-    num_epochs = 60
+    num_epochs = 80
     num_epochs_2 = 100
 
     N_train = int(N*0.8)
@@ -204,13 +206,10 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # initialize network
-    #net = Network_Full(6, 100*100).to(device)
-    #net = Network_ReverseVGG(6).to(device)
     net = Network_VAE().to(device)
     net_2 = Network_Features(6, 20).to(device)
 
-    #net.apply(init_normal)
-    net.apply(xavier)
+    net.apply(init_normal)
     net_2.apply(xavier)
 
     # Define the optimizer
@@ -238,16 +237,16 @@ def main():
         print("Done training VAE!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
         # Save the network and loss data to disk
-        torch.save(train_loss, "train_loss.dat")
-        torch.save(valid_loss, "valid_loss.dat")
-        torch.save(net.state_dict(), 'network-VAE.params')
+        torch.save(train_loss, save_dir+"train_loss.dat")
+        torch.save(valid_loss, save_dir+"valid_loss.dat")
+        torch.save(net.state_dict(), save_dir+'network-VAE.params')
 
     # next, train the secondary network with the features from the VAE as the output
     if do_features:
         # If train_net is false, assume we already trained the VAE net and load it in
         if do_VAE == False:
             net = Network_VAE()
-            net.load_state_dict(torch.load('network-VAE.params'))
+            net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
 
         # separate encoder and decoders
         encoder = Block_Encoder()

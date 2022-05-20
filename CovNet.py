@@ -40,8 +40,7 @@ class Network_Features(nn.Module):
         self.h2 = nn.Linear(6, 10)
         self.h3 = nn.Linear(10, 12)
         self.h4 = nn.Linear(12, 15)  # Hidden layer
-        self.h5 = nn.Linear(15, num_features)
-        self.out = nn.Linear(num_features, num_features)  # Output layer
+        self.out = nn.Linear(15, num_features)  # Output layer
 
     # Define the forward propagation of the model
     def forward(self, X):
@@ -51,7 +50,6 @@ class Network_Features(nn.Module):
         w = F.leaky_relu(self.h2(w))
         w = F.leaky_relu(self.h3(w))
         w = F.leaky_relu(self.h4(w))
-        w = F.leaky_relu(self.h5(w))
         return self.out(w)
 
 class Block_Encoder(nn.Module):
@@ -77,8 +75,8 @@ class Block_Encoder(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.h1 = nn.Linear(100*100, 5000)
-        self.h2 = nn.Linear(5000, 1000)
+        self.h1 = nn.Linear(100*100, 4000)
+        self.h2 = nn.Linear(4000, 1000)
         self.h3 = nn.Linear(1000, 500)
         self.h4 = nn.Linear(500, 100)
         self.h5 = nn.Linear(100, 50)
@@ -140,8 +138,8 @@ class Block_Decoder(nn.Module):
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 500)
         self.h4 = nn.Linear(500, 1000)
-        self.h5 = nn.Linear(1000, 5000)
-        self.out = nn.Linear(5000, 100*100)
+        self.h5 = nn.Linear(1000, 4000)
+        self.out = nn.Linear(4000, 100*100)
 
     def forward(self, X):
         # X = F.leaky_relu(self.f1(X))
@@ -210,18 +208,19 @@ class MatrixDataset(torch.utils.data.Dataset):
             #if exists(data_dir+"CovA-"+f'{idx:04d}'+".txt") == False:
             #    continue
 
-            file = data_dir+"CovA-"+f'{idx:05d}'+".txt"
+            #file = data_dir+"CovA-"+f'{idx:05d}'+".txt"
+            data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
+            self.params[i] = torch.from_numpy(data["params"]) 
+            self.matrices[i] = torch.from_numpy(data["C"])
 
-            # TODO: Convert this to pytorch so it can directly load to GPU
-            # load in parameters
-            f = open(file)
-            header = f.readline()
-            header = f.readline()
-            f.close()
-            header = torch.from_numpy(np.fromstring(header[2:-1], sep=","))
-            self.params[i] = torch.cat([header[0:4], header[5:]])
-            # load in matrix
-            self.matrices[i] = torch.from_numpy(np.loadtxt(file, skiprows=2))
+            # f = open(file)
+            # header = f.readline()
+            # header = f.readline()
+            # f.close()
+            # header = torch.from_numpy(np.fromstring(header[2:-1], sep=","))
+            # self.params[i] = torch.cat([header[0:4], header[5:]])
+            # # load in matrix
+            # self.matrices[i] = torch.from_numpy(np.loadtxt(file, skiprows=2))
 
             if train_log == True:
                 self.matrices[i] = symmetric_log(self.matrices[i])

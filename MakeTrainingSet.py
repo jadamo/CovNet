@@ -310,10 +310,12 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     covAnl=covaG+covaNG
 
     # save results to a file for training
-    header_str = "H0, Omega_m, omc2, As, sigma8, b1, b2\n"
-    header_str += str(H0) + ", " + str(Omega_m) + ", " + str(omch2) + ", " + str(As) + ", " + str(s8[0]) + ", " + str(b1) + ", " + str(b2)
+    #header_str = "H0, Omega_m, omch2, As, sigma8, b1, b2\n"
+    #header_str += str(H0) + ", " + str(Omega_m) + ", " + str(omch2) + ", " + str(As) + ", " + str(s8[0]) + ", " + str(b1) + ", " + str(b2)
     idx = f'{i:04d}'
-    np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
+    params = np.array([H0, Omega_m, omch2, As, s8[0], b1, b2])
+    #np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
+    np.savez(home_dir+"Training-Set/CovA-"+idx+".npz", params=params, C=covAnl)
     #return covAnl
 
 #-------------------------------------------------------------------
