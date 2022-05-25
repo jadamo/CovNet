@@ -80,6 +80,7 @@ class Block_Encoder(nn.Module):
         self.h3 = nn.Linear(1000, 500)
         self.h4 = nn.Linear(500, 100)
         self.h5 = nn.Linear(100, 50)
+        self.bn = nn.BatchNorm1d(50)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 20)
         self.fvar = nn.Linear(50, 20)
@@ -110,7 +111,7 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
-        X = F.leaky_relu(self.h5(X))
+        X = F.leaky_relu(self.bn(self.h5(X)))
 
         mu = F.leaky_relu(self.fmu(X))
         log_var = torch.sigmoid(self.fvar(X))
@@ -135,6 +136,7 @@ class Block_Decoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.h1 = nn.Linear(20, 50)
+        self.bn = nn.BatchNorm1d(50)
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 500)
         self.h4 = nn.Linear(500, 1000)
@@ -155,7 +157,7 @@ class Block_Decoder(nn.Module):
         # X = F.leaky_relu(self.out(X))
         # X = X.view(-1, 100, 100)
 
-        X = F.leaky_relu(self.h1(X))
+        X = F.leaky_relu(self.bn(self.h1(X)))
         X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))

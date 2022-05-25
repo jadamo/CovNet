@@ -12,8 +12,8 @@ from CovNet import Network_Full, Network_Features, Block_Encoder, Block_Decoder,
                    Network_VAE, MatrixDataset, VAE_loss, matrix_loss, features_loss
 
 # Total number of matrices in the training + validation + test set
-N = 52500
-#N = 10000
+#N = 52500
+N = 10000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -31,6 +31,10 @@ def init_normal(m):
 def xavier(m):
     if type(m) == nn.Linear:
         nn.init.xavier_normal_(m.weight)
+
+def He(m):
+    if type(m) == nn.Linear:
+        nn.init.kaiming_uniform_(m.weight)
 
 def train(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader):
     """
@@ -194,9 +198,9 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.01
+    lr = 0.005
     lr_2 = 0.009
-    num_epochs = 80
+    num_epochs = 60
     num_epochs_2 = 100
 
     N_train = int(N*0.8)
@@ -209,7 +213,7 @@ def main():
     net = Network_VAE().to(device)
     net_2 = Network_Features(6, 20).to(device)
 
-    net.apply(init_normal)
+    net.apply(He)
     net_2.apply(xavier)
 
     # Define the optimizer
@@ -257,6 +261,7 @@ def main():
         # gather feature data by running thru the trained encoder
         train_f = torch.zeros(N_train, 20)
         valid_f = torch.zeros(N_valid, 20)
+        encoder.eval()
         for n in range(N_train):
             matrix = train_data[n][1].view(1,1,100,100)
             z, mu, log_var = encoder(matrix)
