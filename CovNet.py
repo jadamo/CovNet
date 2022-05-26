@@ -4,6 +4,9 @@ from torch.nn import functional as F
 from os.path import exists
 import numpy as np
 
+# covariance matrix length
+M = 100
+
 # For now, let's try just using simple fully-connected network
 class Network_Full(nn.Module):
 
@@ -75,8 +78,8 @@ class Block_Encoder(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.h1 = nn.Linear(100*100, 4000)
-        self.h2 = nn.Linear(4000, 1000)
+        self.h1 = nn.Linear(101*50, 2500)
+        self.h2 = nn.Linear(2500, 1000)
         self.h3 = nn.Linear(1000, 500)
         self.h4 = nn.Linear(500, 100)
         self.h5 = nn.Linear(100, 50)
@@ -105,8 +108,9 @@ class Block_Encoder(nn.Module):
         # X = X.view(-1, 1, 600)
         # X = F.leaky_relu(self.f1(X))
         # X = F.leaky_relu(self.f2(X))
+        X = rearange_to_half(X)
+        X = X.view(-1, 101*50)
 
-        X = X.view(-1, 100*100)
         X = F.leaky_relu(self.h1(X))
         X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
@@ -140,8 +144,8 @@ class Block_Decoder(nn.Module):
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 500)
         self.h4 = nn.Linear(500, 1000)
-        self.h5 = nn.Linear(1000, 4000)
-        self.out = nn.Linear(4000, 100*100)
+        self.h5 = nn.Linear(1000, 2500)
+        self.out = nn.Linear(2500, 101*50)
 
     def forward(self, X):
         # X = F.leaky_relu(self.f1(X))
@@ -163,11 +167,12 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
         X = self.out(X)
-        X = X.view(-1, 100, 100)
 
         # flip over the diagonal to ensure symmetry
-        L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
-        X = L + U
+        # L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
+        # X = L + U
+        X = X.view(-1, 101, 50)
+        X = rearange_to_full(X)
         return X
 
 class Network_VAE(nn.Module):
@@ -271,6 +276,28 @@ def matrix_loss(prediction, target, norm):
 
     return l1 + l2
 
+def rearange_to_half(C):
+    """
+    Takes a batch of matrices (B, 100, 100) and rearanges the lower half of each matrix
+    to a rectangular (B, 101, 50) shape.
+    """
+    B = C.shape[0]
+    L1 = torch.tril(C)[:,:,:50]; L2 = torch.tril(C)[:,:,50:]
+    L1 = torch.cat((torch.zeros((B,1, 50)), L1), 1)
+    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, 50))),1)
+    return L1 + L2
+
+def rearange_to_full(C_half):
+    """
+    Takes a batch of half matrices (B, 101, 50) and reverses the rearangment to return full,
+    symmetric matrices (B, 100, 100). This is the reverse operation of rearange_to_half()
+    """
+    B = C_half.shape[0]
+    C_full = torch.zeros((B, 100,100))
+    C_full[:,:,:50] = C_full[:,:,:50] + C_half[:,1:,:]
+    C_full[:,:,50:] = C_full[:,:,50:] + torch.flip(C_half[:,:-1,:], [1,2])
+    L = torch.tril(C_full); U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
+    return L + U
 
 def symmetric_log(m):
     """

@@ -36,55 +36,11 @@ def He(m):
     if type(m) == nn.Linear:
         nn.init.kaiming_uniform_(m.weight)
 
-def train(net, num_epochs, N_train, N_valid, batch_size, norm, optimizer, train_loader, valid_loader):
-    """
-    Train the given network
-    """
-    num_batches = math.ceil(N_train / batch_size)
-    train_loss = torch.zeros([num_epochs])
-    valid_loss = torch.zeros([num_epochs])
-    for epoch in range(num_epochs):
-        # Run through the training set and update weights
-        net.train()
-        avg_train_loss = 0.
-        for (i, batch) in enumerate(train_loader):
-            params = batch[0]; matrix = batch[1]
-            prediction = net(params).view(batch_size, 100, 100)
-            loss = matrix_loss(prediction, matrix, norm)
-            assert loss != np.nan and loss != np.inf
-            avg_train_loss += loss.item()
-            optimizer.zero_grad()
-            loss.backward()        
-            optimizer.step()
-
-        # run through the validation set
-        net.eval()
-        avg_valid_loss = 0.
-        min_val = 1e30; max_val = -1e10
-        min_pre = 1e30; max_pre = -1e10
-        for params, matrix in valid_loader:
-            prediction = net(params).view(batch_size, 100, 100)
-            loss = matrix_loss(prediction, matrix, norm)
-            avg_valid_loss+= loss.item()
-            min_pre = min(torch.min(prediction), min_pre)
-            max_pre = max(torch.max(prediction), max_pre)
-            min_val = min(torch.min(matrix), min_val)
-            max_val = max(torch.max(matrix), max_val)
-
-        # Aggregate loss information
-        print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
-        print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
-        print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
-        train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
-        valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
-    return net, train_loss, valid_loss
-
 def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_loader, valid_loader):
     """
     Train the VAE network
     """
 
-    num_batches = math.ceil(N_train / batch_size)
     train_loss = torch.zeros([num_epochs])
     valid_loss = torch.zeros([num_epochs])
     for epoch in range(num_epochs):
@@ -94,7 +50,7 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         avg_train_KLD = 0.
         for (i, batch) in enumerate(train_loader):
             params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 1, 100, 100))
+            prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             #print(torch.min(prediction), torch.max(prediction))
             loss = VAE_loss(prediction, matrix, mu, log_var)
@@ -115,21 +71,21 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         min_val = 1e30; max_val = -1e10
         min_pre = 1e30; max_pre = -1e10
         for params, matrix in valid_loader:
-            prediction, mu, log_var = net(matrix.view(batch_size, 1, 100, 100))
+            prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             loss = VAE_loss(prediction, matrix, mu, log_var)
             avg_valid_loss+= loss.item()
             avg_valid_KLD += (0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-            min_pre = min(torch.min(prediction), min_pre)
-            max_pre = max(torch.max(prediction), max_pre)
-            min_val = min(torch.min(matrix), min_val)
-            max_val = max(torch.max(matrix), max_val)
+            #min_pre = min(torch.min(prediction), min_pre)
+            #max_pre = max(torch.max(prediction), max_pre)
+            #min_val = min(torch.min(matrix), min_val)
+            #max_val = max(torch.max(matrix), max_val)
 
         # Aggregate loss information
         print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
         print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(avg_train_KLD/len(train_loader.dataset), avg_valid_KLD/len(valid_loader.dataset)))
         #print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
-        print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
+        #print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
     return net, train_loss, valid_loss
@@ -165,10 +121,10 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
             prediction = net(params)
             loss = features_loss(prediction, features)
             avg_valid_loss+= loss.item()
-            min_pre = min(torch.min(prediction), min_pre)
-            max_pre = max(torch.max(prediction), max_pre)
-            min_val = min(torch.min(features), min_val)
-            max_val = max(torch.max(features), max_val)
+            #min_pre = min(torch.min(prediction), min_pre)
+            #max_pre = max(torch.max(prediction), max_pre)
+            #min_val = min(torch.min(features), min_val)
+            #max_val = max(torch.max(features), max_val)
 
         # Aggregate loss information
         print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
@@ -198,7 +154,7 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.005
+    lr = 0.004
     lr_2 = 0.009
     num_epochs = 60
     num_epochs_2 = 100
@@ -263,11 +219,11 @@ def main():
         valid_f = torch.zeros(N_valid, 20)
         encoder.eval()
         for n in range(N_train):
-            matrix = train_data[n][1].view(1,1,100,100)
+            matrix = train_data[n][1].view(1,100,100)
             z, mu, log_var = encoder(matrix)
             train_f[n] = z.view(20)
         for n in range(N_valid):
-            matrix = valid_data[n][1].view(1,1,100,100)
+            matrix = valid_data[n][1].view(1,100,100)
             z, mu, log_var = encoder(matrix)
             valid_f[n] = z.view(20)
 
