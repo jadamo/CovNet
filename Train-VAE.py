@@ -13,7 +13,7 @@ from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
 
 # Total number of matrices in the training + validation + test set
 N = 52500
-#N = 10000
+#N = 5000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -53,11 +53,11 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             #print(torch.min(prediction), torch.max(prediction))
-            loss = VAE_loss(prediction, matrix, mu, log_var)
+            loss = VAE_loss(prediction, matrix, mu, log_var, 10)
             assert torch.isnan(loss) == False and torch.isinf(loss) == False
 
             avg_train_loss += loss.item()
-            avg_train_KLD += (0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+            avg_train_KLD += 10*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             optimizer.zero_grad()
             loss.backward()
             # gradient clipping
@@ -73,9 +73,9 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         for params, matrix in valid_loader:
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
-            loss = VAE_loss(prediction, matrix, mu, log_var)
+            loss = VAE_loss(prediction, matrix, mu, log_var, 10)
             avg_valid_loss+= loss.item()
-            avg_valid_KLD += (0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+            avg_valid_KLD += 10*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             #min_pre = min(torch.min(prediction), min_pre)
             #max_pre = max(torch.max(prediction), max_pre)
             #min_val = min(torch.min(matrix), min_val)
@@ -154,10 +154,10 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.004
-    lr_2 = 0.009
+    lr = 0.008
+    lr_2 = 0.008
     num_epochs = 60
-    num_epochs_2 = 125
+    num_epochs_2 = 130
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)

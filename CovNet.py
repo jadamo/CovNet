@@ -117,7 +117,8 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.bn(self.h5(X)))
 
-        mu = F.leaky_relu(self.fmu(X))
+        # using sigmoid here to keep mu and log_var between 0 and 1
+        mu = F.relu(self.fmu(X))
         log_var = torch.sigmoid(self.fvar(X))
 
         z = self.reparameterize(mu, log_var)
@@ -245,17 +246,15 @@ class MatrixDataset(torch.utils.data.Dataset):
         else:
             return self.params[idx], self.matrices[idx]
 
-def VAE_loss(prediction, target, mu, log_var):
+def VAE_loss(prediction, target, mu, log_var, beta=1.0):
     """
     Calculates the KL Divergence and reconstruction terms and returns the full loss function
     """
-    #BCE = F.binary_cross_entropy(prediction, target, reduction="sum")
     RLoss = F.l1_loss(prediction, target, reduction="sum")
+    #RLoss = torch.sqrt(((prediction - target)**2).sum())
     #RLoss = F.mse_loss(prediction, target, reduction="sum")
-    KLD = 0.5 * torch.sum(log_var.exp().pow(2) - 2*log_var - 1 + mu.pow(2))
-    #print(RLoss, KLD)
-    #print(mu, log_var, log_var.exp())
-    return RLoss + KLD
+    KLD = 0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))
+    return RLoss + (beta*KLD)
 
 def features_loss(prediction, target):
     l1 = torch.pow(prediction - target, 2)
