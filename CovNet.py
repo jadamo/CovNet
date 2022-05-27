@@ -85,8 +85,8 @@ class Block_Encoder(nn.Module):
         self.h5 = nn.Linear(100, 50)
         self.bn = nn.BatchNorm1d(50)
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(50, 20)
-        self.fvar = nn.Linear(50, 20)
+        self.fmu = nn.Linear(50, 15)
+        self.fvar = nn.Linear(50, 15)
 
     def reparameterize(self, mu, log_var):
         if self.training:
@@ -139,7 +139,7 @@ class Block_Decoder(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.h1 = nn.Linear(20, 50)
+        self.h1 = nn.Linear(15, 50)
         self.bn = nn.BatchNorm1d(50)
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 500)
@@ -202,7 +202,7 @@ class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_inverse):
         self.params = torch.zeros([N, 6])
         self.matrices = torch.zeros([N, 100, 100])
-        self.features = torch.zeros(N, 20)
+        self.features = torch.zeros(N, 15)
         self.offset = offset
         self.N = N
 

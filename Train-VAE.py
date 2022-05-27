@@ -8,12 +8,12 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 #sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
-from CovNet import Network_Full, Network_Features, Block_Encoder, Block_Decoder, \
-                   Network_VAE, MatrixDataset, VAE_loss, matrix_loss, features_loss
+from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
+                   Network_VAE, MatrixDataset, VAE_loss, features_loss
 
 # Total number of matrices in the training + validation + test set
-#N = 52500
-N = 10000
+N = 52500
+#N = 10000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -127,7 +127,7 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
             #max_val = max(torch.max(features), max_val)
 
         # Aggregate loss information
-        print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
+        #print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
         #print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
         #print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
@@ -157,7 +157,7 @@ def main():
     lr = 0.004
     lr_2 = 0.009
     num_epochs = 60
-    num_epochs_2 = 100
+    num_epochs_2 = 125
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
@@ -167,7 +167,7 @@ def main():
 
     # initialize network
     net = Network_VAE().to(device)
-    net_2 = Network_Features(6, 20).to(device)
+    net_2 = Network_Features(6, 15).to(device)
 
     net.apply(He)
     net_2.apply(xavier)
@@ -215,17 +215,17 @@ def main():
         decoder.load_state_dict(net.Decoder.state_dict())
 
         # gather feature data by running thru the trained encoder
-        train_f = torch.zeros(N_train, 20)
-        valid_f = torch.zeros(N_valid, 20)
+        train_f = torch.zeros(N_train, 15)
+        valid_f = torch.zeros(N_valid, 15)
         encoder.eval()
         for n in range(N_train):
             matrix = train_data[n][1].view(1,100,100)
             z, mu, log_var = encoder(matrix)
-            train_f[n] = z.view(20)
+            train_f[n] = z.view(15)
         for n in range(N_valid):
             matrix = valid_data[n][1].view(1,100,100)
             z, mu, log_var = encoder(matrix)
-            valid_f[n] = z.view(20)
+            valid_f[n] = z.view(15)
 
         # add feature data to the training set and reinitialize the data loaders
         train_data.add_features(train_f)
