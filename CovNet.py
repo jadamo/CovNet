@@ -117,10 +117,12 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.bn(self.h5(X)))
 
-        # using sigmoid here to keep mu and log_var between 0 and 1
-        mu = F.relu(self.fmu(X))
+        # using sigmoid here to keep log_var between 0 and 1
+        mu = F.leaky_relu(self.fmu(X))
         log_var = torch.sigmoid(self.fvar(X))
 
+        # The encoder outputs a distribution, so we need to draw some random sample from that
+        # distribution in order to go through the decoder
         z = self.reparameterize(mu, log_var)
         return z, mu, log_var
 
@@ -184,14 +186,10 @@ class Network_VAE(nn.Module):
 
     def forward(self, X):
         # run through the encoder
+        # assumes that z has been reparamaterized in the forward pass
         z, mu, log_var = self.Encoder(X)#.view(-1, 2, 50)
         assert not True in torch.isnan(z)
         #print("After encoder:",  torch.min(z), torch.max(z))
-        # The encoder outputs a distribution, so we need to draw some random sample from that
-        # distribution in order to go through the decoder
-        # mu = X[:, 0, :] # the first feature values as mean
-        # log_var = X[:, 1, :] # the other feature values as variance
-        # z = self.reparameterize(mu, log_var)
 
         # run through the decoder
         X = self.Decoder(z)
@@ -201,9 +199,9 @@ class Network_VAE(nn.Module):
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_inverse):
-        self.params = torch.zeros([N, 6])
-        self.matrices = torch.zeros([N, 100, 100])
-        self.features = torch.zeros(N, 15)
+        self.params = torch.zeros([N, 6], device=try_gpu())
+        self.matrices = torch.zeros([N, 100, 100], device=try_gpu())
+        self.features = torch.zeros(N, 15, device=try_gpu())
         self.offset = offset
         self.N = N
 
@@ -220,15 +218,6 @@ class MatrixDataset(torch.utils.data.Dataset):
             data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
             self.params[i] = torch.from_numpy(data["params"]) 
             self.matrices[i] = torch.from_numpy(data["C"])
-
-            # f = open(file)
-            # header = f.readline()
-            # header = f.readline()
-            # f.close()
-            # header = torch.from_numpy(np.fromstring(header[2:-1], sep=","))
-            # self.params[i] = torch.cat([header[0:4], header[5:]])
-            # # load in matrix
-            # self.matrices[i] = torch.from_numpy(np.loadtxt(file, skiprows=2))
 
             if train_log == True:
                 self.matrices[i] = symmetric_log(self.matrices[i])
@@ -282,8 +271,8 @@ def rearange_to_half(C):
     """
     B = C.shape[0]
     L1 = torch.tril(C)[:,:,:50]; L2 = torch.tril(C)[:,:,50:]
-    L1 = torch.cat((torch.zeros((B,1, 50)), L1), 1)
-    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, 50))),1)
+    L1 = torch.cat((torch.zeros((B,1, 50), device=try_gpu()), L1), 1)
+    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, 50), device=try_gpu())),1)
     return L1 + L2
 
 def rearange_to_full(C_half):
@@ -292,7 +281,7 @@ def rearange_to_full(C_half):
     symmetric matrices (B, 100, 100). This is the reverse operation of rearange_to_half()
     """
     B = C_half.shape[0]
-    C_full = torch.zeros((B, 100,100))
+    C_full = torch.zeros((B, 100,100), device=try_gpu())
     C_full[:,:,:50] = C_full[:,:,:50] + C_half[:,1:,:]
     C_full[:,:,50:] = C_full[:,:,50:] + torch.flip(C_half[:,:-1,:], [1,2])
     L = torch.tril(C_full); U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
@@ -304,28 +293,27 @@ def symmetric_log(m):
     sym_log(x) =  log10(x+1),  x >= 0
     sym_log(x) = -log10(-x+1), x < 0
     """
-    pos_m, neg_m = np.zeros(m.shape), np.zeros(m.shape)
-    pos_idx = np.where(m >= 0)
-    neg_idx = np.where(m < 0)
+    pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
+    pos_idx = torch.where(m >= 0)
+    neg_idx = torch.where(m < 0)
     pos_m[pos_idx] = m[pos_idx]
     neg_m[neg_idx] = m[neg_idx]
 
-    pos_m[pos_idx] = np.log10(pos_m[pos_idx] + 1)
+    pos_m[pos_idx] = torch.log10(pos_m[pos_idx] + 1)
     # for negative numbers, treat log(x) = -log(-x)
-    neg_m[neg_idx] = -np.log10(-1*neg_m[neg_idx] + 1)
-    return torch.from_numpy(pos_m + neg_m)
+    neg_m[neg_idx] = -torch.log10(-1*neg_m[neg_idx] + 1)
+    return pos_m + neg_m
 
 def symmetric_exp(m):
     """
     Takes a matrix and returns the piece-wise exponent
-    NOTE: this assumes there are no entries with true values between 0 and 1
     sym_exp(x) = 10^x - 1,   x > 0
     sym_exp(x) = -10^-x + 1, x < 0
     This is the reverse operation of symmetric_log
     """
-    pos_m, neg_m = np.zeros(m.shape), np.zeros(m.shape)
-    pos_idx = np.where(m >= 0)
-    neg_idx = np.where(m < 0)
+    pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
+    pos_idx = torch.where(m >= 0)
+    neg_idx = torch.where(m < 0)
     pos_m[pos_idx] = m[pos_idx]
     neg_m[neg_idx] = m[neg_idx]
 
@@ -333,4 +321,10 @@ def symmetric_exp(m):
     pos_m[(pos_m == 1)] = 0
     # for negative numbers, treat log(x) = -log(-x)
     neg_m[neg_idx] = -10**(-1*neg_m[neg_idx]) + 1
-    return torch.from_numpy(pos_m + neg_m)
+    return pos_m + neg_m
+
+def try_gpu():
+    """Return gpu() if exists, otherwise return cpu()."""
+    if torch.cuda.device_count() >= 1:
+        return torch.device('cuda')
+    return torch.device('cpu')

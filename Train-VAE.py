@@ -9,7 +9,7 @@ import matplotlib.colors as colors
 
 #sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
 from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
-                   Network_VAE, MatrixDataset, VAE_loss, features_loss
+                   Network_VAE, MatrixDataset, VAE_loss, features_loss, try_gpu
 
 # Total number of matrices in the training + validation + test set
 N = 52500
@@ -19,8 +19,11 @@ N = 52500
 train_inverse = False
 # wether to train using the log of the matrix
 train_log = True
-
+# wether to train the VAE and features nets
 do_VAE = True; do_features = True
+
+# beta to control the importance of the KL divergence loss term
+BETA = 20
 
 # Standard normal distribution
 def init_normal(m):
@@ -53,11 +56,11 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             #print(torch.min(prediction), torch.max(prediction))
-            loss = VAE_loss(prediction, matrix, mu, log_var, 10)
+            loss = VAE_loss(prediction, matrix, mu, log_var, BETA)
             assert torch.isnan(loss) == False and torch.isinf(loss) == False
 
             avg_train_loss += loss.item()
-            avg_train_KLD += 10*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+            avg_train_KLD += BETA*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             optimizer.zero_grad()
             loss.backward()
             # gradient clipping
@@ -73,9 +76,9 @@ def train_VAE(net, num_epochs, N_train, N_valid, batch_size, optimizer, train_lo
         for params, matrix in valid_loader:
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
-            loss = VAE_loss(prediction, matrix, mu, log_var, 10)
+            loss = VAE_loss(prediction, matrix, mu, log_var, BETA)
             avg_valid_loss+= loss.item()
-            avg_valid_KLD += 10*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+            avg_valid_KLD += BETA*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
             #min_pre = min(torch.min(prediction), min_pre)
             #max_pre = max(torch.max(prediction), max_pre)
             #min_val = min(torch.min(matrix), min_val)
@@ -154,7 +157,7 @@ def main():
     print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.008
+    lr = 0.006
     lr_2 = 0.008
     num_epochs = 60
     num_epochs_2 = 130
@@ -162,12 +165,9 @@ def main():
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
 
-    # set device to GPU if cuda is enabled, else stay on the CPU
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     # initialize network
-    net = Network_VAE().to(device)
-    net_2 = Network_Features(6, 15).to(device)
+    net = Network_VAE().to(try_gpu())
+    net_2 = Network_Features(6, 15).to(try_gpu())
 
     net.apply(He)
     net_2.apply(xavier)
@@ -178,8 +178,8 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    training_dir = "/home/joeadamo/Research/Data/Training-Set/"
-    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/"
+    training_dir = "/home/jadamo/CovA-NN-Emulator/Data/Training-Set/"
+    save_dir = "/home/jadamo/CovA-NN-Emulator/Data/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_inverse)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_inverse)
     
@@ -209,14 +209,14 @@ def main():
             net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
 
         # separate encoder and decoders
-        encoder = Block_Encoder()
-        decoder = Block_Decoder()
+        encoder = Block_Encoder().to(try_gpu())
+        decoder = Block_Decoder().to(try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 
         # gather feature data by running thru the trained encoder
-        train_f = torch.zeros(N_train, 15)
-        valid_f = torch.zeros(N_valid, 15)
+        train_f = torch.zeros(N_train, 15, device=try_gpu())
+        valid_f = torch.zeros(N_valid, 15, device=try_gpu())
         encoder.eval()
         for n in range(N_train):
             matrix = train_data[n][1].view(1,100,100)
