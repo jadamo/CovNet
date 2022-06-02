@@ -19,6 +19,8 @@ N = 52500
 train_inverse = False
 # wether to train using the log of the matrix
 train_log = True
+# wether or not to train with the Cholesky decomposition
+train_cholesky = True
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
@@ -152,9 +154,10 @@ def plot_loss(train_loss, valid_loss, num_epochs, net):
 
 def main():
 
-    print("Training with inverse matrices: " + str(train_inverse))
-    print("Training with log matrices:     " + str(train_log))
-    print("Training VAE net: features net: [" + str(do_VAE) + ", " + str(do_features) + "]")
+    print("Training with inverse matrices:       " + str(train_inverse))
+    print("Training with log matrices:           " + str(train_log))
+    print("Training with cholesky decomposition: " + str(train_cholesky))
+    print("Training VAE net: features net:      [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
     lr = 0.006
@@ -166,7 +169,7 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize network
-    net = Network_VAE().to(try_gpu())
+    net = Network_VAE(train_cholesky).to(try_gpu())
     net_2 = Network_Features(6, 15).to(try_gpu())
 
     net.apply(He)
@@ -209,8 +212,8 @@ def main():
             net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
 
         # separate encoder and decoders
-        encoder = Block_Encoder().to(try_gpu())
-        decoder = Block_Decoder().to(try_gpu())
+        encoder = Block_Encoder(train_cholesky).to(try_gpu())
+        decoder = Block_Decoder(train_cholesky).to(try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 
