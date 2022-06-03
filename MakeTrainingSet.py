@@ -21,7 +21,7 @@ import T0
 #-------------------------------------------------------------------
 
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-home_dir = "/home/joeadamo/Research/CovA-NN-Emulator/"
+home_dir = "/home/joeadamo/Research/CovA-NN-Emulator/PCA-Set/"
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
@@ -33,9 +33,9 @@ WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 
 # Number of matrices to make
-N = 2000
+N = 100
 # Number of processors to use
-N_PROC = 15
+N_PROC = 16
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
@@ -315,7 +315,7 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     idx = f'{i:04d}'
     params = np.array([H0, Omega_m, omch2, As, s8[0], b1, b2])
     #np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
-    np.savez(home_dir+"Training-Set/CovA-"+idx+".npz", params=params, C=covAnl)
+    np.savez(home_dir+"CovA-"+idx+".npz", params=params, C=covAnl)
     #return covAnl
 
 #-------------------------------------------------------------------
@@ -341,7 +341,7 @@ def main():
     assert N % size == 0
     offset = int((N / size) * rank)
     data_len = int(N / size)
-    data = np.loadtxt("Sample-params.txt", skiprows=1+offset, max_rows = data_len)
+    data = np.loadtxt("Sample-params-PCA.txt", skiprows=1+offset, max_rows = data_len)
     # send_chunk = None
     # if rank == 0:
     #     send_data = np.loadtxt("Sample-params.txt", skiprows=1)
