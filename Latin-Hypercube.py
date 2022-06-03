@@ -9,7 +9,7 @@ def main():
 
     args = sys.argv[1:]
     N = int(args[0])
-    print(N)
+    ranks = int(args[1])
 
     # bounds taken from table 8 of Wadekar et al 2020 (mean value +- 2x 1sigma interval)
     # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf table 1, 
@@ -40,6 +40,7 @@ def main():
     #print(data[0])
     #print(Omega_m[0], H0[0], As[0], omch2[0], b1[0], b2[0])
     np.savetxt("Sample-params.txt", data, header=header_str)
+    print("Saved " + str(N) + " sets of parameters to " + str(ranks) + " files")
 
 if __name__ == "__main__":
     main()

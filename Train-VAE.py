@@ -12,8 +12,8 @@ from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
                    Network_VAE, MatrixDataset, VAE_loss, features_loss, try_gpu
 
 # Total number of matrices in the training + validation + test set
-#N = 52500
-N = 5000
+N = 52500
+#N = 10000
 
 # wether to train using the percision matrix instead
 train_inverse = False
@@ -172,7 +172,7 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize network
-    net = Network_VAE(train_correlation, train_cholesky).to(try_gpu())
+    net = Network_VAE(train_cholesky).to(try_gpu())
     net_2 = Network_Features(6, 15).to(try_gpu())
 
     net.apply(He)
@@ -185,7 +185,7 @@ def main():
     # get the training / test datasets
     t1 = time.time()
     training_dir = "/home/joeadamo/Research//Data/Training-Set/"
-    save_dir = "/home/joeadamo/Research/CovA-NN_Emulator/Data/"
+    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_inverse)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_inverse)
     
@@ -215,8 +215,8 @@ def main():
             net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
 
         # separate encoder and decoders
-        encoder = Block_Encoder(train_correlation, train_cholesky).to(try_gpu())
-        decoder = Block_Decoder(train_correlation, train_cholesky).to(try_gpu())
+        encoder = Block_Encoder(train_cholesky).to(try_gpu())
+        decoder = Block_Decoder(train_cholesky).to(try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 
