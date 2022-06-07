@@ -1,57 +1,23 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from os.path import exists
 import numpy as np
-
-# covariance matrix length
-M = 100
-
-# For now, let's try just using simple fully-connected network
-class Network_Full(nn.Module):
-
-    def __init__(self, D_in, D_out):
-
-        super().__init__()
-        self.h1 = nn.Linear(D_in, 64)  # Hidden layer
-        self.h2 = nn.Linear(64, 128)
-        self.h3 = nn.Linear(128, 256)
-        self.h4 = nn.Linear(256, 512)  # Hidden layer
-        self.h5 = nn.Linear(512, 1024)  # Hidden layer
-        self.h6 = nn.Linear(1024, 5000)  # Hidden layer
-        self.h7 = nn.Linear(5000, D_out)
-        self.out = nn.Linear(D_out, D_out)  # Output layer
-
-    # Define the forward propagation of the model
-    def forward(self, X):
-        # Note here we use the funtional version of ReLU defined in the
-        # nn.functional module.
-        w = F.leaky_relu(self.h1(X))
-        w = F.leaky_relu(self.h2(w))
-        w = F.leaky_relu(self.h3(w))
-        w = F.leaky_relu(self.h4(w))
-        w = F.leaky_relu(self.h5(w))
-        w = F.leaky_relu(self.h6(w))
-        w = F.leaky_relu(self.h7(w))
-        return self.out(w)
 
 #network to go from parameters to features
 class Network_Features(nn.Module):
     def __init__(self, num_params, num_features):
         super().__init__()
         self.h1 = nn.Linear(num_params, 6)  # Hidden layer
-        self.h2 = nn.Linear(6, 10)
-        self.h3 = nn.Linear(10, 12)
-        self.h4 = nn.Linear(12, 15)  # Hidden layer
-        self.out = nn.Linear(15, num_features)  # Output layer
+        self.h2 = nn.Linear(6, 8)
+        self.h3 = nn.Linear(8, 10)  # Hidden layer
+        self.out = nn.Linear(10, num_features)  # Output layer
 
     # Define the forward propagation of the model
     def forward(self, X):
 
-        w = F.leaky_relu(self.h1(X))
-        w = F.leaky_relu(self.h2(w))
-        w = F.leaky_relu(self.h3(w))
-        w = F.leaky_relu(self.h4(w))
+        w = F.relu(self.h1(X))
+        w = F.relu(self.h2(w))
+        w = F.relu(self.h3(w))
         return self.out(w)
 
 class Block_Encoder(nn.Module):
@@ -75,9 +41,8 @@ class Block_Encoder(nn.Module):
     #     self.fmu = nn.Linear(80, 20)
     #     self.fvar = nn.Linear(80, 20) # try smaller dimensionsl (10 - 20 is good maybe)
 
-    def __init__(self, train_cholesky=False):
+    def __init__(self):
         super().__init__()
-        self.train_cholesky = train_cholesky
 
         self.h1 = nn.Linear(101*50, 2500)
         self.h2 = nn.Linear(2500, 1000)
@@ -86,17 +51,17 @@ class Block_Encoder(nn.Module):
         self.h5 = nn.Linear(100, 50)
         self.bn = nn.BatchNorm1d(50)
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(50, 15)
-        self.fvar = nn.Linear(50, 15)
+        self.fmu = nn.Linear(50, 10)
+        self.fvar = nn.Linear(50, 10)
 
     def reparameterize(self, mu, log_var):
-        if self.training:
-            std = torch.exp(0.5*log_var)
-            #eps = torch.randn_like(std)
-            eps = std.data.new(std.size()).normal_()
-            return mu + (eps * std) # sampling as if coming from the input space
-        else:
-            return mu
+        #if self.training:
+        std = torch.exp(0.5*log_var)
+        #eps = torch.randn_like(std)
+        eps = std.data.new(std.size()).normal_()
+        return mu + (eps * std) # sampling as if coming from the input space
+        #else:
+        #    return mu
 
     def forward(self, X):
         # X = F.leaky_relu(self.C1(X))
@@ -109,7 +74,7 @@ class Block_Encoder(nn.Module):
         # X = X.view(-1, 1, 600)
         # X = F.leaky_relu(self.f1(X))
         # X = F.leaky_relu(self.f2(X))
-        X = rearange_to_half(X, self.train_cholesky)
+        X = rearange_to_half(X)
         X = X.view(-1, 101*50)
 
         X = F.leaky_relu(self.h1(X))
@@ -141,11 +106,10 @@ class Block_Decoder(nn.Module):
         # self.C5 = nn.ConvTranspose2d(2, 2, 3, padding=1) #49x49
         # self.out = nn.ConvTranspose2d(2, 1, 4, stride=2, padding=1) #100x100
 
-    def __init__(self, train_cholesky=False):
+    def __init__(self):
         super().__init__()
-        self.train_cholesky = train_cholesky
 
-        self.h1 = nn.Linear(15, 50)
+        self.h1 = nn.Linear(10, 50)
         self.bn = nn.BatchNorm1d(50)
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 500)
@@ -178,21 +142,20 @@ class Block_Decoder(nn.Module):
         # L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
         # X = L + U
         X = X.view(-1, 101, 50)
-        X = rearange_to_full(X, self.train_cholesky)
+        X = rearange_to_full(X)
         return X
 
 class Network_VAE(nn.Module):
-    def __init__(self, train_cholesky=False):
+    def __init__(self):
         super().__init__()
-        self.Encoder = Block_Encoder(train_cholesky)
-        self.Decoder = Block_Decoder(train_cholesky)
+        self.Encoder = Block_Encoder()
+        self.Decoder = Block_Decoder()
 
     def forward(self, X):
         # run through the encoder
         # assumes that z has been reparamaterized in the forward pass
-        z, mu, log_var = self.Encoder(X)#.view(-1, 2, 50)
+        z, mu, log_var = self.Encoder(X)
         assert not True in torch.isnan(z)
-        #print("After encoder:",  torch.min(z), torch.max(z))
 
         # run through the decoder
         X = self.Decoder(z)
@@ -210,12 +173,12 @@ class MatrixDataset(torch.utils.data.Dataset):
 
         self.has_features = False
         self.correlation = train_correlation
+        self.cholesky = train_cholesky
 
         for i in range(N):
 
+            # Load in the data from file
             idx = i + offset
-
-            #file = data_dir+"CovA-"+f'{idx:05d}'+".txt"
             data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
             self.params[i] = torch.from_numpy(data["params"]) 
             self.matrices[i] = torch.from_numpy(data["C"])
@@ -227,6 +190,9 @@ class MatrixDataset(torch.utils.data.Dataset):
                 D = torch.diag_embed(D)
                 self.matrices[i] = torch.matmul(torch.linalg.inv(D), torch.matmul(self.matrices[i], torch.linalg.inv(D)))
                 self.matrices[i] = self.matrices[i] + (symmetric_log(D) - torch.eye(100))
+
+            if train_cholesky:
+                self.matrices[i] = torch.linalg.cholesky(self.matrices[i])
 
             if train_log == True and train_correlation == False:
                 self.matrices[i] = symmetric_log(self.matrices[i])
@@ -256,20 +222,17 @@ def VAE_loss(prediction, target, mu, log_var, beta=1.0):
     return RLoss + (beta*KLD)
 
 def features_loss(prediction, target):
+    """
+    Loss function for the parameters -> features network (currently MSE loss)
+    """
     l1 = torch.pow(prediction - target, 2)
     return torch.mean(l1)
 
-def rearange_to_half(C, train_cholesky=False):
+def rearange_to_half(C):
     """
     Takes a batch of matrices (B, 100, 100) and rearanges the lower half of each matrix
     to a rectangular (B, 101, 50) shape.
     """
-    # Handle some extra pre-processing
-    if train_cholesky:
-        C = symmetric_exp(C)
-        C = torch.linalg.cholesky(C)
-        C = symmetric_log(C)
-
     B = C.shape[0]
     L1 = torch.tril(C)[:,:,:50]; L2 = torch.tril(C)[:,:,50:]
     L1 = torch.cat((torch.zeros((B,1, 50), device=try_gpu()), L1), 1)
@@ -277,7 +240,7 @@ def rearange_to_half(C, train_cholesky=False):
 
     return L1 + L2
 
-def rearange_to_full(C_half, train_cholesky=False):
+def rearange_to_full(C_half):
     """
     Takes a batch of half matrices (B, 101, 50) and reverses the rearangment to return full,
     symmetric matrices (B, 100, 100). This is the reverse operation of rearange_to_half()
@@ -287,10 +250,6 @@ def rearange_to_full(C_half, train_cholesky=False):
     C_full[:,:,:50] = C_full[:,:,:50] + C_half[:,1:,:]
     C_full[:,:,50:] = C_full[:,:,50:] + torch.flip(C_half[:,:-1,:], [1,2])
     L = torch.tril(C_full)
-    if train_cholesky: # <- undo the cholesky decomposition
-        #print(torch.amax(L))
-        L = symmetric_exp(L)
-        return symmetric_log(torch.matmul(L, torch.transpose(L, 1, 2)))
     U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
     return L + U
 
@@ -335,7 +294,7 @@ def corr_to_cov(C):
     Takes the correlation matrix + variances and returns the full covariance matrix
     NOTE: This function assumes that the variances are stored in the diagonal of the correlation matrix
     """
-    # Note that we're storing the variances in the diagonal, so let's extract those first
+    # Extract the log variances from the diagaonal
     D = torch.diag_embed(torch.diag(C))
     C = C - D + torch.eye(100)
     D = symmetric_exp(D)
