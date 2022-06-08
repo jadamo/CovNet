@@ -296,7 +296,7 @@ def corr_to_cov(C):
     """
     # Extract the log variances from the diagaonal
     D = torch.diag_embed(torch.diag(C))
-    C = C - D + torch.eye(100)
+    C = C - D + torch.eye(100).to(try_gpu())
     D = symmetric_exp(D)
     C = torch.matmul(D, torch.matmul(C, D))
     return C

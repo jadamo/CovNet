@@ -14,11 +14,11 @@ N = 52500
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
 # wether or not to train with the correlation matrix + diagonal
-train_correlation = True
+train_correlation = False
 # wether to train using the log of the matrix
 train_log = True
 # wether or not to train with the Cholesky decomposition
-train_cholesky = False
+train_cholesky = True
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
@@ -141,7 +141,7 @@ def main():
     assert not (train_correlation == True and train_cholesky == True), "Cannot train with correlation and cholesky decompositions simultaneously"
 
     batch_size = 50
-    lr = 0.003
+    lr = 0.004
     lr_2 = 0.008
     num_epochs = 60
     num_epochs_2 = 130
@@ -162,8 +162,8 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    training_dir = "/home/joeadamo/Research//Data/Training-Set/"
-    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/"
+    training_dir = "/home/jadamo/CovA-NN-Emulator/Data/Training-Set/"
+    save_dir = "/home/jadamo/CovA-NN-Emulator/Data/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_correlation, train_cholesky)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_correlation, train_cholesky)
     
