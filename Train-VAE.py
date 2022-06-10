@@ -8,8 +8,8 @@ from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
                    Network_VAE, MatrixDataset, VAE_loss, features_loss, try_gpu
 
 # Total number of matrices in the training + validation + test set
-N = 52500
-#N = 5000
+#N = 52500
+N = 10000
 
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
@@ -162,8 +162,8 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    training_dir = "/home/jadamo/CovA-NN-Emulator/Data/Training-Set/"
-    save_dir = "/home/jadamo/CovA-NN-Emulator/Data/"
+    training_dir = "/home/joeadamo/Research/Data/Training-Set/"
+    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_correlation, train_cholesky)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_correlation, train_cholesky)
     
