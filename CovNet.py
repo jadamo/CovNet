@@ -106,8 +106,9 @@ class Block_Decoder(nn.Module):
         # self.C5 = nn.ConvTranspose2d(2, 2, 3, padding=1) #49x49
         # self.out = nn.ConvTranspose2d(2, 1, 4, stride=2, padding=1) #100x100
 
-    def __init__(self):
+    def __init__(self, train_cholesky=False):
         super().__init__()
+        self.train_cholesky = train_cholesky
 
         self.h1 = nn.Linear(10, 50)
         self.bn = nn.BatchNorm1d(50)
@@ -142,14 +143,14 @@ class Block_Decoder(nn.Module):
         # L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
         # X = L + U
         X = X.view(-1, 101, 50)
-        X = rearange_to_full(X)
+        X = rearange_to_full(X, self.train_cholesky)
         return X
 
 class Network_VAE(nn.Module):
-    def __init__(self):
+    def __init__(self, train_cholesky=False):
         super().__init__()
         self.Encoder = Block_Encoder()
-        self.Decoder = Block_Decoder()
+        self.Decoder = Block_Decoder(train_cholesky)
 
     def forward(self, X):
         # run through the encoder
@@ -240,10 +241,11 @@ def rearange_to_half(C):
 
     return L1 + L2
 
-def rearange_to_full(C_half):
+def rearange_to_full(C_half, train_cholesky=False):
     """
     Takes a batch of half matrices (B, 101, 50) and reverses the rearangment to return full,
     symmetric matrices (B, 100, 100). This is the reverse operation of rearange_to_half()
+    # TODO: find cleaner way to pass in train_cholesky
     """
     B = C_half.shape[0]
     C_full = torch.zeros((B, 100,100), device=try_gpu())
@@ -251,7 +253,10 @@ def rearange_to_full(C_half):
     C_full[:,:,50:] = C_full[:,:,50:] + torch.flip(C_half[:,:-1,:], [1,2])
     L = torch.tril(C_full)
     U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
-    return L + U
+    if train_cholesky: # <- if true we don't need to reflect over the diagonal, so just return L
+        return L
+    else:
+        return L + U
 
 def symmetric_log(m):
     """

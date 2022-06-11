@@ -8,8 +8,8 @@ from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
                    Network_VAE, MatrixDataset, VAE_loss, features_loss, try_gpu
 
 # Total number of matrices in the training + validation + test set
-#N = 52500
-N = 10000
+N = 52500
+#N = 10000
 
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
@@ -23,7 +23,7 @@ train_cholesky = True
 do_VAE = True; do_features = True
 
 # beta to control the importance of the KL divergence loss term
-BETA = 30
+BETA = 500
 
 # Standard normal distribution
 def init_normal(m):
@@ -150,7 +150,7 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize network
-    net = Network_VAE().to(try_gpu())
+    net = Network_VAE(train_cholesky).to(try_gpu())
     net_2 = Network_Features(6, 10).to(try_gpu())
 
     net.apply(He)
@@ -194,7 +194,7 @@ def main():
 
         # separate encoder and decoders
         encoder = Block_Encoder().to(try_gpu())
-        decoder = Block_Decoder().to(try_gpu())
+        decoder = Block_Decoder(train_cholesky).to(try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 
