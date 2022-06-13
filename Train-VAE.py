@@ -8,8 +8,8 @@ from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
                    Network_VAE, MatrixDataset, VAE_loss, features_loss, try_gpu
 
 # Total number of matrices in the training + validation + test set
-N = 52500
-#N = 10000
+#N = 52500
+N = 10000
 
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
@@ -91,6 +91,8 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         #print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
+        if epoch == num_epochs-1 and avg_valid_KLD < 1e-7:
+            print("WARNING! KLD term is close to 0, indicating potential posterior collapse")
     return net, train_loss, valid_loss
 
 def train_features(net, num_epochs, optimizer, train_loader, valid_loader):

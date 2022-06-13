@@ -78,7 +78,7 @@ class Block_Encoder(nn.Module):
         X = X.view(-1, 101*50)
 
         X = F.leaky_relu(self.h1(X))
-        X = F.leaky_relu(self.h2(X))
+        #X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.bn(self.h5(X)))
