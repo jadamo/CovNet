@@ -14,16 +14,20 @@ N = 10000
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
 # wether or not to train with the correlation matrix + diagonal
-train_correlation = False
+train_correlation = True
 # wether to train using the log of the matrix
 train_log = True
 # wether or not to train with the Cholesky decomposition
-train_cholesky = True
+train_cholesky = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
-# beta to control the importance of the KL divergence loss term
-BETA = 500
+training_dir = "/home/jadamo/CovA-NN-Emulator/Data/Training-Set/"
+save_dir = "/home/jadamo/CovA-NN-Emulator/Data/Correlation-decomp/"
+
+# parameter to control the importance of the KL divergence loss term
+# A large value might result in posterior collapse
+BETA = 0.01
 
 # Standard normal distribution
 def init_normal(m):
@@ -71,28 +75,20 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         net.eval()
         avg_valid_loss = 0.
         avg_valid_KLD = 0.
-        min_val = 1e30; max_val = -1e10
-        min_pre = 1e30; max_pre = -1e10
         for params, matrix in valid_loader:
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             loss = VAE_loss(prediction, matrix, mu, log_var, BETA)
             avg_valid_loss+= loss.item()
             avg_valid_KLD += BETA*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-            #min_pre = min(torch.min(prediction), min_pre)
-            #max_pre = max(torch.max(prediction), max_pre)
-            #min_val = min(torch.min(matrix), min_val)
-            #max_val = max(torch.max(matrix), max_val)
 
         # Aggregate loss information
         print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), avg_valid_loss / len(valid_loader.dataset)))
         print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(avg_train_KLD/len(train_loader.dataset), avg_valid_KLD/len(valid_loader.dataset)))
-        #print(" min valid = {:0.3f}, max valid = {:0.3f}".format(min_val, max_val))
-        #print(" min predict = {:0.3f}, max predict = {:0.3f}".format(min_pre, max_pre))
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
-        if epoch == num_epochs-1 and avg_valid_KLD < 1e-7:
-            print("WARNING! KLD term is close to 0, indicating potential posterior collapse")
+        if avg_valid_KLD < 1e-7:
+            print("WARNING! KLD term is close to 0, indicating potential posterior collapse!")
     return net, train_loss, valid_loss
 
 def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
@@ -143,7 +139,7 @@ def main():
     assert not (train_correlation == True and train_cholesky == True), "Cannot train with correlation and cholesky decompositions simultaneously"
 
     batch_size = 50
-    lr = 0.004
+    lr = 0.002
     lr_2 = 0.008
     num_epochs = 60
     num_epochs_2 = 130
@@ -164,8 +160,6 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    training_dir = "/home/joeadamo/Research/Data/Training-Set/"
-    save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/"
     train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_correlation, train_cholesky)
     valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_correlation, train_cholesky)
     

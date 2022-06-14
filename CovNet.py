@@ -78,7 +78,7 @@ class Block_Encoder(nn.Module):
         X = X.view(-1, 101*50)
 
         X = F.leaky_relu(self.h1(X))
-        #X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.bn(self.h5(X)))
@@ -190,7 +190,7 @@ class MatrixDataset(torch.utils.data.Dataset):
                 D = torch.sqrt(torch.diag(self.matrices[i]))
                 D = torch.diag_embed(D)
                 self.matrices[i] = torch.matmul(torch.linalg.inv(D), torch.matmul(self.matrices[i], torch.linalg.inv(D)))
-                self.matrices[i] = self.matrices[i] + (symmetric_log(D) - torch.eye(100))
+                self.matrices[i] = self.matrices[i] + (symmetric_log(D) - torch.eye(100).to(try_gpu()))
 
             if train_cholesky:
                 self.matrices[i] = torch.linalg.cholesky(self.matrices[i])
@@ -300,7 +300,7 @@ def corr_to_cov(C):
     NOTE: This function assumes that the variances are stored in the diagonal of the correlation matrix
     """
     # Extract the log variances from the diagaonal
-    D = torch.diag_embed(torch.diag(C))
+    D = torch.diag_embed(torch.diag(C)).to(try_gpu())
     C = C - D + torch.eye(100).to(try_gpu())
     D = symmetric_exp(D)
     C = torch.matmul(D, torch.matmul(C, D))
