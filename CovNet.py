@@ -25,22 +25,6 @@ class Block_Encoder(nn.Module):
     Encoder block for a Variational Autoencoder (VAE). Input is an analytical covariance matrix, 
     and the output is the normal distribution of a latent feature space
     """
-    # def __init__(self):
-    #     super().__init__()
-    #     # TODO: find out if using channels and batch normalization would be good to include
-    #     self.C1 = nn.Conv2d(1, 2, 4, stride=2, padding=1) # 50x50
-    #     self.C2 = nn.Conv2d(2, 2, 3, padding=1) # 50x50
-    #     self.C3 = nn.Conv2d(2, 4, 4, stride=2, padding=1) # 25x25
-    #     self.C4 = nn.Conv2d(4, 4, 3) # 23x23
-    #     self.C5 = nn.Conv2d(4, 6, 3, stride=2, padding=1) # 12x12
-    #     self.C6 = nn.Conv2d(6, 6, 3) # 10x10
-
-    #     self.f1 = nn.Linear(600, 250)
-    #     self.f2 = nn.Linear(250, 80)
-    #     # 2 seperate layers - one for mu and one for log_var
-    #     self.fmu = nn.Linear(80, 20)
-    #     self.fvar = nn.Linear(80, 20) # try smaller dimensionsl (10 - 20 is good maybe)
-
     def __init__(self):
         super().__init__()
 
@@ -57,24 +41,13 @@ class Block_Encoder(nn.Module):
     def reparameterize(self, mu, log_var):
         #if self.training:
         std = torch.exp(0.5*log_var)
-        #eps = torch.randn_like(std)
         eps = std.data.new(std.size()).normal_()
         return mu + (eps * std) # sampling as if coming from the input space
         #else:
         #    return mu
 
     def forward(self, X):
-        # X = F.leaky_relu(self.C1(X))
-        # X = F.leaky_relu(self.C2(X))
-        # X = F.leaky_relu(self.C3(X))
-        # X = F.leaky_relu(self.C4(X))
-        # X = F.leaky_relu(self.C5(X))
-        # X = F.leaky_relu(self.C6(X))
-
-        # X = X.view(-1, 1, 600)
-        # X = F.leaky_relu(self.f1(X))
-        # X = F.leaky_relu(self.f2(X))
-        X = rearange_to_half(X)
+        X = rearange_to_half(X, 100)
         X = X.view(-1, 101*50)
 
         X = F.leaky_relu(self.h1(X))
@@ -93,19 +66,7 @@ class Block_Encoder(nn.Module):
         return z, mu, log_var
 
 class Block_Decoder(nn.Module):
-    #def __init__(self):
-        # super().__init__()
-        # self.f1 = nn.Linear(20, 80)  # Hidden layer
-        # self.f2 = nn.Linear(80, 250)
-        # self.f3 = nn.Linear(250, 600)
-
-        # self.C1 = nn.ConvTranspose2d(6, 6, 3) #12x12
-        # self.C2 = nn.ConvTranspose2d(6, 4, 3, stride=2, padding=1) #23x23
-        # self.C3 = nn.ConvTranspose2d(4, 4, 3) #25x25
-        # self.C4 = nn.ConvTranspose2d(4, 2, 4, stride=2, padding=1) #49x49
-        # self.C5 = nn.ConvTranspose2d(2, 2, 3, padding=1) #49x49
-        # self.out = nn.ConvTranspose2d(2, 1, 4, stride=2, padding=1) #100x100
-
+ 
     def __init__(self, train_cholesky=False):
         super().__init__()
         self.train_cholesky = train_cholesky
@@ -119,18 +80,6 @@ class Block_Decoder(nn.Module):
         self.out = nn.Linear(2500, 101*50)
 
     def forward(self, X):
-        # X = F.leaky_relu(self.f1(X))
-        # X = F.leaky_relu(self.f2(X))
-        # X = F.leaky_relu(self.f3(X))
-
-        # X = X.view(-1, 6, 10, 10)
-        # X = F.leaky_relu(self.C1(X))
-        # X = F.leaky_relu(self.C2(X))
-        # X = F.leaky_relu(self.C3(X))
-        # X = F.leaky_relu(self.C4(X))
-        # X = F.leaky_relu(self.C5(X))
-        # X = F.leaky_relu(self.out(X))
-        # X = X.view(-1, 100, 100)
 
         X = F.leaky_relu(self.bn(self.h1(X)))
         X = F.leaky_relu(self.h2(X))
@@ -139,11 +88,8 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.h5(X))
         X = self.out(X)
 
-        # flip over the diagonal to ensure symmetry
-        # L = torch.tril(X); U = torch.transpose(torch.tril(X, diagonal=-1),1,2)
-        # X = L + U
         X = X.view(-1, 101, 50)
-        X = rearange_to_full(X, self.train_cholesky)
+        X = rearange_to_full(X, 100, self.train_cholesky)
         return X
 
 class Network_VAE(nn.Module):
@@ -163,12 +109,104 @@ class Network_VAE(nn.Module):
         assert not True in torch.isnan(X)
         return X, mu, log_var
 
+
+class Block_Encoder_Quad(nn.Module):
+    """
+    Encoder block for a Variational Autoencoder (VAE). Input is an analytical covariance matrix, 
+    and the output is the normal distribution of a latent feature space
+    """
+    def __init__(self, N, do_half):
+        super().__init__()
+
+        self.do_half = do_half
+        in_dim = int(N*N) if not do_half else int((N+1)*N/2)
+        self.h1 = nn.Linear(in_dim, 750)
+        self.h2 = nn.Linear(750, 100)
+        self.h3 = nn.Linear(100, 50)
+        self.bn = nn.BatchNorm1d(50)
+        # 2 seperate layers - one for mu and one for log_var
+        self.fmu = nn.Linear(50, 10)
+        self.fvar = nn.Linear(50, 10)
+
+    def reparameterize(self, mu, log_var):
+        #if self.training:
+        std = torch.exp(0.5*log_var)
+        eps = std.data.new(std.size()).normal_()
+        return mu + (eps * std) # sampling as if coming from the input space
+        #else:
+        #    return mu
+
+    def forward(self, X):
+        if self.do_half: 
+            X = rearange_to_half(X, 50)
+            X = X.view(-1, 51*25)
+        else:
+            X = X.reshape(-1, 50*50)
+
+        X = F.leaky_relu(self.h1(X))
+        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.bn(self.h3(X)))
+
+        # using sigmoid here to keep log_var between 0 and 1
+        mu = F.relu(self.fmu(X))
+        log_var = F.relu(self.fvar(X))
+
+        # The encoder outputs a distribution, so we need to draw some random sample from that
+        # distribution in order to go through the decoder
+        z = self.reparameterize(mu, log_var)
+        return z, mu, log_var
+
+class Block_Decoder_Quad(nn.Module):
+ 
+    def __init__(self, N, do_half, train_cholesky=False):
+        super().__init__()
+        self.train_cholesky = train_cholesky
+        self.do_half = do_half
+        out_dim = int(N*N) if not do_half else int((N+1)*N/2)
+
+        self.h1 = nn.Linear(10, 50)
+        self.bn = nn.BatchNorm1d(50)
+        self.h2 = nn.Linear(50, 100)
+        self.h3 = nn.Linear(100, 750)
+        self.out = nn.Linear(750, out_dim)
+
+    def forward(self, X):
+
+        X = F.leaky_relu(self.bn(self.h1(X)))
+        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h3(X))
+        X = self.out(X)
+
+        if self.do_half:
+            X = X.view(-1, 51, 25)
+            X = rearange_to_full(X, 50, self.train_cholesky)
+        else:
+            X = X.reshape(-1, 50, 50)
+        return X
+
+class Network_VAE_Quad(nn.Module):
+    def __init__(self, N, do_half, train_cholesky=False):
+        super().__init__()
+        self.Encoder = Block_Encoder_Quad(N, do_half)
+        self.Decoder = Block_Decoder_Quad(N, do_half, train_cholesky)
+
+    def forward(self, X):
+        # run through the encoder
+        # assumes that z has been reparamaterized in the forward pass
+        z, mu, log_var = self.Encoder(X)
+        assert not True in torch.isnan(z)
+
+        # run through the decoder
+        X = self.Decoder(z)
+        assert not True in torch.isnan(X)
+        return X, mu, log_var
+
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_correlation=False, train_cholesky=False):
         self.params = torch.zeros([N, 6], device=try_gpu())
         self.matrices = torch.zeros([N, 100, 100], device=try_gpu())
-        self.features = torch.zeros(N, 15, device=try_gpu())
+        self.features = None
         self.offset = offset
         self.N = N
 
@@ -229,28 +267,30 @@ def features_loss(prediction, target):
     l1 = torch.pow(prediction - target, 2)
     return torch.mean(l1)
 
-def rearange_to_half(C):
+def rearange_to_half(C, N):
     """
-    Takes a batch of matrices (B, 100, 100) and rearanges the lower half of each matrix
-    to a rectangular (B, 101, 50) shape.
+    Takes a batch of matrices (B, N, N) and rearanges the lower half of each matrix
+    to a rectangular (B, N+1, N/2) shape.
     """
+    N_half = int(N/2)
     B = C.shape[0]
-    L1 = torch.tril(C)[:,:,:50]; L2 = torch.tril(C)[:,:,50:]
-    L1 = torch.cat((torch.zeros((B,1, 50), device=try_gpu()), L1), 1)
-    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, 50), device=try_gpu())),1)
+    L1 = torch.tril(C)[:,:,:N_half]; L2 = torch.tril(C)[:,:,N_half:]
+    L1 = torch.cat((torch.zeros((B,1, N_half), device=try_gpu()), L1), 1)
+    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, N_half), device=try_gpu())),1)
 
     return L1 + L2
 
-def rearange_to_full(C_half, train_cholesky=False):
+def rearange_to_full(C_half, N, train_cholesky=False):
     """
-    Takes a batch of half matrices (B, 101, 50) and reverses the rearangment to return full,
-    symmetric matrices (B, 100, 100). This is the reverse operation of rearange_to_half()
+    Takes a batch of half matrices (B, N+1, N/2) and reverses the rearangment to return full,
+    symmetric matrices (B, N, N). This is the reverse operation of rearange_to_half()
     # TODO: find cleaner way to pass in train_cholesky
     """
+    N_half = int(N/2)
     B = C_half.shape[0]
-    C_full = torch.zeros((B, 100,100), device=try_gpu())
-    C_full[:,:,:50] = C_full[:,:,:50] + C_half[:,1:,:]
-    C_full[:,:,50:] = C_full[:,:,50:] + torch.flip(C_half[:,:-1,:], [1,2])
+    C_full = torch.zeros((B, N,N), device=try_gpu())
+    C_full[:,:,:N_half] = C_full[:,:,:N_half] + C_half[:,1:,:]
+    C_full[:,:,N_half:] = C_full[:,:,N_half:] + torch.flip(C_half[:,:-1,:], [1,2])
     L = torch.tril(C_full)
     U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
     if train_cholesky: # <- if true we don't need to reflect over the diagonal, so just return L
@@ -293,6 +333,21 @@ def symmetric_exp(m):
     # for negative numbers, treat log(x) = -log(-x)
     neg_m[neg_idx] = -10**(-1*neg_m[neg_idx]) + 1
     return pos_m + neg_m
+
+def predict_quad(decoder_q1, decoder_q2, decoder_q3, net_f1, net_f2, net_f3, params):
+    """
+    takes in the feature and VAE networks for each quadrant of the matrix
+    and predicts the full covariance matrix
+    """
+    features = net_f1(params); C_q1 = decoder_q1(features.view(1,10))
+    features = net_f2(params); C_q2 = decoder_q2(features.view(1,10))
+    features = net_f3(params); C_q3 = decoder_q3(features.view(1,10))
+    C = torch.zeros([C_q1.shape[0], 100, 100])
+    C[:,:50,:50] = C_q1
+    C[:,50:,50:] = C_q2
+    C[:,:50,50:] = C_q3
+    C[:,50:,:50] = C_q3
+    return C
 
 def corr_to_cov(C):
     """
