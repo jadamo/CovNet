@@ -13,15 +13,15 @@ from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
 
-sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
 import T0
 
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
 #-------------------------------------------------------------------
 
-dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-home_dir = "/home/joeadamo/Research/CovA-NN-Emulator/PCA-Set/"
+dire='/home/u12/jadamo/CovaPT/Example-Data/'
+home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set/"
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
@@ -33,9 +33,9 @@ WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 
 # Number of matrices to make
-N = 100
+N = 50000
 # Number of processors to use
-N_PROC = 16
+N_PROC = 94
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
@@ -341,7 +341,7 @@ def main():
     assert N % size == 0
     offset = int((N / size) * rank)
     data_len = int(N / size)
-    data = np.loadtxt("Sample-params-PCA.txt", skiprows=1+offset, max_rows = data_len)
+    data = np.loadtxt("Sample-params.txt", skiprows=1+offset, max_rows = data_len)
     # send_chunk = None
     # if rank == 0:
     #     send_data = np.loadtxt("Sample-params.txt", skiprows=1)
@@ -387,12 +387,11 @@ def main():
     # initialize pool for multiprocessing
     t1 = time.time()
     with Pool(processes=N_PROC) as pool:
-        pool.starmap(CovAnalytic, zip(H0, repeat(Pfit), Omega_m, repeat(ombh2), omch2, As, 
+        pool.starmap(CovAnalytic, zip(H0, repeat(Pfit), Omega_m, ombh2, omch2, As, 
                                                repeat(z), b1, b2, b3, be, b2, g3, g2x, g21, i))
         #(H0, Pfit, Omega_m, ombh2, omch2, z, b1, b2, b3, be, g2, g3, g2x, g21)
     t2 = time.time()
     
-    # save this matrix to a file
     print("Done! Took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
     print("Made " + str(N) + " matrices")
     
