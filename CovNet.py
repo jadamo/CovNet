@@ -121,8 +121,9 @@ class Block_Encoder_Quad(nn.Module):
         self.do_half = do_half
         in_dim = int(N*N) if not do_half else int((N+1)*N/2)
         self.h1 = nn.Linear(in_dim, 750)
-        self.h2 = nn.Linear(750, 100)
-        self.h3 = nn.Linear(100, 50)
+        self.h2 = nn.Linear(750, 200)
+        self.h3 = nn.Linear(200, 50)
+        self.h4 = nn.Linear(50, 50)
         self.bn = nn.BatchNorm1d(50)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 10)
@@ -145,7 +146,8 @@ class Block_Encoder_Quad(nn.Module):
 
         X = F.leaky_relu(self.h1(X))
         X = F.leaky_relu(self.h2(X))
-        X = F.leaky_relu(self.bn(self.h3(X)))
+        X = F.leaky_relu(self.h3(X))
+        X = F.leaky_relu(self.bn(self.h4(X)))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = F.relu(self.fmu(X))
@@ -166,8 +168,9 @@ class Block_Decoder_Quad(nn.Module):
 
         self.h1 = nn.Linear(10, 50)
         self.bn = nn.BatchNorm1d(50)
-        self.h2 = nn.Linear(50, 100)
-        self.h3 = nn.Linear(100, 750)
+        self.h2 = nn.Linear(50, 50)
+        self.h3 = nn.Linear(50, 200)
+        self.h4 = nn.Linear(200, 750)
         self.out = nn.Linear(750, out_dim)
 
     def forward(self, X):
@@ -175,6 +178,7 @@ class Block_Decoder_Quad(nn.Module):
         X = F.leaky_relu(self.bn(self.h1(X)))
         X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
+        X = F.leaky_relu(self.h4(X))
         X = self.out(X)
 
         if self.do_half:
@@ -345,7 +349,7 @@ def predict_quad(decoder_q1, decoder_q2, decoder_q3, net_f1, net_f2, net_f3, par
     C = torch.zeros([C_q1.shape[0], 100, 100])
     C[:,:50,:50] = C_q1
     C[:,50:,50:] = C_q2
-    C[:,:50,50:] = C_q3
+    C[:,:50,50:] = torch.transpose(C_q3, 1, 2)
     C[:,50:,:50] = C_q3
     return C
 

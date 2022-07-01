@@ -20,7 +20,7 @@ train_log = True
 # wether or not to train with the Cholesky decomposition
 train_cholesky = False
 # wether to train the VAE and features nets
-do_VAE = False; do_features = True
+do_VAE = True; do_features = True
 
 training_dir = "/home/joeadamo/Research/Data/Training-Set/"
 save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/Quad-decomp/"
@@ -168,9 +168,9 @@ def main():
     assert not (train_correlation == True and train_cholesky == True), "Cannot train with correlation and cholesky decompositions simultaneously"
 
     batch_size = 50
-    lr = 0.002
+    lr = 0.003
     lr_2 = 0.008
-    num_epochs = 60
+    num_epochs = 75
     num_epochs_2 = 130
 
     N_train = int(N*0.8)
