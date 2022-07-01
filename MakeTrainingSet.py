@@ -94,7 +94,7 @@ def Pk_lin(H0, ombh2, omch2, As, z):
     #get matter power spectra and sigma8 at the redshift we want
     pars = camb.CAMBparams()
     pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
-    pars.InitPower.set_params(ns=0.965, As=As)
+    pars.InitPower.set_params(ns=0.965, As=np.exp(As)/1e10)
     #Note non-linear corrections couples to smaller scales than you want
     pars.set_matter_power(redshifts=[z], kmax=0.25)
 
@@ -313,7 +313,7 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     #header_str = "H0, Omega_m, omch2, As, sigma8, b1, b2\n"
     #header_str += str(H0) + ", " + str(Omega_m) + ", " + str(omch2) + ", " + str(As) + ", " + str(s8[0]) + ", " + str(b1) + ", " + str(b2)
     idx = f'{i:04d}'
-    params = np.array([H0, Omega_m, omch2, As, s8[0], b1, b2])
+    params = np.array([H0, Omega_m, omch2, ombh2, As, b1, b2])
     #np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
     np.savez(home_dir+"CovA-"+idx+".npz", params=params, C=covAnl)
     #return covAnl
@@ -351,14 +351,15 @@ def main():
     #comm.Scatter([send_chunk, MPI.DOUBLE], [data, MPI.DOUBLE], root=0)
 
     # ---Cosmology parameters---
-    Omega_m = data[:,0]
-    H0 = data[:,1]
-    As = data[:,2]
-    omch2 = data[:,3]
-    ombh2=0.022  # Omega_b h^2 - this value is fixed
+    #Omega_m = data[:,0]
+    H0 = data[:,0]
+    As = data[:,1]
+    omch2 = data[:,2]
+    ombh2 = data[:,3]
     b1 = data[:,4]
     b2 = data[:,5]
 
+    Omega_m = (omch2 + ombh2) / (H0/100)**2
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
     # and non-linear bias (b_i) from peak-background split fit of 
     # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
