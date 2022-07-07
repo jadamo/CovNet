@@ -8,7 +8,7 @@ from CovNet import Block_Decoder_Quad, Block_Encoder_Quad, Network_Features, Blo
                    MatrixDataset, Network_VAE_Quad, VAE_loss, features_loss, try_gpu
 
 # Total number of matrices in the training + validation + test set
-N = 52500
+N = 49500
 #N = 20000
 
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
@@ -22,8 +22,9 @@ train_cholesky = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
-training_dir = "/home/joeadamo/Research/Data/Training-Set/"
-save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/Quad-decomp/"
+repo_dir = "/home/joeadamo/Research/CovA-NN-Emulator/"
+training_dir = repo_dir+"Data/Training-Set/"
+save_dir = repo_dir+"Data/Quad-decomp/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse

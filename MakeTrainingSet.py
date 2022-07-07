@@ -313,7 +313,7 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     #header_str = "H0, Omega_m, omch2, As, sigma8, b1, b2\n"
     #header_str += str(H0) + ", " + str(Omega_m) + ", " + str(omch2) + ", " + str(As) + ", " + str(s8[0]) + ", " + str(b1) + ", " + str(b2)
     idx = f'{i:04d}'
-    params = np.array([H0, Omega_m, omch2, ombh2, As, b1, b2])
+    params = np.array([H0, omch2, ombh2, As, b1, b2])
     #np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
     np.savez(home_dir+"CovA-"+idx+".npz", params=params, C=covAnl)
     #return covAnl
