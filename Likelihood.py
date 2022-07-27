@@ -1,12 +1,10 @@
-import emcee
 import numpy as np
 import matplotlib.pyplot as plt
 import os, sys, time, math
 import torch
 from tqdm import tqdm
-from torch.multiprocessing import Pool, set_start_method
-from getdist import plots, MCSamples
-import getdist
+import io
+from contextlib import redirect_stdout
 
 sys.path.insert(1, '/home/joeadamo/Research/covariance_emulator')
 import covariance_emulator as ce
@@ -21,11 +19,6 @@ data_dir =  "/home/joeadamo/Research/CovNet/Data/"
 PCA_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 BOSS_dir = "/home/joeadamo/Research/Data/BOSS-DR12/"
 CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
-
-try:
-   set_start_method('spawn')
-except:
-   pass
 
 C_fixed = np.loadtxt("/home/joeadamo/Research/Data/CovA-survey.txt")
 
@@ -64,11 +57,42 @@ def PCA_emulator():
     Emu = ce.CovEmu(params_PCA, C_PCA, NPC_D=20, NPC_L=20)
     return Emu
 
-def get_covariance(Emu, theta):
+def CovNet_emulator():
+    """
+    Returns a neural net covariance matrix emulator
+    """
+    VAE = CovNet.Network_VAE().to(CovNet.try_gpu());       VAE.eval()
+    decoder = CovNet.Block_Decoder().to(CovNet.try_gpu()); decoder.eval()
+    net = CovNet.Network_Features(6, 10).to(CovNet.try_gpu())
+    VAE.load_state_dict(torch.load(data_dir+'Correlation-decomp/network-VAE.params', map_location=CovNet.try_gpu()))
+    decoder.load_state_dict(VAE.Decoder.state_dict())
+    net.load_state_dict(torch.load(data_dir+"Correlation-decomp/network-features.params", map_location=CovNet.try_gpu()))
+
+    return decoder, net
+
+def get_covariance(decoder, net, theta):
     # first convert theta to the format expected by our emulators
-    params = np.array([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]])
-    C = Emu.predict(params)
+    params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
+    features = net(params); C = decoder(features.view(1,10)).view(100, 100)
+    C = CovNet.corr_to_cov(C).cpu().detach().numpy()
     return C
+
+# def get_covariance(Emu, theta):
+#     # first convert theta to the format expected by our emulators
+#     params = np.array([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]])
+#     C = Emu.predict(params)
+#     return C
+
+def sample_prior(cosmo_prior):
+    """
+    Draws a random starting point based on the prior and returns it
+    """
+    nParams = cosmo_prior.shape[0] # the number of parameters
+    theta0 = np.zeros((nParams))
+    for i in range(nParams):
+        theta0[i] = (cosmo_prior[i,1]-cosmo_prior[i,0])* np.random.rand(1) + cosmo_prior[i,0] # randomly choose a value in the acceptable range
+    
+    return theta0 
 
 def model_vector(params, gparams, pgg):
     """
@@ -92,8 +116,9 @@ def model_vector(params, gparams, pgg):
     alpha_perp = 1.1
     alpha_para = 1
 
-    pgg.set_cosmology(cparams, redshift)
+    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
     pgg.set_galaxy(gparams)
+    # takes ~0.28 s to run
     P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
     P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
     return np.concatenate((P0_emu, P2_emu))
@@ -104,46 +129,78 @@ def ln_prior(theta):
             return -np.inf
     return 0.
 
-def ln_lkl(theta, pgg, data_vector, emu, vary_covariance):
-    C = get_covariance(emu, theta) if vary_covariance else C_fixed
+def ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance):
+    C = get_covariance(decoder, net, theta) if vary_covariance else C_fixed
     P = np.linalg.inv(C)
-    x = model_vector(theta, gparams, pgg) - data_vector
+    with io.StringIO() as buf, redirect_stdout(buf):
+        x = model_vector(theta, gparams, pgg) - data_vector
     lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
     return lkl
 
-def ln_prob(theta, pgg, data_vector, emu, vary_covariance):
+def ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance):
     p = ln_prior(theta)
     if p != -np.inf:
-        return p * ln_lkl(theta, pgg, data_vector, emu, vary_covariance)
+        return p + ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance)
     else: return p
+
+def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance):
+    """
+    runs an mcmc based on metropolis hastings
+    """
+    chain = np.zeros((N, NDIM))
+    prob_old = ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance)
+    for i in tqdm(range(N)):
+        # STEP 1: save current state to the chain
+        chain[i] = theta
+
+        # STEP 2: generate a new potential move
+        theta_new = theta + (theta_std * np.random.normal(size=(NDIM)))
+
+        # STEP 3: determine if we move to the new position based on ln_prob
+        prob_new = ln_prob(theta_new, pgg, data_vector, decoder, net, vary_covariance)
+
+        p = np.random.rand()
+        if p <= min(np.exp(prob_new / prob_old), 1):
+            theta = theta_new
+
+        prob_old = prob_new
+
+    return chain
 
 def main():
 
     print("Running MCMC with varying covariance: " + str(vary_covariance))
-    N_MCMC        = 4000
-    N_WALKERS     = 40
-    NDIM_SAMPLING = 6
+    N    = 10000
+    NDIM = 6
 
-    P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
+    #P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
+    P0_mean_ref = np.loadtxt(CovaPT_dir+'P0_fit_Patchy.dat')
+    P2_mean_ref = np.loadtxt(CovaPT_dir+'P2_fit_Patchy.dat')
+
     pgg = pkmu_hod()
 
     Cov_emu = PCA_emulator()
+    decoder, net = CovNet_emulator()
 
-    data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
+    #data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
+    data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
     theta0    = cosmo_fid
     theta_std = np.array([1., 0.001, 0.0001, 0.01 * 2e-9, 0.01, 0.01])
 
     # Starting position of the emcee chain
-    pos0 = theta0[np.newaxis] + theta_std[np.newaxis] * np.random.normal(size=(N_WALKERS, NDIM_SAMPLING))
-    
+    theta0 = theta0 + theta_std * np.random.normal(size=(NDIM))
+
     t1 = time.time()
-    #with Pool() as pool:
-    sampler = emcee.EnsembleSampler(N_WALKERS, NDIM_SAMPLING, ln_prob, args=(pgg, data_vector, Cov_emu, vary_covariance))#, pool=pool)
-    sampler.run_mcmc(pos0, N_MCMC, progress=True)
+    chain = Metropolis_Hastings(theta0, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance)
+    # with Pool() as pool:
+    #     sampler = emcee.EnsembleSampler(N_WALKERS, NDIM_SAMPLING, ln_prob, args=(pgg, data_vector, decoder, net, vary_covariance), pool=pool)
+    #     sampler.run_mcmc(pos0, N_MCMC, progress=True)
     t2 = time.time()
     print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
-    np.save('Data/mcmc_chains.npz', sampler.chain)
+    np.save('Data/mcmc_chains.npy', chain)
+    #tau = sampler.get_autocorr_time()
+    #print("Final autocorrelation time =", tau)
 
 if __name__ == '__main__':
     main()

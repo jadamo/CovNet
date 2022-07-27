@@ -14,18 +14,18 @@ N = 49500
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
 # wether or not to train with the correlation matrix + diagonal
-train_correlation = True
+train_correlation = False
 # wether to train using the log of the matrix
 train_log = True
 # wether or not to train with the Cholesky decomposition
-train_cholesky = False
+train_cholesky = True
 train_quadrants = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
 
-training_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/Training-Set/"
-save_dir = "/home/joeadamo/Research/CovA-NN-Emulator/Data/Correlation-decomp/"
+training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set/"
+save_dir = "/home/joeadamo/Research/CovNet/Data/Correlation-decomp/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
