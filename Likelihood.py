@@ -29,7 +29,8 @@ cosmo_prior = np.array([[66.5, 75.5],
                         [1.806, 2.04],
                         [-2.962, 0.458]])
 
-cosmo_fid = np.array([70,0.1198,0.02225,2e-9,2.0,0.])
+#                     H0,omch2, ombh2,  As,  b1,     b2
+cosmo_fid = np.array([69,0.1198,0.02225,2e-9,1.9485,-0.5387])
 
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
@@ -147,6 +148,8 @@ def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, ne
     """
     runs an mcmc based on metropolis hastings
     """
+    acceptance_rate = np.zeros(N)
+    num_accept = 0
     chain = np.zeros((N, NDIM))
     prob_old = ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance)
     for i in tqdm(range(N)):
@@ -160,17 +163,19 @@ def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, ne
         prob_new = ln_prob(theta_new, pgg, data_vector, decoder, net, vary_covariance)
 
         p = np.random.rand()
-        if p <= min(np.exp(prob_new / prob_old), 1):
+        if p <= min(np.exp(prob_new - prob_old), 1):
             theta = theta_new
+            num_accept += 1
 
+        acceptance_rate[i] = num_accept / (i+1.)
         prob_old = prob_new
 
-    return chain
+    return chain, acceptance_rate
 
 def main():
 
     print("Running MCMC with varying covariance: " + str(vary_covariance))
-    N    = 10000
+    N    = 50000
     NDIM = 6
 
     #P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
@@ -185,13 +190,13 @@ def main():
     #data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
     data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
     theta0    = cosmo_fid
-    theta_std = np.array([1., 0.001, 0.0001, 0.01 * 2e-9, 0.01, 0.01])
+    theta_std = np.array([1., 0.001, 0.0001, 0.01 * 2e-9, 0.01, 0.02])
 
     # Starting position of the emcee chain
     theta0 = theta0 + theta_std * np.random.normal(size=(NDIM))
 
     t1 = time.time()
-    chain = Metropolis_Hastings(theta0, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance)
+    chain, acceptance_rate = Metropolis_Hastings(theta0, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance)
     # with Pool() as pool:
     #     sampler = emcee.EnsembleSampler(N_WALKERS, NDIM_SAMPLING, ln_prob, args=(pgg, data_vector, decoder, net, vary_covariance), pool=pool)
     #     sampler.run_mcmc(pos0, N_MCMC, progress=True)
@@ -199,6 +204,7 @@ def main():
     print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
     np.save('Data/mcmc_chains.npy', chain)
+    np.savez("Data/mcmc_chains.npz", chain=chain, rate=acceptance_rate)
     #tau = sampler.get_autocorr_time()
     #print("Final autocorrelation time =", tau)
 
