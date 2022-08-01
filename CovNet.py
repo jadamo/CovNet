@@ -224,6 +224,7 @@ class MatrixDataset(torch.utils.data.Dataset):
             idx = i + offset
             data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
             self.params[i] = torch.from_numpy(np.delete(data["params"], 1))
+            #self.params[i] = torch.from_numpy(data["params"])
             self.matrices[i] = torch.from_numpy(data["C"])
 
             if train_correlation:

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import os, sys, time, math
 import torch
 from tqdm import tqdm
+from classy import Class
 import io
 from contextlib import redirect_stdout
 
@@ -11,8 +12,6 @@ import covariance_emulator as ce
 sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
 import CovNet
-
-vary_covariance = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set/"
 data_dir =  "/home/joeadamo/Research/CovNet/Data/"
@@ -124,6 +123,29 @@ def model_vector(params, gparams, pgg):
     P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
     return np.concatenate((P0_emu, P2_emu))
 
+# def model_vector(params, cosmo):
+#     z = 0.5
+#     cosmo.set({'A_s':params[3],
+#             'n_s':0.9649,
+#             'tau_reio':0.052,
+#             'omega_b':params[2],
+#             'omega_cdm':params[1],
+#             'h':params[0] / 100.,
+#             'YHe':0.2425,
+#             'N_ur':2.0328,
+#             'N_ncdm':1,
+#             'm_ncdm':0.06,
+#             'z_pk':z
+#             })  
+#     k = np.linspace(0.005, 0.25, 50)
+#     cosmo.compute()
+#     cosmo.initialize_output(k, z, len(k))
+
+#     b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
+#     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
+#     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
+#     return np.concatenate((pk_g0, pk_g2))
+
 def ln_prior(theta):
     for i in range(len(theta)):
         if (theta[i] < cosmo_prior[i,0]) or (theta[i] > cosmo_prior[i,1]):
@@ -134,7 +156,7 @@ def ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance):
     C = get_covariance(decoder, net, theta) if vary_covariance else C_fixed
     P = np.linalg.inv(C)
     with io.StringIO() as buf, redirect_stdout(buf):
-        x = model_vector(theta, gparams, pgg) - data_vector
+        x = data_vector - model_vector(theta, gparams, pgg)
     lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
     return lkl
 
@@ -161,8 +183,9 @@ def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, ne
 
         # STEP 3: determine if we move to the new position based on ln_prob
         prob_new = ln_prob(theta_new, pgg, data_vector, decoder, net, vary_covariance)
-
         p = np.random.rand()
+
+        #print(prob_new, np.exp(prob_new))
         if p <= min(np.exp(prob_new - prob_old), 1):
             theta = theta_new
             num_accept += 1
@@ -174,8 +197,13 @@ def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, ne
 
 def main():
 
+    if len(sys.argv) != 2:
+        print("USAGE: python Likelihood.py <vary covariance>")
+        return
+    vary_covariance = sys.argv[1]
+
     print("Running MCMC with varying covariance: " + str(vary_covariance))
-    N    = 50000
+    N    = 60000
     NDIM = 6
 
     #P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
@@ -184,29 +212,40 @@ def main():
 
     pgg = pkmu_hod()
 
+    cosmo = Class()
+    # Set additional CLASS-PT settings
+    cosmo.set({'output':'mPk',
+            'non linear':'PT',
+            'IR resummation':'Yes',
+            'Bias tracers':'Yes',
+            'cb':'Yes', # use CDM+baryon spectra
+            'RSD':'Yes',
+            'AP':'Yes', # Alcock-Paczynski effect
+            'Omfid':'0.31', # fiducial Omega_m
+            'PNG':'No' # single-field inflation PNG
+            })
+
     Cov_emu = PCA_emulator()
     decoder, net = CovNet_emulator()
 
     #data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
     data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
     theta0    = cosmo_fid
-    theta_std = np.array([1., 0.001, 0.0001, 0.01 * 2e-9, 0.01, 0.02])
+    if vary_covariance == True:
+        theta_std = np.array([1., 0.003, 0.0003, 0.04 * 2e-9, 0.03, 0.02])
+        save_str = "mcmc_chains_VAE.npz"
+    else: 
+        theta_std  = np.array([1., 0.003, 0.00025, 0.04 * 2e-9, 0.03, 0.05])
+        save_str = "mcmc_chains_fixed.npz"
 
     # Starting position of the emcee chain
     theta0 = theta0 + theta_std * np.random.normal(size=(NDIM))
 
     t1 = time.time()
     chain, acceptance_rate = Metropolis_Hastings(theta0, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance)
-    # with Pool() as pool:
-    #     sampler = emcee.EnsembleSampler(N_WALKERS, NDIM_SAMPLING, ln_prob, args=(pgg, data_vector, decoder, net, vary_covariance), pool=pool)
-    #     sampler.run_mcmc(pos0, N_MCMC, progress=True)
     t2 = time.time()
     print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
-
-    np.save('Data/mcmc_chains.npy', chain)
-    np.savez("Data/mcmc_chains.npz", chain=chain, rate=acceptance_rate)
-    #tau = sampler.get_autocorr_time()
-    #print("Final autocorrelation time =", tau)
+    np.savez("Data/"+save_str, chain=chain, rate=acceptance_rate)
 
 if __name__ == '__main__':
     main()
