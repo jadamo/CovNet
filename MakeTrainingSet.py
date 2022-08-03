@@ -359,7 +359,7 @@ def main():
     b1 = data[:,4]
     b2 = data[:,5]
 
-    Omega_m = (omch2 + ombh2) / (H0/100)**2
+    Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
     # and non-linear bias (b_i) from peak-background split fit of 
     # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),

@@ -21,7 +21,7 @@ CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
 
 C_fixed = np.loadtxt("/home/joeadamo/Research/Data/CovA-survey.txt")
 
-vary_covariance = False
+vary_covariance = True
 
 pgg = pkmu_hod()
 
@@ -34,16 +34,19 @@ def show(filepath):
 cosmo_prior = np.array([[66.5, 75.5],
                         [0.10782, 0.13178],
                         [0.0211375, 0.0233625],
-                        [1.1885e-9, 2.031e-9],#[2.4752, 3.7128],
+                        [2.4752, 3.7128],#[1.1885e-9, 2.031e-9],
                         [1.806, 2.04],
                         [-2.962, 0.458]])
 
-#                     H0,omch2, ombh2,  As,  b1,     b2
-cosmo_fid = np.array([69,0.1198,0.02225,2e-9,1.9485,-0.5387])
+#                     H0,  omch2, ombh2,  As,  b1,     b2
+#cosmo_fid = np.array([69.0,0.1198,0.02225,2e-9,1.9485,-0.5387])
+# fiducial values taken from the Patchy paper https://arxiv.org/pdf/1509.06400.pdf
+#                     H0,  omch2, ombh2,  As,  b1,     b2
+cosmo_fid = np.array([67.8,0.1190,0.02215,2e-9,2.01,-0.47])
 
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
-redshift = 0.5
+redshift = 0.58
 
 P0_mean_ref = np.loadtxt(CovaPT_dir+'P0_fit_Patchy.dat')
 P2_mean_ref = np.loadtxt(CovaPT_dir+'P2_fit_Patchy.dat')
@@ -84,6 +87,10 @@ def CovNet_emulator():
 
     return decoder, net
 
+# Define these as global variables so that we don't need to pass them into ln_lkl
+decoder, net = CovNet_emulator()
+Cov_emu = PCA_emulator()
+
 def model_vector(params, gparams, pgg):
     """
     Calculates the model vector using Yosuke's galaxy power spectrum emulator
@@ -93,14 +100,15 @@ def model_vector(params, gparams, pgg):
     omch2 = params[1]
     ombh2 = params[2]
     #assert omch2 <= 0.131780
-    As = np.log(1e10 * params[3])
+    #As = np.log(1e10 * params[3])
+    As = params[3]
     #assert As >= 2.47520
     ns = 0.965
     Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
     
     # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
     cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
-    redshift = 0.5
+    redshift = 0.58
     k = np.linspace(0.005, 0.25, 50)
     mu = np.linspace(0.1,0.9,4)
     alpha_perp = 1.1
@@ -113,42 +121,58 @@ def model_vector(params, gparams, pgg):
     P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
     return np.concatenate((P0_emu, P2_emu))
 
-def get_covariance(decoder, net, theta):
+# def get_covariance(decoder, net, theta):
+#     # first convert theta to the format expected by our emulators
+#     params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
+#     features = net(params); C = decoder(features.view(1,10)).view(100, 100)
+#     C = CovNet.corr_to_cov(C).cpu().detach().numpy()
+#     return C
+
+def get_covariance(Emu, theta):
     # first convert theta to the format expected by our emulators
-    params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
-    features = net(params); C = decoder(features.view(1,10)).view(100, 100)
-    C = CovNet.corr_to_cov(C).cpu().detach().numpy()
+    params = np.array([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]])
+    C = Emu.predict(params)
     return C
 
 def prior(cube, ndim, nparams):
     for i in range(6):
         cube[i] = cube[i] * (cosmo_prior[i, 1] - cosmo_prior[i, 0]) + cosmo_prior[i, 0]
 
-decoder, net = CovNet_emulator()
-
 def ln_lkl(cube, ndim, nparams):
-    C = get_covariance(decoder, net, cube) if vary_covariance else C_fixed
+    #C = get_covariance(decoder, net, cube) if vary_covariance else C_fixed
+    C = get_covariance(Cov_emu, cube) if vary_covariance else C_fixed
     P = np.linalg.inv(C)
     with io.StringIO() as buf, redirect_stdout(buf):
         x = data_vector - model_vector(cube, gparams, pgg)
     lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
+    if lkl > 0:
+        print("WARNING: lkl =", lkl, "params:", cube[0], cube[1], cube[2], cube[3], cube[4], cube[5])
+    try:
+        L = np.linalg.cholesky(C)
+    except np.linalg.LinAlgError as err:
+        print("Covariance matrix is NOT positive-definite!, lkl =", lkl)
     return lkl
 
 def main():
     # number of dimensions our problem has
+    print("Running MCMC with varying covariance: " + str(vary_covariance))
+
     parameters = ["H0", "omch2","ombh2", "As","b1","b2"]
     n_params = len(parameters)
     # name of the output files
-    prefix = "chains/Multinest-"
+    if vary_covariance == True:
+        prefix = "chains/Varied-"
+    else: 
+        prefix = "chains/Fixed-"
 
     # https://arxiv.org/pdf/0809.3437.pdf
     t1 = time.time()
-    progress = pymultinest.ProgressPlotter(n_params = n_params, outputfiles_basename=prefix); progress.start()
+    #progress = pymultinest.ProgressPlotter(n_params = n_params, outputfiles_basename=prefix); progress.start()
     #threading.Timer(2, show, [prefix+"phys_live.points.pdf"]).start() # delayed opening
     # run MultiNest
     pymultinest.run(ln_lkl, prior, n_params, outputfiles_basename=prefix, 
                     sampling_efficiency = 1, n_live_points=400, resume=False, verbose=True)
-    progress.stop()
+    #progress.stop()
     t2 = time.time()
     print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 

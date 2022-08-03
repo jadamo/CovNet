@@ -16,14 +16,14 @@ def main():
     # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
     #Omega_m_bounds = [0.2699, 0.3459]      # Omega matter
-    H0_bounds      = [66.5, 75.5]          # Hubble constant
+    H0_bounds      = [66.0, 75.5]          # Hubble constant
     #As_bounds  =     [8.586e-10, 2.031e-9] # Amplitude of Primordial Power spectrum <- double check this look at planck 1sigma range
     As_bounds  =     [2.4752, 3.7128] # Amplitude of Primordial Power spectrum <- double check this look at planck 1sigma range
     ombh2_bounds   = [0.0211375, 0.0233625]# Omega b h^2
     #omch2_bounds   = [0.1157, 0.1535]      # Omega_cdm h^2
     omch2_bounds   = [0.10782, 0.13178]      # Omega_cdm h^2
-    b1_bounds      = [1.806, 2.04]         # Linear bias
-    b2_bounds      = [-2.962, 0.458]       # non-linear bias?
+    b1_bounds      = [1.9, 2.45]         # Linear bias
+    b2_bounds      = [-3.562, 0.551]     # non-linear bias?
 
     # sample the distribution of points using a Latin Hypercube
     sampler = qmc.LatinHypercube(d=6)
@@ -31,9 +31,9 @@ def main():
 
     # ---Cosmology parameters---
     #Omega_m = dist[:,0]*(Omega_m_bounds[1] - Omega_m_bounds[0]) + Omega_m_bounds[0]
-    H0 = dist[:,1]*(H0_bounds[1] - H0_bounds[0]) + H0_bounds[0]
-    As = dist[:,2]*(As_bounds[1] - As_bounds[0]) + As_bounds[0]
-    omch2 = dist[:,3]*(omch2_bounds[1] - omch2_bounds[0]) + omch2_bounds[0]
+    H0 = dist[:,0]*(H0_bounds[1] - H0_bounds[0]) + H0_bounds[0]
+    As = dist[:,1]*(As_bounds[1] - As_bounds[0]) + As_bounds[0]
+    omch2 = dist[:,2]*(omch2_bounds[1] - omch2_bounds[0]) + omch2_bounds[0]
     ombh2 = dist[:,3]*(ombh2_bounds[1] - ombh2_bounds[0]) + ombh2_bounds[0]
     #ombh2=0.022  # Omega_b h^2 - this value is fixed
     b1 = dist[:,4]*(b1_bounds[1] - b1_bounds[0]) + b1_bounds[0]
