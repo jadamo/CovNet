@@ -24,7 +24,7 @@ import T0
 #-------------------------------------------------------------------
 
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
-home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set/"
+home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-NG/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
@@ -288,13 +288,13 @@ def CovMatNonGauss(Plin, be,b1,b2,g2):
     [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
     for i in range(9):
         Pwin=InterpolatedUnivariateSpline(kwin, powW22x10[:,1+i])
-        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=60)[0]
+        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
 
         if(i<6):
             Pwin=InterpolatedUnivariateSpline(kwin, powW22[:,1+i])
-            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=60)[0]
+            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
             Pwin=InterpolatedUnivariateSpline(kwin, powW10[:,1+i])
-            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=60)[0]
+            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
         else:
             continue
     
