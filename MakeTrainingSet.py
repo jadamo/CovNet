@@ -9,11 +9,14 @@ from scipy.misc import derivative
 import camb
 from camb import model, initialpower
 #from ctypes import c_double, c_int, cdll, byref
+#sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
+#from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
 from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
 
 sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 import T0
 
 #-------------------------------------------------------------------
@@ -22,6 +25,8 @@ import T0
 
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
 home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set/"
+#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+#home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
@@ -31,6 +36,15 @@ WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 # Include here the theory power spectrum best-fitted to the survey data
 # Currently I'm using here the Patchy output to show the comparison with mock catalogs later
 k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
+
+# Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
+# These are needed to calculate the sigma^2 terms
+# Columns are k P00 P02 P04 P22 P24 P44 Nmodes
+powW22=np.loadtxt(dire+'WindowPower_W22_highz.dat')
+powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
+
+# Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
+powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
 
 # Number of matrices to make
 N = 50000
@@ -45,6 +59,9 @@ i10 = 23612072*alpha; i24 = 58.49444652*alpha;
 i14 = 756107.6916375*alpha; i34 = 8.993832235e-3*alpha;
 i44 = 2.158444115e-6*alpha; i32 = 0.11702382*alpha;
 i12oi22 = 2825379.84558/454.2155; #Effective shot noise
+
+gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
+          'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
 
 #-------------------------------------------------------------------
 # FUNCTIONS
@@ -108,6 +125,32 @@ def Pk_lin(H0, ombh2, omch2, As, z):
     pdata = np.vstack((kh, pk[0])).T
     return pdata, s8
 
+def Pk_gg(H0, omch2, ombh2, As, pgg):
+    """
+    Calculates the galaxy power spectrum using Yosuke's dark emulator
+    """
+    #print(params)
+    h = H0 / 100
+    #assert As >= 2.47520
+    ns = 0.965
+    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
+    
+    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
+    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
+    redshift = 0.58
+    k = np.linspace(0.005, 0.25, 50)
+    #mu = np.linspace(0.1,0.9,4)
+    alpha_perp = 1.1
+    alpha_para = 1
+
+    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
+    pgg.set_galaxy(gparams)
+    # takes ~0.28 s to run
+    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
+    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
+    P4_emu = pgg.get_pl_gg_ref(4, k, alpha_perp, alpha_para, name='total')
+    return [P0_emu, 0, P2_emu, 0, P4_emu]
+
 #-------------------------------------------------------------------
 def trispIntegrand(u12,k1,k2,Plin):
     return( (8*i44*(Plin(k1)**2*T0.e44o44_1(u12,k1,k2) + Plin(k2)**2*T0.e44o44_1(u12,k2,k1))
@@ -123,7 +166,7 @@ def trisp(l1,l2,k1,k2, Plin):
     expr = i44*(Plin(k1)**2*Plin(k2)*T0.ez3(k1,k2) + Plin(k2)**2*Plin(k1)*T0.ez3(k2,k1))\
            +8*i34*Plin(k1)*Plin(k2)*T0.e34o44_1(k1,k2)
 
-    temp = (quad(trispIntegrand, -1, 1,args=(k1,k2,Plin))[0]/2. + expr)/i22**2
+    temp = (quad(trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=60)[0]/2. + expr)/i22**2
     return(temp)
 trisp = np.vectorize(trisp)
 
@@ -171,7 +214,7 @@ def MatrixForm(a):
 #-------------------------------------------------------------------
 # Calculating multipoles of the Z12 kernel
 def Z12Multipoles(i,l,be,b1,b2,g2,dlnpk):
-    return(quad(lambda mu: lp(i,mu)*Z12Kernel(l,mu,be,b1,b2,g2,dlnpk), -1, 1)[0])
+    return(quad(lambda mu: lp(i,mu)*Z12Kernel(l,mu,be,b1,b2,g2,dlnpk), -1, 1, limit=60)[0])
 Z12Multipoles = np.vectorize(Z12Multipoles)
 
 #-------------------------------------------------------------------
@@ -184,7 +227,7 @@ def CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2):
         for i in range(3):
             for j in range(3):
                 covaLAterm[l]+=1/4.*sigma22x10[i,j]*Z12Multipoles(2*i,2*l,be,b1,b2,g2,dlnPk)\
-                *quad(lambda mu: lp(2*j,mu)*(1 + be*mu**2), -1, 1)[0]
+                *quad(lambda mu: lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]
     return covaLAterm
         
 #-------------------------------------------------------------------
@@ -198,8 +241,8 @@ def covaSSC(l1,l2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g
     for i in range(3):
         for j in range(3):
             covaBC+=1/4.*sigma22Sq[i,j]*np.outer(Plin(k)*Z12Multipoles(2*i,l1,be,b1,b2,g2,dlnPk),Plin(k)*Z12Multipoles(2*j,l2,be,b1,b2,g2,dlnPk))
-            sigma10Sq[i,j]=1/4.*sigma10Sq[i,j]*quad(lambda mu: lp(2*i,mu)*(1 + be*mu**2), -1, 1)[0]\
-            *quad(lambda mu: lp(2*j,mu)*(1 + be*mu**2), -1, 1)[0]
+            sigma10Sq[i,j]=1/4.*sigma10Sq[i,j]*quad(lambda mu: lp(2*i,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]\
+            *quad(lambda mu: lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]
 
     covaLA=-rsd[l2]*np.outer(Plin(k)*(covaLAterm[int(l1/2)]+i32/i22/i10*rsd[l1]*Plin(k)*b2/b1**2+2/i10*rsd[l1]),Plin(k))\
            -rsd[l1]*np.outer(Plin(k),Plin(k)*(covaLAterm[int(l2/2)]+i32/i22/i10*rsd[l2]*Plin(k)*b2/b1**2+2/i10*rsd[l2]))\
@@ -233,15 +276,6 @@ def CovMatNonGauss(Plin, be,b1,b2,g2):
     # Get the derivativee of the linear power spectrum
     dlnPk=derivative(Plin,k,dx=1e-4)*k/Plin(k)
     
-    # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
-    # These are needed to calculate the sigma^2 terms
-    # Columns are k P00 P02 P04 P22 P24 P44 Nmodes
-    powW22=np.loadtxt(dire+'WindowPower_W22_highz.dat')
-    powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
-
-    # Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
-    powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
-    
     # Kaiser terms
     rsd=np.zeros(5)
     rsd[0]=1 + (2*be)/3 + be**2/5
@@ -254,13 +288,13 @@ def CovMatNonGauss(Plin, be,b1,b2,g2):
     [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
     for i in range(9):
         Pwin=InterpolatedUnivariateSpline(kwin, powW22x10[:,1+i])
-        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1])[0]
+        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=60)[0]
 
         if(i<6):
             Pwin=InterpolatedUnivariateSpline(kwin, powW22[:,1+i])
-            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1])[0]
+            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=60)[0]
             Pwin=InterpolatedUnivariateSpline(kwin, powW10[:,1+i])
-            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1])[0]
+            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=60)[0]
         else:
             continue
     
@@ -288,9 +322,9 @@ def CovMatNonGauss(Plin, be,b1,b2,g2):
     covaNG=covaT0mult+covaSSCmult
     return covaNG
 
-def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, g2x, g21, i):
+def CovAnalytic(H0, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, g2x, g21, i):
     """
-    Generates and returns the full analytic covariance matrix. This function is meant to be run
+    Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
     in parallel.
     Also returns sigma8, which is derived when calculating the initial power spectrum
     """
@@ -302,12 +336,12 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     # Get initial power spectrum
     pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
-
+    #Pk_galaxy = Pk_gg(H0, omch2, ombh2, As, gparams, pgg)
     # Calculate the covariance
-    covaG  = CovMatGauss(Pfit)
+    #covaG  = CovMatGauss(Pk_galaxy)
     covaNG = CovMatNonGauss(Plin, be,b1,b2,g2)
 
-    covAnl=covaG+covaNG
+    #covAnl=covaG+covaNG
 
     # save results to a file for training
     #header_str = "H0, Omega_m, omch2, As, sigma8, b1, b2\n"
@@ -315,7 +349,7 @@ def CovAnalytic(H0, Pfit, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, 
     idx = f'{i:04d}'
     params = np.array([H0, omch2, ombh2, As, b1, b2])
     #np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
-    np.savez(home_dir+"CovA-"+idx+".npz", params=params, C=covAnl)
+    np.savez(home_dir+"CovNG-"+idx+".npz", params=params, C=covaNG)
     #return covAnl
 
 #-------------------------------------------------------------------
@@ -329,11 +363,7 @@ def main():
 
     # TEMP: ignore integration warnings to make output more clean
     warnings.filterwarnings("ignore")
-    
-    Pfit=[0,0,0,0,0]
-    Pfit[0]=np.loadtxt(dire+'P0_fit_Patchy.dat')
-    Pfit[2]=np.loadtxt(dire+'P2_fit_Patchy.dat')
-    Pfit[4]=np.loadtxt(dire+'P4_fit_Patchy.dat')
+
     t1 = time.time(); t2 = t1
 
     # Split up data to multiple MPI ranks
@@ -384,11 +414,12 @@ def main():
     # i = np.empty(int(N / size), dtype=np.int)
     # i = comm.scatter(send_chunk, root=0)
 
+    #pgg = pkmu_hod()
     # initialize pool for multiprocessing
     t1 = time.time()
     with Pool(processes=N_PROC) as pool:
-        pool.starmap(CovAnalytic, zip(H0, repeat(Pfit), Omega_m, ombh2, omch2, As, 
-                                               repeat(z), b1, b2, b3, be, b2, g3, g2x, g21, i))
+        pool.starmap(CovAnalytic, zip(H0, Omega_m, ombh2, omch2, As, 
+                                      repeat(z), b1, b2, b3, be, b2, g3, g2x, g21, i))
         #(H0, Pfit, Omega_m, ombh2, omch2, z, b1, b2, b3, be, g2, g3, g2x, g21)
     t2 = time.time()
     

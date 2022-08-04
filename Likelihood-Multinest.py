@@ -21,7 +21,7 @@ CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
 
 C_fixed = np.loadtxt("/home/joeadamo/Research/Data/CovA-survey.txt")
 
-vary_covariance = True
+vary_covariance = False
 
 pgg = pkmu_hod()
 
@@ -31,26 +31,29 @@ def show(filepath):
 	elif os.name == 'nt' or sys.platform == 'win32': os.startfile(filepath)
 	elif sys.platform.startswith('linux') : subprocess.call(('xdg-open', filepath))
 
-cosmo_prior = np.array([[66.5, 75.5],
+cosmo_prior = np.array([[66.0, 75.5],
                         [0.10782, 0.13178],
                         [0.0211375, 0.0233625],
                         [2.4752, 3.7128],#[1.1885e-9, 2.031e-9],
-                        [1.806, 2.04],
-                        [-2.962, 0.458]])
+                        [1.9, 2.45],
+                        [-3.562, 0.551]])
 
 #                     H0,  omch2, ombh2,  As,  b1,     b2
 #cosmo_fid = np.array([69.0,0.1198,0.02225,2e-9,1.9485,-0.5387])
 # fiducial values taken from the Patchy paper https://arxiv.org/pdf/1509.06400.pdf
 #                     H0,  omch2, ombh2,  As,  b1,     b2
-cosmo_fid = np.array([67.8,0.1190,0.02215,2e-9,2.01,-0.47])
+cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,2.01,-0.47])
 
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
 redshift = 0.58
 
-P0_mean_ref = np.loadtxt(CovaPT_dir+'P0_fit_Patchy.dat')
-P2_mean_ref = np.loadtxt(CovaPT_dir+'P2_fit_Patchy.dat')
-data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
+# P0_mean_ref = np.loadtxt(CovaPT_dir+'P0_fit_Patchy.dat')
+# P2_mean_ref = np.loadtxt(CovaPT_dir+'P2_fit_Patchy.dat')
+# data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
+
+P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
+data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
 
 def PCA_emulator():
     """
