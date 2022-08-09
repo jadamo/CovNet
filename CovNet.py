@@ -222,8 +222,8 @@ class MatrixDataset(torch.utils.data.Dataset):
 
             # Load in the data from file
             idx = i + offset
-            data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
-            self.params[i] = torch.from_numpy(np.delete(data["params"], 1))
+            data = np.load(data_dir+"CovNG-"+f'{idx:05d}'+".npz")
+            self.params[i] = torch.from_numpy(data["params"])
             #self.params[i] = torch.from_numpy(data["params"])
             self.matrices[i] = torch.from_numpy(data["C"])
 

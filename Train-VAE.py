@@ -4,8 +4,7 @@ from torch.nn import functional as F
 import time, math
 
 #sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
-from CovNet import Network_Features, Block_Encoder, Block_Decoder, \
-                   Network_VAE, MatrixDataset, VAE_loss, features_loss, try_gpu
+import CovNet
 
 # Total number of matrices in the training + validation + test set
 N = 49500
@@ -18,18 +17,17 @@ train_correlation = False
 # wether to train using the log of the matrix
 train_log = True
 # wether or not to train with the Cholesky decomposition
-train_cholesky = True
+train_cholesky = False
 train_quadrants = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
-
-training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set/"
-save_dir = "/home/joeadamo/Research/CovNet/Data/Correlation-decomp/"
+training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
+save_dir = "/home/joeadamo/Research/CovNet/Data/Non-Gaussian/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.01
+BETA = 0.1
 
 # Standard normal distribution
 def init_normal(m):
@@ -62,7 +60,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             #print(torch.min(prediction), torch.max(prediction))
-            loss = VAE_loss(prediction, matrix, mu, log_var, BETA)
+            loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
             assert torch.isnan(loss) == False and torch.isinf(loss) == False
 
             avg_train_loss += loss.item()
@@ -80,7 +78,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         for params, matrix in valid_loader:
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
-            loss = VAE_loss(prediction, matrix, mu, log_var, BETA)
+            loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
             avg_valid_loss+= loss.item()
             avg_valid_KLD += BETA*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
 
@@ -107,7 +105,7 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
         for (i, batch) in enumerate(train_loader):
             params = batch[0]; features = batch[2]
             prediction = net(params)
-            loss = features_loss(prediction, features)
+            loss = CovNet.features_loss(prediction, features)
             assert torch.isnan(loss) == False and torch.isinf(loss) == False
 
             avg_train_loss += loss.item()
@@ -122,7 +120,7 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
         min_pre = 1e30; max_pre = -1e10
         for params, matrix, features in valid_loader:
             prediction = net(params)
-            loss = features_loss(prediction, features)
+            loss = CovNet.features_loss(prediction, features)
             avg_valid_loss+= loss.item()
 
         # Aggregate loss information
@@ -151,8 +149,8 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize network
-    net = Network_VAE(train_cholesky).to(try_gpu())
-    net_2 = Network_Features(6, 10).to(try_gpu())
+    net = CovNet.Network_VAE(train_cholesky).to(CovNet.try_gpu())
+    net_2 = CovNet.Network_Features(6, 10).to(CovNet.try_gpu())
 
     net.apply(He)
     net_2.apply(xavier)
@@ -163,8 +161,8 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    train_data = MatrixDataset(training_dir, N_train, 0, train_log, train_correlation, train_cholesky)
-    valid_data = MatrixDataset(training_dir, N_valid, N_train, train_log, train_correlation, train_cholesky)
+    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, train_log, train_correlation, train_cholesky)
+    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, train_log, train_correlation, train_cholesky)
     
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
@@ -188,18 +186,18 @@ def main():
     if do_features:
         # If train_net is false, assume we already trained the VAE net and load it in
         if do_VAE == False:
-            net = Network_VAE()
+            net = CovNet.Network_VAE()
             net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
 
         # separate encoder and decoders
-        encoder = Block_Encoder().to(try_gpu())
-        decoder = Block_Decoder(train_cholesky).to(try_gpu())
+        encoder = CovNet.Block_Encoder().to(CovNet.try_gpu())
+        decoder = CovNet.Block_Decoder(train_cholesky).to(CovNet.try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 
         # gather feature data by running thru the trained encoder
-        train_f = torch.zeros(N_train, 10, device=try_gpu())
-        valid_f = torch.zeros(N_valid, 10, device=try_gpu())
+        train_f = torch.zeros(N_train, 10, device=CovNet.try_gpu())
+        valid_f = torch.zeros(N_valid, 10, device=CovNet.try_gpu())
         encoder.eval()
         for n in range(N_train):
             matrix = train_data[n][1].view(1,100,100)

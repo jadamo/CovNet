@@ -1,19 +1,17 @@
-# This script is basically CovaPT's jupyter notebook, but in script form so you can more easily run it
+# This file is simply a repackaging of the functions and math found in CovaPT
+# Source, Jay Wadekar: https://github.com/JayWadekar/CovaPT
+# NOTE: CovaPT must be downloaded for these functions to work
 
-import scipy, time,sys, warnings, math
+import scipy, sys
 from scipy.integrate import quad
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
-from numpy import exp, log, log10, cos, sin, pi, cosh, sinh , sqrt, amin, amax, mean, dot, power, conj
+from numpy import pi
 from scipy.misc import derivative
 import camb
-from camb import model, initialpower
-#from ctypes import c_double, c_int, cdll, byref
+from camb import model
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
-#from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
-from multiprocessing import Pool
-from itertools import repeat
-from mpi4py import MPI
+from DarkEmuPowerRSD import pkmu_hod
 
 #sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
 sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
@@ -23,10 +21,8 @@ import T0
 # GLOBAL VARIABLES
 #-------------------------------------------------------------------
 
-#dire='/home/u12/jadamo/CovaPT/Example-Data/'
-#home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-NG/"
+# directory with window functions (I assumed these are calculated beforehand)
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
@@ -46,11 +42,6 @@ powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
 # Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
 powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
 
-# Number of matrices to make
-N = 50000
-# Number of processors to use
-N_PROC = 96
-
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
 alpha = 0.02; 
@@ -60,18 +51,19 @@ i14 = 756107.6916375*alpha; i34 = 8.993832235e-3*alpha;
 i44 = 2.158444115e-6*alpha; i32 = 0.11702382*alpha;
 i12oi22 = 2825379.84558/454.2155; #Effective shot noise
 
+# Galaxy parameters for generating galaxy power spectra
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
 
 #-------------------------------------------------------------------
-# FUNCTIONS
+# HELPER FUNCTIONS
 #-------------------------------------------------------------------
 
 #-------------------------------------------------------------------
 # For generating individual elements of the Gaussian covariance matrix
 # see Survey_window_kernels.ipynb for further details where the same function is used
 def Cij(kt, Wij, Pfit):
-    temp=np.zeros((7,6));
+    temp=np.zeros((7,6))
     for i in range(-3,4):
         if(kt+i<0 or kt+i>=kbins):
             temp[i+3]=0.
@@ -125,13 +117,12 @@ def Pk_lin(H0, ombh2, omch2, As, z):
     pdata = np.vstack((kh, pk[0])).T
     return pdata, s8
 
-def Pk_gg(H0, omch2, ombh2, As, pgg):
+#-------------------------------------------------------------------
+def Pk_gg(params, pgg):
     """
     Calculates the galaxy power spectrum using Yosuke's dark emulator
     """
-    #print(params)
-    h = H0 / 100
-    #assert As >= 2.47520
+    h, omch2, ombh2, As = params[0] / 100, params[1], params[2], params[3]
     ns = 0.965
     Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
     
@@ -249,15 +240,52 @@ def covaSSC(l1,l2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g
            +(np.sum(sigma10Sq)+1/i10)*rsd[l1]*rsd[l2]*np.outer(Plin(k),Plin(k))
 
     return(covaBC+covaLA)
-    
+
 #-------------------------------------------------------------------
-def CovMatGauss(Pfit):
+# Functions meant to be called elsewhere
+# ------------------------------------------------------------------
+
+#-------------------------------------------------------------------
+def Pk_gg(params, pgg):
     """
-    Returns the full (Monopole+Quadrupole) Gaussian covariance matrix
+    Calculates the galaxy power spectrum using Yosuke's dark emulator
     """
+    h, omch2, ombh2, As = params[0] / 100, params[1], params[2], params[3]
+    ns = 0.965
+    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
+    
+    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
+    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
+    redshift = 0.58
+    k = np.linspace(0.005, 0.25, 50)
+    #mu = np.linspace(0.1,0.9,4)
+    alpha_perp = 1.1
+    alpha_para = 1
+
+    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
+    pgg.set_galaxy(gparams)
+    # takes ~0.28 s to run
+    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
+    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
+    P4_emu = pgg.get_pl_gg_ref(4, k, alpha_perp, alpha_para, name='total')
+    return [P0_emu, 0, P2_emu, 0, P4_emu]
+
+#-------------------------------------------------------------------
+def get_gaussian_covariance(params, pgg=None, Pk_galaxy=None):
+    """
+    Returns the (Monopole+Quadrupole) Gaussian covariance matrix
+    If Pk_galaxy is already calculated, takes ~10 ms to run
+    Else, takes ~0.5 s
+    """
+    # generate galaxy redshift-space power spectrum if necesary
+    if Pk_galaxy == None:
+        if pgg == None: pgg = pkmu_hod()
+        H0, omch2, ombh2, As = params[0], params[1], params[2], params[3]
+        Pk_galaxy = Pk_gg(H0, omch2, ombh2, As, pgg)
+
     covMat=np.zeros((2*kbins,2*kbins))
     for i in range(kbins):
-        temp=Cij(i,WijFile[i], Pfit)
+        temp=Cij(i,WijFile[i], Pk_galaxy)
         C00=temp[:,0]; C22=temp[:,1]; C20=temp[:,3]
         for j in range(-3,4):
             if(i+j>=0 and i+j<kbins):
@@ -269,10 +297,35 @@ def CovMatGauss(Pfit):
     return(covMat)
 
 #-------------------------------------------------------------------
-def CovMatNonGauss(Plin, be,b1,b2,g2):
+def get_non_gaussian_covariance(params):
     """
-    Returns the full Non-Gaussian covariance matrix
+    Returns the Non-Gaussian portion of the covariance matrix
+    Takes ~ 10 minutes to run
     """
+    # unpack parameters
+    H0, omch2, ombh2, As, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5]
+    Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
+    # Below are expressions for non-local bias (g_i) from local lagrangian approximation
+    # and non-linear bias (b_i) from peak-background split fit of 
+    # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
+    # which could used if those parameters aren't constrained.
+    g2 = -2/7*(b1 - 1)
+    g3 = 11/63*(b1 - 1)
+    #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
+    g2x = -2/7*b2
+    g21 = -22/147*(b1 - 1)
+    b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
+    
+    # ---Bias and survey parameters---
+    z = 0.58 #mean redshift of the high-Z chunk
+    be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
+
+    # initializing bias parameters for trispectrum
+    T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
+
+    # Get initial power spectrum
+    Plin, s8 = Pk_lin(H0, ombh2, omch2, As, z)
+
     # Get the derivativee of the linear power spectrum
     dlnPk=derivative(Plin,k,dx=1e-4)*k/Plin(k)
     
@@ -322,109 +375,11 @@ def CovMatNonGauss(Plin, be,b1,b2,g2):
     covaNG=covaT0mult+covaSSCmult
     return covaNG
 
-def CovAnalytic(H0, Omega_m, ombh2, omch2, As, z, b1, b2, b3, be, g2, g3, g2x, g21, i):
-    """
-    Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
-    in parallel.
-    Also returns sigma8, which is derived when calculating the initial power spectrum
-    """
-    # initializing bias parameters for trispectrum
-    T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
-
-    #num_matrices = 0; tmin = 1e10; tmax = 0
-    #while t2 - t1 < 60*60*24:
-    # Get initial power spectrum
-    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
-    Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
-    #Pk_galaxy = Pk_gg(H0, omch2, ombh2, As, gparams, pgg)
-    # Calculate the covariance
-    #covaG  = CovMatGauss(Pk_galaxy)
-    covaNG = CovMatNonGauss(Plin, be,b1,b2,g2)
-
-    #covAnl=covaG+covaNG
-
-    # save results to a file for training
-    #header_str = "H0, Omega_m, omch2, As, sigma8, b1, b2\n"
-    #header_str += str(H0) + ", " + str(Omega_m) + ", " + str(omch2) + ", " + str(As) + ", " + str(s8[0]) + ", " + str(b1) + ", " + str(b2)
-    idx = f'{i:05d}'
-    params = np.array([H0, omch2, ombh2, As, b1, b2])
-    #np.savetxt(home_dir+"Training-Set/CovA-"+idx+".txt", covAnl, header=header_str)
-    np.savez(home_dir+"CovNG-"+idx+".npz", params=params, C=covaNG)
-    #return covAnl
-
 #-------------------------------------------------------------------
-# MAIN
-#-------------------------------------------------------------------
-def main():
-    
-    comm = MPI.COMM_WORLD
-    size = MPI.COMM_WORLD.Get_size()
-    rank = MPI.COMM_WORLD.Get_rank()
-
-    # TEMP: ignore integration warnings to make output more clean
-    warnings.filterwarnings("ignore")
-
-    t1 = time.time(); t2 = t1
-
-    # Split up data to multiple MPI ranks
-    # Aparently MPI scatter doesn't work on Puma, so this uses a different way
-    assert N % size == 0
-    offset = int((N / size) * rank)
-    data_len = int(N / size)
-    data = np.loadtxt("Sample-params-PCA.txt", skiprows=1+offset, max_rows = data_len)
-    # send_chunk = None
-    # if rank == 0:
-    #     send_data = np.loadtxt("Sample-params.txt", skiprows=1)
-    #     send_chunk = np.array_split(send_data, size, axis=0)
-    # data = np.empty((int(N/size),6), dtype=np.float64)
-    # data = comm.scatter(send_chunk, root=0)
-    #comm.Scatter([send_chunk, MPI.DOUBLE], [data, MPI.DOUBLE], root=0)
-
-    # ---Cosmology parameters---
-    #Omega_m = data[:,0]
-    H0 = data[:,0]
-    As = data[:,1]
-    omch2 = data[:,2]
-    ombh2 = data[:,3]
-    b1 = data[:,4]
-    b2 = data[:,5]
-
-    Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
-    # Below are expressions for non-local bias (g_i) from local lagrangian approximation
-    # and non-linear bias (b_i) from peak-background split fit of 
-    # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
-    # which could used if those parameters aren't constrained.
-    g2 = -2/7*(b1 - 1)
-    g3 = 11/63*(b1 - 1)
-    #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
-    g2x = -2/7*b2
-    g21 = -22/147*(b1 - 1)
-    b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
-    
-    # ---Bias and survey parameters---
-    z = 0.58 #mean redshift of the high-Z chunk
-    be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
-    
-    # split up workload to different nodes
-    i = np.arange(offset, offset+data_len, dtype=np.int)
-    # send_i = np.empty(N, dtype=np.int)
-    # if rank == 0:
-    #     send_i = np.arange(N, dtype=np.int)
-    #     send_chunk = np.array_split(send_i, size, axis=0)
-    # i = np.empty(int(N / size), dtype=np.int)
-    # i = comm.scatter(send_chunk, root=0)
-
-    #pgg = pkmu_hod()
-    # initialize pool for multiprocessing
-    t1 = time.time()
-    with Pool(processes=N_PROC) as pool:
-        pool.starmap(CovAnalytic, zip(H0, Omega_m, ombh2, omch2, As, 
-                                      repeat(z), b1, b2, b3, be, b2, g3, g2x, g21, i))
-        #(H0, Pfit, Omega_m, ombh2, omch2, z, b1, b2, b3, be, g2, g3, g2x, g21)
-    t2 = time.time()
-    
-    print("Done! Took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
-    print("Rank " + str(rank) + " Made " + str(int(N / size)) + " matrices")
-    
-if __name__ == "__main__":
-    main()
+def get_full_covariance(params, pgg, Pk_galaxy=None):
+    """
+    Returns the full analytic covariance matrix
+    """
+    cov_G = get_gaussian_covariance(params, pgg, Pk_galaxy)
+    cov_NG = get_non_gaussian_covariance(params)
+    return cov_G + cov_NG
