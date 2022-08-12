@@ -32,7 +32,8 @@ class Block_Encoder(nn.Module):
         self.h2 = nn.Linear(2500, 1000)
         self.h3 = nn.Linear(1000, 500)
         self.h4 = nn.Linear(500, 100)
-        self.h5 = nn.Linear(100, 50)
+        self.h5 = nn.Linear(100, 100)
+        self.h6 = nn.Linear(100, 50)
         self.bn = nn.BatchNorm1d(50)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 10)
@@ -54,7 +55,8 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
-        X = F.leaky_relu(self.bn(self.h5(X)))
+        X = F.leaky_relu(self.h5(X))
+        X = F.leaky_relu(self.bn(self.h6(X)))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = F.relu(self.fmu(X))
@@ -74,9 +76,10 @@ class Block_Decoder(nn.Module):
         self.h1 = nn.Linear(10, 50)
         self.bn = nn.BatchNorm1d(50)
         self.h2 = nn.Linear(50, 100)
-        self.h3 = nn.Linear(100, 500)
-        self.h4 = nn.Linear(500, 1000)
-        self.h5 = nn.Linear(1000, 2500)
+        self.h3 = nn.Linear(100, 100)
+        self.h4 = nn.Linear(100, 500)
+        self.h5 = nn.Linear(500, 1000)
+        self.h6 = nn.Linear(1000, 2500)
         self.out = nn.Linear(2500, 101*50)
 
     def forward(self, X):
@@ -86,6 +89,7 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
+        X = F.leaky_relu(self.h6(X))
         X = self.out(X)
 
         X = X.view(-1, 101, 50)

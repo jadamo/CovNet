@@ -324,7 +324,8 @@ def get_non_gaussian_covariance(params):
     T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
     # Get initial power spectrum
-    Plin, s8 = Pk_lin(H0, ombh2, omch2, As, z)
+    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
+    Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
 
     # Get the derivativee of the linear power spectrum
     dlnPk=derivative(Plin,k,dx=1e-4)*k/Plin(k)
@@ -356,6 +357,12 @@ def get_non_gaussian_covariance(params):
     # Calculate the LA term
     covaLAterm = CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2)
     
+    covaSSCmult=np.zeros((2*kbins,2*kbins))
+    covaSSCmult[:kbins,:kbins]=covaSSC(0,0, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
+    covaSSCmult[kbins:,kbins:]=covaSSC(2,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
+    covaSSCmult[:kbins,kbins:]=covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
+    covaSSCmult[kbins:,:kbins]=np.transpose(covaSSCmult[:kbins,kbins:])
+
     # Calculate the Non-Gaussian multipole covariance
     # Warning: the trispectrum takes a while to run
     covaT0mult=np.zeros((2*kbins,2*kbins))
@@ -365,12 +372,6 @@ def get_non_gaussian_covariance(params):
         covaT0mult[kbins+i,kbins:]=trisp(2,2,k[i],k, Plin)
 
     covaT0mult[kbins:,:kbins]=np.transpose(covaT0mult[:kbins,kbins:])
-
-    covaSSCmult=np.zeros((2*kbins,2*kbins))
-    covaSSCmult[:kbins,:kbins]=covaSSC(0,0, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-    covaSSCmult[kbins:,kbins:]=covaSSC(2,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-    covaSSCmult[:kbins,kbins:]=covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
-    covaSSCmult[kbins:,:kbins]=np.transpose(covaSSCmult[:kbins,kbins:])
 
     covaNG=covaT0mult+covaSSCmult
     return covaNG
