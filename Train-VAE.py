@@ -10,12 +10,12 @@ import CovNet
 N = 49500
 #N = 20000
 
+# wether to train using the log of the matrix
+train_log = True
 # wether to train using the percision matrix instead - NOT YET IMPLIMENTED
 train_inverse = False
 # wether or not to train with the correlation matrix + diagonal
 train_correlation = False
-# wether to train using the log of the matrix
-train_log = True
 # wether or not to train with the Cholesky decomposition
 train_cholesky = False
 train_quadrants = False
@@ -27,7 +27,7 @@ save_dir = "/home/joeadamo/Research/CovNet/Data/Non-Gaussian/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.1
+BETA = 0.2
 
 # Standard normal distribution
 def init_normal(m):

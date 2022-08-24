@@ -30,11 +30,19 @@ class Block_Encoder(nn.Module):
 
         self.h1 = nn.Linear(101*50, 2500)
         self.h2 = nn.Linear(2500, 1000)
-        self.h3 = nn.Linear(1000, 500)
-        self.h4 = nn.Linear(500, 100)
-        self.h5 = nn.Linear(100, 100)
-        self.h6 = nn.Linear(100, 50)
+        self.h3 = nn.Linear(1000, 1000)
+        self.h4 = nn.Linear(1000, 500)
+        self.h5 = nn.Linear(500, 100)
+        self.h6 = nn.Linear(100, 100)
+        self.h7 = nn.Linear(100, 50)
         self.bn = nn.BatchNorm1d(50)
+        # self.h1 = nn.Linear(101*50, 1000)
+        # self.h2 = nn.Linear(1000, 1000)
+        # self.h3 = nn.Linear(1000, 1000)
+        # self.h4 = nn.Linear(1000, 1000)
+        # self.h5 = nn.Linear(1000, 1000)
+        # self.h6 = nn.Linear(1000, 1000)
+        #self.bn = nn.BatchNorm1d(1000)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 10)
         self.fvar = nn.Linear(50, 10)
@@ -56,7 +64,8 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
-        X = F.leaky_relu(self.bn(self.h6(X)))
+        X = F.leaky_relu(self.h6(X))
+        X = F.leaky_relu(self.bn(self.h7(X)))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = F.relu(self.fmu(X))
@@ -75,11 +84,18 @@ class Block_Decoder(nn.Module):
 
         self.h1 = nn.Linear(10, 50)
         self.bn = nn.BatchNorm1d(50)
+        # self.h2 = nn.Linear(1000, 1000)
+        # self.h3 = nn.Linear(1000, 1000)
+        # self.h4 = nn.Linear(1000, 1000)
+        # self.h5 = nn.Linear(1000, 1000)
+        # self.h6 = nn.Linear(1000, 1000)
+        # self.out = nn.Linear(1000, 101*50)
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 100)
         self.h4 = nn.Linear(100, 500)
         self.h5 = nn.Linear(500, 1000)
-        self.h6 = nn.Linear(1000, 2500)
+        self.h6 = nn.Linear(1000, 1000)
+        self.h7 = nn.Linear(1000, 2500)
         self.out = nn.Linear(2500, 101*50)
 
     def forward(self, X):
@@ -90,6 +106,7 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
         X = F.leaky_relu(self.h6(X))
+        X = F.leaky_relu(self.h7(X))
         X = self.out(X)
 
         X = X.view(-1, 101, 50)
@@ -262,6 +279,9 @@ def VAE_loss(prediction, target, mu, log_var, beta=1.0):
     """
     Calculates the KL Divergence and reconstruction terms and returns the full loss function
     """
+    prediction = rearange_to_half(prediction, 100)
+    target = rearange_to_half(target, 100)
+
     RLoss = F.l1_loss(prediction, target, reduction="sum")
     #RLoss = torch.sqrt(((prediction - target)**2).sum())
     #RLoss = F.mse_loss(prediction, target, reduction="sum")

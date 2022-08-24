@@ -2,6 +2,7 @@ import numpy as np
 from numpy import pi, cos
 import pymultinest
 import threading, subprocess
+from classy import Class
 import torch
 import sys, os, io, time, math
 from contextlib import redirect_stdout
@@ -17,19 +18,30 @@ PCA_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 BOSS_dir = "/home/joeadamo/Research/Data/BOSS-DR12/"
 CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
 
-# probability function, taken from the eggbox problem.
-
-C_fixed = np.loadtxt("/home/joeadamo/Research/Data/CovA-survey.txt")
-
+# Flags to be changed by the user
+use_T0 = True
 vary_covariance = False
+resume = False
+
+C_fid_file = np.load(data_dir+"Cov_Fid.npz")
+if use_T0 == True:
+    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
+else:
+    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
 
 pgg = pkmu_hod()
-
-def show(filepath): 
-	""" open the output (pdf) file for the user """
-	if os.name == 'mac' or sys.platform == 'darwin': subprocess.call(('open', filepath))
-	elif os.name == 'nt' or sys.platform == 'win32': os.startfile(filepath)
-	elif sys.platform.startswith('linux') : subprocess.call(('xdg-open', filepath))
+cosmo = Class()
+cosmo.set({'output':'mPk',
+            'non linear':'PT',
+            'IR resummation':'Yes',
+            'Bias tracers':'Yes',
+            'cb':'Yes', # use CDM+baryon spectra
+            'RSD':'Yes',
+            'AP':'Yes', # Alcock-Paczynski effect
+            'Omfid':'0.31', # fiducial Omega_m
+            'PNG':'No', # single-field inflation PNG
+            'FFTLog mode':'FAST'
+            })
 
 cosmo_prior = np.array([[66.0, 75.5],
                         [0.10782, 0.13178],
@@ -42,18 +54,11 @@ cosmo_prior = np.array([[66.0, 75.5],
 #cosmo_fid = np.array([69.0,0.1198,0.02225,2e-9,1.9485,-0.5387])
 # fiducial values taken from the Patchy paper https://arxiv.org/pdf/1509.06400.pdf
 #                     H0,  omch2, ombh2,  As,  b1,     b2
-cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,2.01,-0.47])
+cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,1.9485,-0.5387])
 
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
 redshift = 0.58
-
-# P0_mean_ref = np.loadtxt(CovaPT_dir+'P0_fit_Patchy.dat')
-# P2_mean_ref = np.loadtxt(CovaPT_dir+'P2_fit_Patchy.dat')
-# data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
-
-P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
-data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
 
 def PCA_emulator():
     """
@@ -63,9 +68,9 @@ def PCA_emulator():
     C_PCA = np.zeros((N_C, 100, 100))
     params_PCA = np.zeros((N_C, 6))
     for i in range(N_C):
-        temp = np.load(PCA_dir+"CovA-"+f'{i:04d}'+".npz")
-        params_PCA[i] = np.delete(temp["params"], 4)
-        C_PCA[i] = torch.from_numpy(temp["C"])
+        temp = np.load(PCA_dir+"CovNG-"+f'{i:04d}'+".npz")
+        params_PCA[i] = temp["params"]
+        C_PCA[i] = temp["C"]
     
         # if the matrix doesn't match the transpose close enough, manually flip over the diagonal
         try:
@@ -91,8 +96,9 @@ def CovNet_emulator():
     return decoder, net
 
 # Define these as global variables so that we don't need to pass them into ln_lkl
-decoder, net = CovNet_emulator()
-Cov_emu = PCA_emulator()
+#decoder, net = CovNet_emulator()
+#Cov_emu = PCA_emulator()
+Cov_emu = None
 
 def model_vector(params, gparams, pgg):
     """
@@ -124,6 +130,32 @@ def model_vector(params, gparams, pgg):
     P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
     return np.concatenate((P0_emu, P2_emu))
 
+def model_vector_CLASS_PT(params, cosmo):
+    z = 0.58
+    cosmo.set({'A_s':np.exp(params[3])/1e10,
+            'n_s':0.9649,
+            'tau_reio':0.052,
+            'omega_b':params[2],
+            'omega_cdm':params[1],
+            'h':params[0] / 100.,
+            'YHe':0.2425,
+            'N_ur':2.0328,
+            'N_ncdm':1,
+            'm_ncdm':0.06,
+            'z_pk':z
+            })  
+    k = np.linspace(0.005, 0.25, 50)
+    cosmo.compute()
+    cosmo.initialize_output(k, z, len(k))
+
+    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
+    pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
+    return np.concatenate((pk_g0, pk_g2))
+
+#data_vector = model_vector(cosmo_fid, gparams, pgg)
+data_vector = model_vector_CLASS_PT(cosmo_fid, cosmo)
+
 # def get_covariance(decoder, net, theta):
 #     # first convert theta to the format expected by our emulators
 #     params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
@@ -143,22 +175,20 @@ def prior(cube, ndim, nparams):
 
 def ln_lkl(cube, ndim, nparams):
     #C = get_covariance(decoder, net, cube) if vary_covariance else C_fixed
-    C = get_covariance(Cov_emu, cube) if vary_covariance else C_fixed
+    C = get_covariance(Cov_emu, cube) if vary_covariance else C_fid
     P = np.linalg.inv(C)
     with io.StringIO() as buf, redirect_stdout(buf):
-        x = data_vector - model_vector(cube, gparams, pgg)
+        #x = data_vector - model_vector(cube, gparams, pgg)
+        x = data_vector - model_vector_CLASS_PT(cube, cosmo)
     lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
-    if lkl > 0:
-        print("WARNING: lkl =", lkl, "params:", cube[0], cube[1], cube[2], cube[3], cube[4], cube[5])
-    try:
-        L = np.linalg.cholesky(C)
-    except np.linalg.LinAlgError as err:
-        print("Covariance matrix is NOT positive-definite!, lkl =", lkl)
+    assert lkl < 0
+    print(lkl)
     return lkl
 
 def main():
     # number of dimensions our problem has
     print("Running MCMC with varying covariance: " + str(vary_covariance))
+    print("Using T0 term of the covariance: " + str(use_T0))
 
     parameters = ["H0", "omch2","ombh2", "As","b1","b2"]
     n_params = len(parameters)
@@ -166,7 +196,8 @@ def main():
     if vary_covariance == True:
         prefix = "chains/Varied-"
     else: 
-        prefix = "chains/Fixed-"
+        if use_T0 == True: prefix = "chains/garbage-"
+        else: prefix = "chains/No-garbage-"
 
     # https://arxiv.org/pdf/0809.3437.pdf
     t1 = time.time()
@@ -174,7 +205,7 @@ def main():
     #threading.Timer(2, show, [prefix+"phys_live.points.pdf"]).start() # delayed opening
     # run MultiNest
     pymultinest.run(ln_lkl, prior, n_params, outputfiles_basename=prefix, 
-                    sampling_efficiency = 1, n_live_points=400, resume=False, verbose=True)
+                    sampling_efficiency = 1, n_live_points=400, resume=resume, verbose=True)
     #progress.stop()
     t2 = time.time()
     print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))

@@ -10,6 +10,7 @@ from numpy import pi
 from scipy.misc import derivative
 import camb
 from camb import model
+from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 from DarkEmuPowerRSD import pkmu_hod
 
@@ -116,31 +117,6 @@ def Pk_lin(H0, ombh2, omch2, As, z):
     
     pdata = np.vstack((kh, pk[0])).T
     return pdata, s8
-
-#-------------------------------------------------------------------
-def Pk_gg(params, pgg):
-    """
-    Calculates the galaxy power spectrum using Yosuke's dark emulator
-    """
-    h, omch2, ombh2, As = params[0] / 100, params[1], params[2], params[3]
-    ns = 0.965
-    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
-    
-    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
-    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
-    redshift = 0.58
-    k = np.linspace(0.005, 0.25, 50)
-    #mu = np.linspace(0.1,0.9,4)
-    alpha_perp = 1.1
-    alpha_para = 1
-
-    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
-    pgg.set_galaxy(gparams)
-    # takes ~0.28 s to run
-    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
-    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
-    P4_emu = pgg.get_pl_gg_ref(4, k, alpha_perp, alpha_para, name='total')
-    return [P0_emu, 0, P2_emu, 0, P4_emu]
 
 #-------------------------------------------------------------------
 def trispIntegrand(u12,k1,k2,Plin):
@@ -271,6 +247,31 @@ def Pk_gg(params, pgg):
     return [P0_emu, 0, P2_emu, 0, P4_emu]
 
 #-------------------------------------------------------------------
+def Pk_CLASS_PT(params, cosmo):
+    z = 0.5
+    cosmo.set({'A_s':np.exp(params[3]) / 1e10,
+            'n_s':0.9649,
+            'tau_reio':0.052,
+            'omega_b':params[2],
+            'omega_cdm':params[1],
+            'h':params[0] / 100.,
+            'YHe':0.2425,
+            'N_ur':2.0328,
+            'N_ncdm':1,
+            'm_ncdm':0.06,
+            'z_pk':z
+            })  
+    k = np.linspace(0.005, 0.25, 50)
+    cosmo.compute()
+    cosmo.initialize_output(k, z, len(k))
+
+    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
+    pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
+    pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
+    return [pk_g0, 0, pk_g2, 0, pk_g4]
+
+#-------------------------------------------------------------------
 def get_gaussian_covariance(params, pgg=None, Pk_galaxy=None):
     """
     Returns the (Monopole+Quadrupole) Gaussian covariance matrix
@@ -374,7 +375,8 @@ def get_non_gaussian_covariance(params):
     covaT0mult[kbins:,:kbins]=np.transpose(covaT0mult[:kbins,kbins:])
 
     covaNG=covaT0mult+covaSSCmult
-    return covaNG
+    #return covaNG
+    return covaSSCmult, covaT0mult
 
 #-------------------------------------------------------------------
 def get_full_covariance(params, pgg, Pk_galaxy=None):

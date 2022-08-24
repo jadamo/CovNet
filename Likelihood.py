@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import os, sys, time, math
+import os, sys
 import torch
 from tqdm import tqdm
 from classy import Class
@@ -13,27 +13,34 @@ sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator
 from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
 import CovNet
 
-training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set/"
+training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
 data_dir =  "/home/joeadamo/Research/CovNet/Data/"
 PCA_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
-BOSS_dir = "/home/joeadamo/Research/Data/BOSS-DR12/"
 CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
 
-C_fixed = np.loadtxt("/home/joeadamo/Research/Data/CovA-survey.txt")
+use_T0 = True
 
-cosmo_prior = np.array([[66.5, 75.5],
+C_fid_file = np.load(data_dir+"Cov_Fid.npz")
+if use_T0 == True:
+    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
+else:
+    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
+
+P_fid = np.linalg.inv(C_fid)
+
+cosmo_prior = np.array([[66.0, 75.5],
                         [0.10782, 0.13178],
                         [0.0211375, 0.0233625],
-                        [1.1885e-9, 2.031e-9],#[2.4752, 3.7128],
-                        [1.806, 2.04],
-                        [-2.962, 0.458]])
+                        [2.4752, 3.7128],#[1.1885e-9, 2.031e-9],
+                        [1.9, 2.45],
+                        [-3.562, 0.551]])
 
 #                     H0,omch2, ombh2,  As,  b1,     b2
-cosmo_fid = np.array([69,0.1198,0.02225,2e-9,1.9485,-0.5387])
+cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,1.9485,-0.5387])
 
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
-redshift = 0.5
+redshift = 0.58
 
 def PCA_emulator():
     """
@@ -43,9 +50,9 @@ def PCA_emulator():
     C_PCA = np.zeros((N_C, 100, 100))
     params_PCA = np.zeros((N_C, 6))
     for i in range(N_C):
-        temp = np.load(PCA_dir+"CovA-"+f'{i:04d}'+".npz")
-        params_PCA[i] = np.delete(temp["params"], 4)
-        C_PCA[i] = torch.from_numpy(temp["C"])
+        temp = np.load(PCA_dir+"CovNG-"+f'{i:04d}'+".npz")
+        params_PCA[i] = temp["params"]
+        C_PCA[i] = temp["C"]
     
         # if the matrix doesn't match the transpose close enough, manually flip over the diagonal
         try:
@@ -54,7 +61,11 @@ def PCA_emulator():
             L = np.tril(C_PCA[i])
             U = np.tril(C_PCA[i], k=-1).T
             C_PCA[i] = L + U
-    Emu = ce.CovEmu(params_PCA, C_PCA, NPC_D=20, NPC_L=20)
+    try:
+        Emu = ce.CovEmu(params_PCA, C_PCA, NPC_D=20, NPC_L=20)
+    except np.linalg.LinAlgError:
+        print("WARNING! PCA emulator unable to initialize - input matrices aren't positive definite!")
+        Emu = None
     return Emu
 
 def CovNet_emulator():
@@ -64,9 +75,9 @@ def CovNet_emulator():
     VAE = CovNet.Network_VAE().to(CovNet.try_gpu());       VAE.eval()
     decoder = CovNet.Block_Decoder().to(CovNet.try_gpu()); decoder.eval()
     net = CovNet.Network_Features(6, 10).to(CovNet.try_gpu())
-    VAE.load_state_dict(torch.load(data_dir+'Correlation-decomp/network-VAE.params', map_location=CovNet.try_gpu()))
+    VAE.load_state_dict(torch.load(data_dir+'Non-Gaussian/network-VAE.params', map_location=CovNet.try_gpu()))
     decoder.load_state_dict(VAE.Decoder.state_dict())
-    net.load_state_dict(torch.load(data_dir+"Correlation-decomp/network-features.params", map_location=CovNet.try_gpu()))
+    net.load_state_dict(torch.load(data_dir+"Non-Gaussian/network-features.params", map_location=CovNet.try_gpu()))
 
     return decoder, net
 
@@ -94,57 +105,57 @@ def sample_prior(cosmo_prior):
     
     return theta0 
 
-def model_vector(params, gparams, pgg):
-    """
-    Calculates the model vector using Yosuke's galaxy power spectrum emulator
-    """
-    #print(params)
-    h = params[0] / 100
-    omch2 = params[1]
-    ombh2 = params[2]
-    #assert omch2 <= 0.131780
-    As = np.log(1e10 * params[3])
-    #assert As >= 2.47520
-    ns = 0.965
-    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
+# def model_vector(params, gparams, pgg):
+#     """
+#     Calculates the model vector using Yosuke's galaxy power spectrum emulator
+#     """
+#     #print(params)
+#     h = params[0] / 100
+#     omch2 = params[1]
+#     ombh2 = params[2]
+#     #assert omch2 <= 0.131780
+#     As = params[3]
+#     #assert As >= 2.47520
+#     ns = 0.965
+#     Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
     
-    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
-    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
-    redshift = 0.5
-    k = np.linspace(0.005, 0.25, 50)
-    mu = np.linspace(0.1,0.9,4)
-    alpha_perp = 1.1
-    alpha_para = 1
-
-    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
-    pgg.set_galaxy(gparams)
-    # takes ~0.28 s to run
-    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
-    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
-    return np.concatenate((P0_emu, P2_emu))
-
-# def model_vector(params, cosmo):
-#     z = 0.5
-#     cosmo.set({'A_s':params[3],
-#             'n_s':0.9649,
-#             'tau_reio':0.052,
-#             'omega_b':params[2],
-#             'omega_cdm':params[1],
-#             'h':params[0] / 100.,
-#             'YHe':0.2425,
-#             'N_ur':2.0328,
-#             'N_ncdm':1,
-#             'm_ncdm':0.06,
-#             'z_pk':z
-#             })  
+#     # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
+#     cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
+#     redshift = 0.5
 #     k = np.linspace(0.005, 0.25, 50)
-#     cosmo.compute()
-#     cosmo.initialize_output(k, z, len(k))
+#     mu = np.linspace(0.1,0.9,4)
+#     alpha_perp = 1.1
+#     alpha_para = 1
 
-#     b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
-#     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
-#     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
-#     return np.concatenate((pk_g0, pk_g2))
+#     pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
+#     pgg.set_galaxy(gparams)
+#     # takes ~0.28 s to run
+#     P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
+#     P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
+#     return np.concatenate((P0_emu, P2_emu))
+
+def model_vector(params, cosmo):
+    z = 0.58
+    cosmo.set({'A_s':np.exp(params[3])/1e10,
+            'n_s':0.9649,
+            'tau_reio':0.052,
+            'omega_b':params[2],
+            'omega_cdm':params[1],
+            'h':params[0] / 100.,
+            'YHe':0.2425,
+            'N_ur':2.0328,
+            'N_ncdm':1,
+            'm_ncdm':0.06,
+            'z_pk':z
+            })  
+    k = np.linspace(0.005, 0.25, 50)
+    cosmo.compute()
+    cosmo.initialize_output(k, z, len(k))
+
+    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
+    pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
+    return np.concatenate((pk_g0, pk_g2))
 
 def ln_prior(theta):
     for i in range(len(theta)):
@@ -152,28 +163,29 @@ def ln_prior(theta):
             return -np.inf
     return 0.
 
-def ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance):
-    C = get_covariance(decoder, net, theta) if vary_covariance else C_fixed
-    P = np.linalg.inv(C)
+def ln_lkl(theta, cosmo, data_vector, decoder, net, vary_covariance):
+    P = get_covariance(decoder, net, theta) if vary_covariance == True else P_fid
     with io.StringIO() as buf, redirect_stdout(buf):
-        x = data_vector - model_vector(theta, gparams, pgg)
-    lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
+        #x = data_vector - model_vector(theta, gparams, pgg)
+        x = data_vector - model_vector(theta, cosmo)
+    lkl = -0.5 * (x.T @ P @ x)
+    assert lkl < 0
     return lkl
 
-def ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance):
+def ln_prob(theta, cosmo, data_vector, decoder, net, vary_covariance):
     p = ln_prior(theta)
     if p != -np.inf:
-        return p + ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance)
+        return p + ln_lkl(theta, cosmo, data_vector, decoder, net, vary_covariance)
     else: return p
 
-def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance):
+def Metropolis_Hastings(theta, theta_std, N, NDIM, cosmo, data_vector, decoder, net, vary_covariance):
     """
     runs an mcmc based on metropolis hastings
     """
     acceptance_rate = np.zeros(N)
     num_accept = 0
     chain = np.zeros((N, NDIM))
-    prob_old = ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance)
+    prob_old = ln_prob(theta, cosmo, data_vector, decoder, net, vary_covariance)
     for i in tqdm(range(N)):
         # STEP 1: save current state to the chain
         chain[i] = theta
@@ -182,11 +194,11 @@ def Metropolis_Hastings(theta, theta_std, N, NDIM, pgg, data_vector, decoder, ne
         theta_new = theta + (theta_std * np.random.normal(size=(NDIM)))
 
         # STEP 3: determine if we move to the new position based on ln_prob
-        prob_new = ln_prob(theta_new, pgg, data_vector, decoder, net, vary_covariance)
-        p = np.random.rand()
+        prob_new = ln_prob(theta_new, cosmo, data_vector, decoder, net, vary_covariance)
+        p = np.random.uniform()
 
         #print(prob_new, np.exp(prob_new))
-        if p <= min(np.exp(prob_new - prob_old), 1):
+        if p < min(np.exp(prob_new - prob_old), 1):
             theta = theta_new
             num_accept += 1
 
@@ -206,11 +218,22 @@ def main():
     N    = 60000
     NDIM = 6
 
-    #P_BOSS = np.loadtxt(BOSS_dir+"Cl-BOSS-DR12.dat")
-    P0_mean_ref = np.loadtxt(CovaPT_dir+'P0_fit_Patchy.dat')
-    P2_mean_ref = np.loadtxt(CovaPT_dir+'P2_fit_Patchy.dat')
+    # Make sure that the covariance matrix we're using is positive definite
+    if vary_covariance == False:
+        try:
+            L = np.linalg.cholesky(P_fid)
+        except np.linalg.LinAlgError as err:
+            print("ERROR! Fiducial percision matrix is not positive definite! Exiting...")
+            return
+        eigen, _ = np.linalg.eig(P_fid)
+        if np.all(eigen >= 0.) == False:
+            print("ERROR! Fiducial percision matrix is not positive definite! Exiting...")
+            return
+        if np.all(P_fid != np.nan) == False:
+            print("ERROR: NaN values in the percision matrix! Exiting...")
+            return
 
-    pgg = pkmu_hod()
+    #pgg = pkmu_hod()
 
     cosmo = Class()
     # Set additional CLASS-PT settings
@@ -222,29 +245,31 @@ def main():
             'RSD':'Yes',
             'AP':'Yes', # Alcock-Paczynski effect
             'Omfid':'0.31', # fiducial Omega_m
-            'PNG':'No' # single-field inflation PNG
+            'PNG':'No', # single-field inflation PNG
+            'FFTLog mode':'FAST'
             })
 
-    Cov_emu = PCA_emulator()
+    # Setup data vector as the Pk at the fiducial cosmology
+    data_vector = model_vector(cosmo_fid, cosmo)
+
+    #Cov_emu = PCA_emulator()
     decoder, net = CovNet_emulator()
 
-    #data_vector = np.concatenate((P_BOSS[1], P_BOSS[2]))
-    data_vector = np.concatenate((P0_mean_ref, P2_mean_ref))
     theta0    = cosmo_fid
     if vary_covariance == True:
-        theta_std = np.array([1., 0.003, 0.0003, 0.04 * 2e-9, 0.03, 0.02])
+        theta_std = np.array([1., 0.003, 0.0003, 0.25, 0.03, 0.02])
         save_str = "mcmc_chains_VAE.npz"
     else: 
-        theta_std  = np.array([1., 0.003, 0.00025, 0.04 * 2e-9, 0.03, 0.05])
-        save_str = "mcmc_chains_fixed.npz"
+        theta_std  = np.array([1., 0.003, 0.0003, 0.25, 0.1, 0.2])
+        if use_T0 == True:
+            save_str = "mcmc_chains_full.npz"
+        else:
+            save_str = "mcmc_chains_no_t0.npz"
 
     # Starting position of the emcee chain
-    theta0 = theta0 + theta_std * np.random.normal(size=(NDIM))
+    theta0 = theta0 + (theta_std * np.random.normal(size=(NDIM)))
 
-    t1 = time.time()
-    chain, acceptance_rate = Metropolis_Hastings(theta0, theta_std, N, NDIM, pgg, data_vector, decoder, net, vary_covariance)
-    t2 = time.time()
-    print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
+    chain, acceptance_rate = Metropolis_Hastings(theta0, theta_std, N, NDIM, cosmo, data_vector, decoder, net, vary_covariance)
     np.savez("Data/"+save_str, chain=chain, rate=acceptance_rate)
 
 if __name__ == '__main__':
