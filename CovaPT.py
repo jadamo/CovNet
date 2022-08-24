@@ -247,9 +247,20 @@ def Pk_gg(params, pgg):
     return [P0_emu, 0, P2_emu, 0, P4_emu]
 
 #-------------------------------------------------------------------
-def Pk_CLASS_PT(params, cosmo):
+def Pk_CLASS_PT(params):
     z = 0.5
-    cosmo.set({'A_s':np.exp(params[3]) / 1e10,
+    cosmo = Class()
+    cosmo.set({'output':'mPk',
+            'non linear':'PT',
+            'IR resummation':'Yes',
+            'Bias tracers':'Yes',
+            'cb':'Yes', # use CDM+baryon spectra
+            'RSD':'Yes',
+            'AP':'Yes', # Alcock-Paczynski effect
+            'Omfid':'0.31', # fiducial Omega_m
+            'PNG':'No', # single-field inflation PNG
+            'FFTLog mode':'FAST',
+            'A_s':np.exp(params[3])/1e10,
             'n_s':0.9649,
             'tau_reio':0.052,
             'omega_b':params[2],
@@ -260,7 +271,7 @@ def Pk_CLASS_PT(params, cosmo):
             'N_ncdm':1,
             'm_ncdm':0.06,
             'z_pk':z
-            })  
+            })
     k = np.linspace(0.005, 0.25, 50)
     cosmo.compute()
     cosmo.initialize_output(k, z, len(k))
@@ -269,6 +280,8 @@ def Pk_CLASS_PT(params, cosmo):
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
+    # Ths line is necesary to prevent memory leaks
+    cosmo.struct_cleanup()
     return [pk_g0, 0, pk_g2, 0, pk_g4]
 
 #-------------------------------------------------------------------
