@@ -285,14 +285,14 @@ def Pk_CLASS_PT(params):
     return [pk_g0, 0, pk_g2, 0, pk_g4]
 
 #-------------------------------------------------------------------
-def get_gaussian_covariance(params, pgg=None, Pk_galaxy=None):
+def get_gaussian_covariance(params, pgg=None, Pk_galaxy=[]):
     """
     Returns the (Monopole+Quadrupole) Gaussian covariance matrix
     If Pk_galaxy is already calculated, takes ~10 ms to run
     Else, takes ~0.5 s
     """
     # generate galaxy redshift-space power spectrum if necesary
-    if Pk_galaxy == None:
+    if len(Pk_galaxy) == []:
         if pgg == None: pgg = pkmu_hod()
         H0, omch2, ombh2, As = params[0], params[1], params[2], params[3]
         Pk_galaxy = Pk_gg(H0, omch2, ombh2, As, pgg)
