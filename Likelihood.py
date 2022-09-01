@@ -308,7 +308,7 @@ def main():
         if use_T0 == True:
             save_str = "mcmc_chains_T0.npz"
         else:
-            save_str = "mcmc_chains_no_t0.npz"
+            save_str = "mcmc_chains_no_T0.npz"
 
     # Starting position of the emcee chain
     #theta0 = cosmo_fid + (theta_std * np.random.normal(size=(NDIM)))

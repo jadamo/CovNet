@@ -248,7 +248,7 @@ def Pk_gg(params, pgg):
 
 #-------------------------------------------------------------------
 def Pk_CLASS_PT(params):
-    z = 0.5
+    z = 0.58
     cosmo = Class()
     cosmo.set({'output':'mPk',
             'non linear':'PT',
@@ -292,10 +292,10 @@ def get_gaussian_covariance(params, pgg=None, Pk_galaxy=[]):
     Else, takes ~0.5 s
     """
     # generate galaxy redshift-space power spectrum if necesary
-    if len(Pk_galaxy) == []:
+    if len(Pk_galaxy) == 0:
         if pgg == None: pgg = pkmu_hod()
-        H0, omch2, ombh2, As = params[0], params[1], params[2], params[3]
-        Pk_galaxy = Pk_gg(H0, omch2, ombh2, As, pgg)
+        #H0, omch2, ombh2, As = params[0], params[1], params[2], params[3]
+        Pk_galaxy = Pk_CLASS_PT(params)
 
     covMat=np.zeros((2*kbins,2*kbins))
     for i in range(kbins):

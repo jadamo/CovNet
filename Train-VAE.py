@@ -7,27 +7,25 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 49500
+N = 43000
 #N = 20000
 
 # wether to train using the log of the matrix
 train_log = True
-# wether to train using the percision matrix instead - NOT YET IMPLIMENTED
-train_inverse = False
 # wether or not to train with the correlation matrix + diagonal
 train_correlation = False
 # wether or not to train with the Cholesky decomposition
-train_cholesky = False
-train_quadrants = False
+train_cholesky = True
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
-save_dir = "/home/joeadamo/Research/CovNet/Data/Non-Gaussian/"
+if train_cholesky: save_dir = "/home/joeadamo/Research/CovNet/Data/Cholesky-decomp/"
+else: save_dir = "/home/joeadamo/Research/CovNet/Data/Non-Gaussian/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.2
+BETA = 0.001
 
 # Standard normal distribution
 def init_normal(m):
@@ -47,6 +45,9 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
     """
     Train the VAE network
     """
+    # Keep track of the best validation loss for early stopping
+    best_loss = 1e10
+    worse_epochs = 0
 
     train_loss = torch.zeros([num_epochs])
     valid_loss = torch.zeros([num_epochs])
@@ -89,6 +90,21 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
         if avg_valid_KLD < 1e-7:
             print("WARNING! KLD term is close to 0, indicating potential posterior collapse!")
+
+        # save the network if the validation loss improved, else stop early if there hasn't been
+        # improvement for 5 epochs
+        if valid_loss[epoch] < best_loss:
+            best_loss = valid_loss[epoch]
+            torch.save(train_loss, save_dir+"train_loss.dat")
+            torch.save(valid_loss, save_dir+"valid_loss.dat")
+            torch.save(net.state_dict(), save_dir+'network-VAE.params')
+            worse_epochs = 0
+        else:
+            worse_epochs+=1
+        if worse_epochs == 5:
+            print("Validation loss hasn't improved for 5 epochs, stopping...")
+            break
+
     return net, train_loss, valid_loss
 
 def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
@@ -137,10 +153,9 @@ def main():
     print("Training VAE net: features net:      [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     assert not (train_correlation == True and train_cholesky == True), "Cannot train with correlation and cholesky decompositions simultaneously"
-    assert train_quadrants == False, " WARNING: train_quadrants set to true, use seperate file to use this option."
 
     batch_size = 50
-    lr = 0.002
+    lr = 0.001
     lr_2 = 0.008
     num_epochs = 60
     num_epochs_2 = 130
@@ -176,11 +191,6 @@ def main():
         net, train_loss, valid_loss = train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader)
         t2 = time.time()
         print("Done training VAE!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
-
-        # Save the network and loss data to disk
-        torch.save(train_loss, save_dir+"train_loss.dat")
-        torch.save(valid_loss, save_dir+"valid_loss.dat")
-        torch.save(net.state_dict(), save_dir+'network-VAE.params')
 
     # next, train the secondary network with the features from the VAE as the output
     if do_features:
@@ -220,9 +230,9 @@ def main():
         t2 = time.time()
         print("Done training feature net!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
-        torch.save(train_loss, save_dir+"train_loss-features.dat")
-        torch.save(valid_loss, save_dir+"valid_loss-features.dat")
-        torch.save(net_2.state_dict(), save_dir+'network-features.params')
+        torch.save(train_loss, save_dir+"train_loss-latent.dat")
+        torch.save(valid_loss, save_dir+"valid_loss-latent.dat")
+        torch.save(net_2.state_dict(), save_dir+'network-latent.params')
 
 if __name__ == "__main__":
     main()

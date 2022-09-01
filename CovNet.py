@@ -243,10 +243,13 @@ class MatrixDataset(torch.utils.data.Dataset):
 
             # Load in the data from file
             idx = i + offset
-            data = np.load(data_dir+"CovNG-"+f'{idx:05d}'+".npz")
+            data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
             self.params[i] = torch.from_numpy(data["params"])
             #self.params[i] = torch.from_numpy(data["params"])
-            self.matrices[i] = torch.from_numpy(data["C"])
+            if self.cholesky:
+                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_NG"])
+            else:
+                self.matrices[i] = torch.from_numpy(data["C_NG"])
 
             if train_correlation:
                 # the diagonal for correlation matrices is 1 everywhere, so let's store the diagonal there
@@ -257,6 +260,7 @@ class MatrixDataset(torch.utils.data.Dataset):
                 self.matrices[i] = self.matrices[i] + (symmetric_log(D) - torch.eye(100).to(try_gpu()))
 
             if train_cholesky:
+                #self.matrices[i] = torch.linalg.inv(self.matrices[i])
                 self.matrices[i] = torch.linalg.cholesky(self.matrices[i])
 
             if train_log == True and train_correlation == False:
