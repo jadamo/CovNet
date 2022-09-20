@@ -16,8 +16,8 @@ from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
 
-#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 import T0
 
 #-------------------------------------------------------------------
@@ -25,7 +25,7 @@ import T0
 #-------------------------------------------------------------------
 
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
-home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-NG/"
+home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-HighZ-NGC/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
@@ -49,7 +49,7 @@ powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
 # Number of matrices to make
 N = 75000
 # Number of processors to use
-N_PROC = 96
+N_PROC = 94
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
@@ -125,7 +125,7 @@ def Pk_lin(H0, ombh2, omch2, As, ns, z):
     pdata = np.vstack((kh, pk[0])).T
     return pdata, s8
 
-def pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
+def Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
     cosmo = Class()
     cosmo.set({'output':'mPk',
             'non linear':'PT',
@@ -347,9 +347,9 @@ def CovAnalytic(H0, Omega_m, ombh2, omch2, As, ns, z, b1, b2, b3, be, g2, g3, g2
     # Get initial power spectrum
     pdata, s8 = Pk_lin(H0, ombh2, omch2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
-    Pk_galaxy = Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z)
+    Pk_g = Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z)
     # Calculate the covariance
-    covaG  = CovMatGauss(Pk_galaxy)
+    covaG  = CovMatGauss(Pk_g)
     covaNG = CovMatNonGauss(Plin, be,b1,b2,g2)
 
     covAnl=covaG+covaNG
@@ -384,7 +384,7 @@ def main():
     assert N % size == 0
     offset = int((N / size) * rank)
     data_len = int(N / size)
-    data = np.loadtxt("Sample-params-PCA.txt", skiprows=1+offset, max_rows = data_len)
+    data = np.loadtxt("Sample-params.txt", skiprows=1+offset, max_rows = data_len)
     # send_chunk = None
     # if rank == 0:
     #     send_data = np.loadtxt("Sample-params.txt", skiprows=1)
