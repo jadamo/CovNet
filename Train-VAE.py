@@ -12,20 +12,21 @@ N = 43000
 
 # wether to train using the log of the matrix
 train_log = True
-# wether or not to train with the correlation matrix + diagonal
-train_correlation = False
+# wether or not to train on just the gaussian covariance (this is a test)
+train_gaussian = True
 # wether or not to train with the Cholesky decomposition
 train_cholesky = True
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
-if train_cholesky: save_dir = "/home/joeadamo/Research/CovNet/Data/Cholesky-decomp/"
+if train_gaussian == True:   save_dir = "/home/joeadamo/Research/CovNet/Data/Gaussian/"
+elif train_cholesky == True: save_dir = "/home/joeadamo/Research/CovNet/Data/Cholesky-decomp/"
 else: save_dir = "/home/joeadamo/Research/CovNet/Data/Non-Gaussian/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.001
+BETA = 0.005
 
 # Standard normal distribution
 def init_normal(m):
@@ -76,7 +77,8 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         net.eval()
         avg_valid_loss = 0.
         avg_valid_KLD = 0.
-        for params, matrix in valid_loader:
+        for (i, batch) in enumerate(valid_loader):
+            params = batch[0]; matrix = batch[1]
             prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
             #prediction = prediction.view(batch_size, 100, 100)
             loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
@@ -101,16 +103,18 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
             worse_epochs = 0
         else:
             worse_epochs+=1
-        if worse_epochs == 5:
-            print("Validation loss hasn't improved for 5 epochs, stopping...")
+        if epoch > 15 and worse_epochs >= 12:
+            print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
             break
 
-    return net, train_loss, valid_loss
+    return
 
-def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
+def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
     """
     Train the features network
     """
+    best_loss = 1e10
+    worse_epochs = 0
 
     train_loss = torch.zeros([num_epochs])
     valid_loss = torch.zeros([num_epochs])
@@ -132,8 +136,6 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
         # run through the validation set
         net.eval()
         avg_valid_loss = 0.
-        min_val = 1e30; max_val = -1e10
-        min_pre = 1e30; max_pre = -1e10
         for params, matrix, features in valid_loader:
             prediction = net(params)
             loss = CovNet.features_loss(prediction, features)
@@ -142,23 +144,33 @@ def train_features(net, num_epochs, optimizer, train_loader, valid_loader):
         # Aggregate loss information
         train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
         valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
-    return net, train_loss, valid_loss
+
+        if valid_loss[epoch] < best_loss:
+            best_loss = valid_loss[epoch]
+            torch.save(train_loss, save_dir+"train_loss-latent.dat")
+            torch.save(valid_loss, save_dir+"valid_loss-latent.dat")
+            torch.save(net.state_dict(), save_dir+'network-latent.params')
+            worse_epochs = 0
+        else:
+            worse_epochs+= 1
+        if epoch > 30 and worse_epochs >= 20:
+            print("Validation loss hasn't improved for", worse_epochs, "epochs. Stopping...")
+            break
 
 def main():
 
     #print("Training with inverse matrices:       " + str(train_inverse))
-    print("Training with correlation matrices:   " + str(train_correlation))
+    #print("Training with correlation matrices:   " + str(train_correlation))
     print("Training with log matrices:           " + str(train_log))
     print("Training with cholesky decomposition: " + str(train_cholesky))
+    print("Training with just gaussian term:     " + str(train_gaussian))
     print("Training VAE net: features net:      [" + str(do_VAE) + ", " + str(do_features) + "]")
 
-    assert not (train_correlation == True and train_cholesky == True), "Cannot train with correlation and cholesky decompositions simultaneously"
-
     batch_size = 50
-    lr = 0.001
+    lr = 0.0025
     lr_2 = 0.008
-    num_epochs = 60
-    num_epochs_2 = 130
+    num_epochs = 70
+    num_epochs_2 = 200
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
@@ -176,29 +188,26 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, train_log, train_correlation, train_cholesky)
-    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, train_log, train_correlation, train_cholesky)
+    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, train_log, train_gaussian, train_cholesky)
+    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, train_log, train_gaussian, train_cholesky)
     
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
     t2 = time.time()
     print("Done loading in data, took {:0.2f} s".format(t2 - t1))
-    #train_in, train_out, test_in, test_out = read_training_set(training_dir, 0.8)
 
-    # Train the network!
+    # Train the network! Progress is saved to file within the function
     if do_VAE:
         t1 = time.time()
-        net, train_loss, valid_loss = train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader)
+        train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader)
         t2 = time.time()
         print("Done training VAE!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
     # next, train the secondary network with the features from the VAE as the output
     if do_features:
-        # If train_net is false, assume we already trained the VAE net and load it in
-        if do_VAE == False:
-            net = CovNet.Network_VAE()
-            net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
 
+        # In case the network went thru early stopping, reload the net that was saved to file
+        net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
         # separate encoder and decoders
         encoder = CovNet.Block_Encoder().to(CovNet.try_gpu())
         decoder = CovNet.Block_Decoder(train_cholesky).to(CovNet.try_gpu())
@@ -226,13 +235,9 @@ def main():
 
         # train the secondary network!
         t1 = time.time()
-        net_2, train_loss, valid_loss = train_features(net_2, num_epochs_2, optimizer_2, train_loader, valid_loader)
+        train_latent(net_2, num_epochs_2, optimizer_2, train_loader, valid_loader)
         t2 = time.time()
         print("Done training feature net!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
-
-        torch.save(train_loss, save_dir+"train_loss-latent.dat")
-        torch.save(valid_loss, save_dir+"valid_loss-latent.dat")
-        torch.save(net_2.state_dict(), save_dir+'network-latent.params')
 
 if __name__ == "__main__":
     main()

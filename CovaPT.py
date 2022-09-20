@@ -285,7 +285,7 @@ def Pk_CLASS_PT(params):
     return [pk_g0, 0, pk_g2, 0, pk_g4]
 
 #-------------------------------------------------------------------
-def get_gaussian_covariance(params, pgg=None, Pk_galaxy=[]):
+def get_gaussian_covariance(params, Pk_galaxy=[]):
     """
     Returns the (Monopole+Quadrupole) Gaussian covariance matrix
     If Pk_galaxy is already calculated, takes ~10 ms to run
@@ -293,7 +293,7 @@ def get_gaussian_covariance(params, pgg=None, Pk_galaxy=[]):
     """
     # generate galaxy redshift-space power spectrum if necesary
     if len(Pk_galaxy) == 0:
-        if pgg == None: pgg = pkmu_hod()
+        #if pgg == None: pgg = pkmu_hod()
         #H0, omch2, ombh2, As = params[0], params[1], params[2], params[3]
         Pk_galaxy = Pk_CLASS_PT(params)
 
@@ -309,6 +309,70 @@ def get_gaussian_covariance(params, pgg=None, Pk_galaxy=[]):
     covMat[:kbins,kbins:kbins*2]=np.transpose(covMat[kbins:kbins*2,:kbins])
     covMat=(covMat+np.transpose(covMat))/2.
     return(covMat)
+
+def get_SSC_covariance(params):
+    # unpack parameters
+    H0, omch2, ombh2, As, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5]
+    Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
+    # Below are expressions for non-local bias (g_i) from local lagrangian approximation
+    # and non-linear bias (b_i) from peak-background split fit of 
+    # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
+    # which could used if those parameters aren't constrained.
+    g2 = -2/7*(b1 - 1)
+    g3 = 11/63*(b1 - 1)
+    #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
+    g2x = -2/7*b2
+    g21 = -22/147*(b1 - 1)
+    b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
+    
+    # ---Bias and survey parameters---
+    z = 0.58 #mean redshift of the high-Z chunk
+    be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
+
+    # initializing bias parameters for trispectrum
+    T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
+
+    # Get initial power spectrum
+    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
+    Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
+
+    # Get the derivativee of the linear power spectrum
+    dlnPk=derivative(Plin,k,dx=1e-4)*k/Plin(k)
+    
+    # Kaiser terms
+    rsd=np.zeros(5)
+    rsd[0]=1 + (2*be)/3 + be**2/5
+    rsd[2]=(4*be)/3 + (4*be**2)/7
+    rsd[4]=(8*be**2)/35
+    
+    # Calculating the RMS fluctuations of supersurvey modes 
+    #(e.g., sigma22Sq which was defined in Eq. (33) and later calculated in Eq.(65)
+    kwin = powW22[:,0]
+    [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
+    for i in range(9):
+        Pwin=InterpolatedUnivariateSpline(kwin, powW22x10[:,1+i])
+        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
+
+        if(i<6):
+            Pwin=InterpolatedUnivariateSpline(kwin, powW22[:,1+i])
+            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
+            Pwin=InterpolatedUnivariateSpline(kwin, powW10[:,1+i])
+            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
+        else:
+            continue
+    
+    sigma22Sq = MatrixForm(temp); sigma10Sq = MatrixForm(temp2); sigma22x10 = MatrixForm(temp3)
+  
+    # Calculate the LA term
+    covaLAterm = CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2)
+    
+    covaSSCmult=np.zeros((2*kbins,2*kbins))
+    covaSSCmult[:kbins,:kbins]=covaSSC(0,0, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
+    covaSSCmult[kbins:,kbins:]=covaSSC(2,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
+    covaSSCmult[:kbins,kbins:]=covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
+    covaSSCmult[kbins:,:kbins]=np.transpose(covaSSCmult[:kbins,kbins:])
+
+    return covaSSCmult
 
 #-------------------------------------------------------------------
 def get_non_gaussian_covariance(params):

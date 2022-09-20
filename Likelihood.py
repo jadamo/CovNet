@@ -19,9 +19,9 @@ data_dir =  "/home/joeadamo/Research/CovNet/Data/"
 PCA_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
 
-use_T0 = False
+use_T0 = True
 
-C_fid_file = np.load(data_dir+"Cov_Fid.npz")
+C_fid_file = np.load(data_dir+"Cov_Fid_Far.npz")
 if use_T0 == True:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
 else:
@@ -73,21 +73,37 @@ def CovNet_emulator():
     """
     Returns a neural net covariance matrix emulator
     """
-    VAE = CovNet.Network_VAE().to(CovNet.try_gpu());       VAE.eval()
-    decoder = CovNet.Block_Decoder().to(CovNet.try_gpu()); decoder.eval()
+    VAE = CovNet.Network_VAE(True).to(CovNet.try_gpu());       VAE.eval()
+    decoder = CovNet.Block_Decoder(True).to(CovNet.try_gpu()); decoder.eval()
     net = CovNet.Network_Features(6, 10).to(CovNet.try_gpu())
-    VAE.load_state_dict(torch.load(data_dir+'Non-Gaussian/network-VAE.params', map_location=CovNet.try_gpu()))
+    VAE.load_state_dict(torch.load(data_dir+'Gaussian/network-VAE.params', map_location=CovNet.try_gpu()))
     decoder.load_state_dict(VAE.Decoder.state_dict())
-    net.load_state_dict(torch.load(data_dir+"Non-Gaussian/network-features.params", map_location=CovNet.try_gpu()))
+    net.load_state_dict(torch.load(data_dir+"Gaussian/network-latent.params", map_location=CovNet.try_gpu()))
 
     return decoder, net
 
 def get_covariance(decoder, net, theta, model_vector):
     # first convert theta to the format expected by our emulators
-    params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
-    #features = net(params); C = decoder(features.view(1,10)).view(100, 100)
-    #C = CovNet.corr_to_cov(C).cpu().detach().numpy()
-    C = CovaPT.get_gaussian_covariance(params, Pk_galaxy=model_vector)
+    params = torch.tensor([theta[0], theta[1], theta[2], theta[3], theta[4], theta[5]]).float()
+    L = decoder(net(params).view(1,10)).view(100, 100)
+    assert not True in torch.isnan(L)
+    L = CovNet.symmetric_exp(L).detach().numpy()
+    C = np.matmul(L, L.T)
+    # C_NG = CovNet.symmetric_exp(L).detach().numpy()
+    # C_G = CovaPT.get_gaussian_covariance(params, model_vector)
+    # C = C_G + C_NG
+
+    # C_G = CovaPT.get_gaussian_covariance(theta, model_vector)
+    # C_SSC = CovaPT.get_SSC_covariance(theta)
+    # C = C_G + C_SSC
+
+    try:
+        L_2 = np.linalg.cholesky(C)
+    except:
+        print("ERROR! Matrix is not positive definite, exiting...")
+        assert 1 == 0, str(np.amin(C)) + ", " + str(np.amax(C)) + "," + str(params)
+
+    #C = CovaPT.get_gaussian_covariance(params, Pk_galaxy=model_vector)
     return np.linalg.inv(C)
 
 # def get_covariance(Emu, theta):
@@ -302,13 +318,15 @@ def main():
               [ 0.32942287451610086, -0.0009761931827464128, -2.247309703905299e-05, -0.015881071905738654, 0.011983121703152919, 0.056923623813101225, ]]
 
     if vary_covariance == True:
-        save_str = "mcmc_chains_Gaussian_Varied.npz"
+        save_str = "mcmc_chains_G_emulate_Varied.npz"
     else: 
         #theta_std  = np.array([0.5, 0.001, 0.0001, 0.1, 0.05, 0.1])
         if use_T0 == True:
-            save_str = "mcmc_chains_T0.npz"
+            save_str = "mcmc_chains_Fixed_Far.npz"
         else:
             save_str = "mcmc_chains_no_T0.npz"
+
+    print(save_str)
 
     # Starting position of the emcee chain
     #theta0 = cosmo_fid + (theta_std * np.random.normal(size=(NDIM)))
