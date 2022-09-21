@@ -104,7 +104,7 @@ def fgrowth(z,Om0):
                   /( 11*Om0*(1+z)**3*scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3) ))
 
 #-------------------------------------------------------------------
-def Pk_lin(H0, ombh2, omch2, As, ns, z):
+def Pk_lin(H0, omch2, ombh2, As, ns, z):
     """
     Generates a linear initial power spectrum from CAMB
     """
@@ -113,17 +113,16 @@ def Pk_lin(H0, ombh2, omch2, As, ns, z):
     pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
     pars.InitPower.set_params(ns=ns, As=np.exp(As)/1e10)
     #Note non-linear corrections couples to smaller scales than you want
-    pars.set_matter_power(redshifts=[z], kmax=0.25)
+    pars.set_matter_power(redshifts=[z], kmax=0.4)
 
     #Linear spectra
     pars.NonLinear = model.NonLinear_none
     results = camb.get_results(pars)
     # k bins will be interpolated to what we want later, so it's "ok" if this isn't exact
-    kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.25, npoints = 100)
-    s8 = np.array(results.get_sigma8())
+    kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.405, npoints = 100)
     
     pdata = np.vstack((kh, pk[0])).T
-    return pdata, s8
+    return pdata
 
 def Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
     cosmo = Class()
@@ -345,7 +344,7 @@ def CovAnalytic(H0, Omega_m, ombh2, omch2, As, ns, z, b1, b2, b3, be, g2, g3, g2
     #num_matrices = 0; tmin = 1e10; tmax = 0
     #while t2 - t1 < 60*60*24:
     # Get initial power spectrum
-    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, ns, z)
+    pdata = Pk_lin(H0, ombh2, omch2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
     Pk_g = Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z)
     # Calculate the covariance
