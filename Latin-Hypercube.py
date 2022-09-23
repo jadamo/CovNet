@@ -9,7 +9,6 @@ def main():
 
     args = sys.argv[1:]
     N = int(args[0])
-    ranks = int(args[1])
 
     # bounds taken from table 8 of Wadekar et al 2020 (mean value +- 3x 1sigma interval)
     # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf table 1, 
@@ -19,7 +18,7 @@ def main():
     As_bounds    = [2.4, 3.8]     # Amplitude of Primordial Power spectrum <- double check this look at planck 1sigma range
     ns_bounds    = [0.94, 0.99]   # Spectral index
     ombh2_bounds = [0.02, 0.025]  # Omega b h^2
-    omch2_bounds = [0.1, 0.16]    # Omega_cdm h^2
+    omch2_bounds = [0.09, 0.15]   # Omega_cdm h^2
     b1_bounds    = [1.7, 2.45]    # Linear bias
     b2_bounds    = [-3.5, 0.75]   # non-linear bias?
 
@@ -41,7 +40,7 @@ def main():
     data = np.vstack((H0, As, ns, omch2, ombh2, b1, b2)).T
 
     np.savetxt("Sample-params.txt", data, header=header_str)
-    print("Saved " + str(N) + " sets of parameters to " + str(ranks) + " files")
+    print("Saved " + str(N) + " sets of parameters")
 
 if __name__ == "__main__":
     main()

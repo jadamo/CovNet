@@ -9,9 +9,7 @@ from scipy.misc import derivative
 import camb
 from camb import model, initialpower
 from classy import Class
-#from ctypes import c_double, c_int, cdll, byref
-#sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
-#from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
+
 from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
@@ -34,9 +32,10 @@ home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-HighZ-NGC/"
 # The survey window used throughout this code is BOSS NGC-highZ (0.5<z<0.75)
 WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 
+#k = np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 # k ranges from 0 - 0.4 h/Mpc with bin spacing of 0.01
-#k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 k = np.linspace(0.005, 0.395, 40); kbins=len(k)
+
 # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
 # These are needed to calculate the sigma^2 terms
 # Columns are k P00 P02 P04 P22 P24 P44 Nmodes
@@ -108,18 +107,18 @@ def Pk_lin(H0, omch2, ombh2, As, ns, z):
     """
     Generates a linear initial power spectrum from CAMB
     """
-    #get matter power spectra and sigma8 at the redshift we want
+    #get matter power spectra at the redshift we want
     pars = camb.CAMBparams()
     pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
     pars.InitPower.set_params(ns=ns, As=np.exp(As)/1e10)
     #Note non-linear corrections couples to smaller scales than you want
-    pars.set_matter_power(redshifts=[z], kmax=0.4)
+    pars.set_matter_power(redshifts=[z], kmax=np.amax(k))
 
     #Linear spectra
     pars.NonLinear = model.NonLinear_none
     results = camb.get_results(pars)
     # k bins will be interpolated to what we want later, so it's "ok" if this isn't exact
-    kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.405, npoints = 100)
+    kh, z1, pk = results.get_matter_power_spectrum(minkh=np.amin(k), maxkh=np.amax(k), npoints = 100)
     
     pdata = np.vstack((kh, pk[0])).T
     return pdata
@@ -135,12 +134,11 @@ def Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
             'AP':'Yes', # Alcock-Paczynski effect
             'Omfid':'0.31', # fiducial Omega_m
             'PNG':'No', # single-field inflation PNG
-            'FFTLog mode':'FAST',
             'A_s':np.exp(As)/1e10,
             'n_s':ns,
             'tau_reio':0.052,
-            'omega_b':omch2,
-            'omega_cdm':ombh2,
+            'omega_b':ombh2,
+            'omega_cdm':omch2,
             'h':H0 / 100.,
             'YHe':0.2425,
             'N_ur':2.0328,
@@ -148,11 +146,10 @@ def Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
             'm_ncdm':0.06,
             'z_pk':z
             })  
-    k = np.linspace(0.005, 0.395, 40)
     cosmo.compute()
     cosmo.initialize_output(k, z, len(k))
 
-    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = b1, b2, 0.1, -0.1, 0., 30., 0., 3000., 10.
+    bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = 0.1, -0.1, 0., 30., 0., 3000., 10.
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
@@ -332,7 +329,7 @@ def CovMatNonGauss(Plin, be,b1,b2,g2):
     covaNG=covaT0mult+covaSSCmult
     return covaNG
 
-def CovAnalytic(H0, Omega_m, ombh2, omch2, As, ns, z, b1, b2, b3, be, g2, g3, g2x, g21, i):
+def CovAnalytic(H0, Omega_m, omch2, ombh2, As, ns, z, b1, b2, b3, be, g2, g3, g2x, g21, i):
     """
     Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
     in parallel.
@@ -341,10 +338,8 @@ def CovAnalytic(H0, Omega_m, ombh2, omch2, As, ns, z, b1, b2, b3, be, g2, g3, g2
     # initializing bias parameters for trispectrum
     T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
-    #num_matrices = 0; tmin = 1e10; tmax = 0
-    #while t2 - t1 < 60*60*24:
     # Get initial power spectrum
-    pdata = Pk_lin(H0, ombh2, omch2, As, ns, z)
+    pdata = Pk_lin(H0, omch2, ombh2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
     Pk_g = Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z)
     # Calculate the covariance
@@ -384,16 +379,8 @@ def main():
     offset = int((N / size) * rank)
     data_len = int(N / size)
     data = np.loadtxt("Sample-params.txt", skiprows=1+offset, max_rows = data_len)
-    # send_chunk = None
-    # if rank == 0:
-    #     send_data = np.loadtxt("Sample-params.txt", skiprows=1)
-    #     send_chunk = np.array_split(send_data, size, axis=0)
-    # data = np.empty((int(N/size),6), dtype=np.float64)
-    # data = comm.scatter(send_chunk, root=0)
-    #comm.Scatter([send_chunk, MPI.DOUBLE], [data, MPI.DOUBLE], root=0)
 
     # ---Cosmology parameters---
-    #Omega_m = data[:,0]
     H0 = data[:,0]
     As = data[:,1]
     ns = data[:,2]
@@ -420,18 +407,13 @@ def main():
     
     # split up workload to different nodes
     i = np.arange(offset, offset+data_len, dtype=np.int)
-    # send_i = np.empty(N, dtype=np.int)
-    # if rank == 0:
-    #     send_i = np.arange(N, dtype=np.int)
-    #     send_chunk = np.array_split(send_i, size, axis=0)
-    # i = np.empty(int(N / size), dtype=np.int)
-    # i = comm.scatter(send_chunk, root=0)
 
     #pgg = pkmu_hod()
     # initialize pool for multiprocessing
+    print("Rank", rank, "beginning matrix calculations...")
     t1 = time.time()
     with Pool(processes=N_PROC) as pool:
-        pool.starmap(CovAnalytic, zip(H0, Omega_m, ombh2, omch2, As, ns,
+        pool.starmap(CovAnalytic, zip(H0, Omega_m, omch2, ombh2, As, ns,
                                       repeat(z), b1, b2, b3, be, b2, g3, g2x, g21, i))
         #(H0, Pfit, Omega_m, ombh2, omch2, z, b1, b2, b3, be, g2, g3, g2x, g21)
     t2 = time.time()
