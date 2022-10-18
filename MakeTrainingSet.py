@@ -120,7 +120,7 @@ def Pk_lin(H0, omch2, ombh2, As, ns, z):
     pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
     pars.InitPower.set_params(ns=ns, As=np.exp(As)/1e10)
     #Note non-linear corrections couples to smaller scales than you want
-    pars.set_matter_power(redshifts=[z], kmax=np.amax(k))
+    pars.set_matter_power(redshifts=[z], kmax=0.25)
 
     #Linear spectra
     pars.NonLinear = model.NonLinear_none
@@ -153,8 +153,14 @@ def Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
             'N_ncdm':1,
             'm_ncdm':0.06,
             'z_pk':z
-            })  
-    cosmo.compute()
+            })
+    try:  
+        cosmo.compute()
+    except:
+        print("cosmo compute failed! Maybe tried to calculate outside acceptable parameter range?")
+        print(H0, omch2, ombh2, As, ns, b1, b2, z)
+        return []
+
     cosmo.initialize_output(k, z, len(k))
 
     bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = 0.1, -0.1, 0., 30., 0., 3000., 10.

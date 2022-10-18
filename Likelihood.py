@@ -15,7 +15,6 @@ import CovNet, CovaPT
 sys.path.append('/home/joeadamo/Research/Software')
 from pk_tools import pk_tools
 
-training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
 data_dir =  "/home/joeadamo/Research/CovNet/Data/"
 PCA_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
