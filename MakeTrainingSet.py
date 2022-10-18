@@ -396,10 +396,10 @@ def main():
 
     # ---Cosmology parameters---
     H0 = data[:,0]
-    A = data[:,1]
-    ns = data[:,2]
-    omch2 = data[:,3]
-    ombh2 = data[:,4]
+    omch2 = data[:,1]
+    ombh2 = data[:,2]
+    A = data[:,3]
+    ns = data[:,4]
     b1_A = data[:,5]
     b2_A = data[:,6]
 
