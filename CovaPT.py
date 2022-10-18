@@ -30,9 +30,8 @@ dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 # The survey window used throughout this code is BOSS NGC-highZ (0.5<z<0.75)
 WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 
-# Include here the theory power spectrum best-fitted to the survey data
-# Currently I'm using here the Patchy output to show the comparison with mock catalogs later
-k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
+#k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
+k = np.linspace(0.005, 0.395, 40); kbins=len(k)
 
 # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
 # These are needed to calculate the sigma^2 terms
@@ -97,26 +96,25 @@ def fgrowth(z,Om0):
                   /( 11*Om0*(1+z)**3*scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3) ))
 
 #-------------------------------------------------------------------
-def Pk_lin(H0, ombh2, omch2, As, z):
+def Pk_lin(H0, omch2, ombh2, As, ns, z):
     """
     Generates a linear initial power spectrum from CAMB
     """
     #get matter power spectra and sigma8 at the redshift we want
     pars = camb.CAMBparams()
     pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
-    pars.InitPower.set_params(ns=0.965, As=np.exp(As)/1e10)
+    pars.InitPower.set_params(ns=ns, As=np.exp(As)/1e10)
     #Note non-linear corrections couples to smaller scales than you want
-    pars.set_matter_power(redshifts=[z], kmax=0.25)
+    pars.set_matter_power(redshifts=[z], kmax=0.4)
 
     #Linear spectra
     pars.NonLinear = model.NonLinear_none
     results = camb.get_results(pars)
     # k bins will be interpolated to what we want later, so it's "ok" if this isn't exact
-    kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.25, npoints = 100)
-    s8 = np.array(results.get_sigma8())
+    kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.4, npoints = 100)
     
     pdata = np.vstack((kh, pk[0])).T
-    return pdata, s8
+    return pdata
 
 #-------------------------------------------------------------------
 def trispIntegrand(u12,k1,k2,Plin):
@@ -248,7 +246,7 @@ def Pk_gg(params, pgg):
 
 #-------------------------------------------------------------------
 def Pk_CLASS_PT(params):
-    z = 0.58
+    z = 0.61
     cosmo = Class()
     cosmo.set({'output':'mPk',
             'non linear':'PT',
@@ -261,7 +259,7 @@ def Pk_CLASS_PT(params):
             'PNG':'No', # single-field inflation PNG
             'FFTLog mode':'FAST',
             'A_s':np.exp(params[3])/1e10,
-            'n_s':0.9649,
+            'n_s':params[4],
             'tau_reio':0.052,
             'omega_b':params[2],
             'omega_cdm':params[1],
@@ -272,11 +270,11 @@ def Pk_CLASS_PT(params):
             'm_ncdm':0.06,
             'z_pk':z
             })
-    k = np.linspace(0.005, 0.25, 50)
+    k = np.linspace(0.005, 0.395, 400)
     cosmo.compute()
     cosmo.initialize_output(k, z, len(k))
 
-    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[5], params[6], 0.1, -0.1, 0., 30., 0., 3000., 10.
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
@@ -293,8 +291,6 @@ def get_gaussian_covariance(params, Pk_galaxy=[]):
     """
     # generate galaxy redshift-space power spectrum if necesary
     if len(Pk_galaxy) == 0:
-        #if pgg == None: pgg = pkmu_hod()
-        #H0, omch2, ombh2, As = params[0], params[1], params[2], params[3]
         Pk_galaxy = Pk_CLASS_PT(params)
 
     covMat=np.zeros((2*kbins,2*kbins))
@@ -312,7 +308,7 @@ def get_gaussian_covariance(params, Pk_galaxy=[]):
 
 def get_SSC_covariance(params):
     # unpack parameters
-    H0, omch2, ombh2, As, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5]
+    H0, omch2, ombh2, As, ns, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5], params[6]
     Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
     # and non-linear bias (b_i) from peak-background split fit of 
@@ -326,14 +322,14 @@ def get_SSC_covariance(params):
     b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
     
     # ---Bias and survey parameters---
-    z = 0.58 #mean redshift of the high-Z chunk
+    z = 0.61 #mean redshift of the high-Z chunk
     be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
 
     # initializing bias parameters for trispectrum
     T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
     # Get initial power spectrum
-    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
+    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
 
     # Get the derivativee of the linear power spectrum
@@ -381,7 +377,7 @@ def get_non_gaussian_covariance(params):
     Takes ~ 10 minutes to run
     """
     # unpack parameters
-    H0, omch2, ombh2, As, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5]
+    H0, omch2, ombh2, As, ns, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5], params[6]
     Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
     # and non-linear bias (b_i) from peak-background split fit of 
@@ -395,14 +391,14 @@ def get_non_gaussian_covariance(params):
     b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
     
     # ---Bias and survey parameters---
-    z = 0.58 #mean redshift of the high-Z chunk
+    z = 0.61 #mean redshift of the high-Z chunk
     be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
 
     # initializing bias parameters for trispectrum
     T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
     # Get initial power spectrum
-    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, z)
+    pdata = Pk_lin(H0, omch2, ombh2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
 
     # Get the derivativee of the linear power spectrum

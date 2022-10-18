@@ -33,8 +33,13 @@ home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-HighZ-NGC/"
 WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 
 #k = np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
-# k ranges from 0 - 0.4 h/Mpc with bin spacing of 0.01
-k = np.linspace(0.005, 0.395, 40); kbins=len(k)
+# k ranges from 0 - 0.25 h/Mpc with bin spacing of 0.01
+k = np.array([0.0075537,  0.01605231, 0.02563667, 0.03546681, 0.04535813, 0.05529577,
+              0.06523939, 0.07519344, 0.08517664, 0.0951767,  0.10516214, 0.11514009,
+              0.12513216, 0.13511399, 0.14510524, 0.15510556, 0.16509706, 0.17509644,
+              0.18509116, 0.19508538, 0.2050806,  0.21507724, 0.22507482, 0.23506711, 0.24505837])
+kbins = len(k)
+#k = np.linspace(0.005, 0.245, 25); kbins=len(k)
 
 # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
 # These are needed to calculate the sigma^2 terms
@@ -46,9 +51,12 @@ powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
 powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
 
 # Number of matrices to make
-N = 75000
+N = 100000
 # Number of processors to use
 N_PROC = 94
+
+# Planck value for As
+As_planck = 3.0448
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
@@ -382,12 +390,16 @@ def main():
 
     # ---Cosmology parameters---
     H0 = data[:,0]
-    As = data[:,1]
+    A = data[:,1]
     ns = data[:,2]
     omch2 = data[:,3]
     ombh2 = data[:,4]
-    b1 = data[:,5]
-    b2 = data[:,6]
+    b1_A = data[:,5]
+    b2_A = data[:,6]
+
+    As = A * As_planck
+    b1 = b1_A / np.sqrt(A)
+    b2 = b2_A / np.sqrt(A)
 
     Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
@@ -414,7 +426,7 @@ def main():
     t1 = time.time()
     with Pool(processes=N_PROC) as pool:
         pool.starmap(CovAnalytic, zip(H0, Omega_m, omch2, ombh2, As, ns,
-                                      repeat(z), b1, b2, b3, be, b2, g3, g2x, g21, i))
+                                      repeat(z), b1, b2, b3, be, g2, g3, g2x, g21, i))
         #(H0, Pfit, Omega_m, ombh2, omch2, z, b1, b2, b3, be, g2, g3, g2x, g21)
     t2 = time.time()
     

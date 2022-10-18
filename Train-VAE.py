@@ -7,19 +7,19 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 43000
+N = 65500
 #N = 20000
 
 # wether to train using the log of the matrix
 train_log = True
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian = True
+train_gaussian = False
 # wether or not to train with the Cholesky decomposition
-train_cholesky = True
+train_cholesky = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
-training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
+training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 if train_gaussian == True:   save_dir = "/home/joeadamo/Research/CovNet/Data/Gaussian/"
 elif train_cholesky == True: save_dir = "/home/joeadamo/Research/CovNet/Data/Cholesky-decomp/"
 else: save_dir = "/home/joeadamo/Research/CovNet/Data/Non-Gaussian/"
@@ -59,7 +59,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         avg_train_KLD = 0.
         for (i, batch) in enumerate(train_loader):
             params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
+            prediction, mu, log_var = net(matrix.view(batch_size, 80, 80))
             #prediction = prediction.view(batch_size, 100, 100)
             #print(torch.min(prediction), torch.max(prediction))
             loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
@@ -79,7 +79,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         avg_valid_KLD = 0.
         for (i, batch) in enumerate(valid_loader):
             params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 100, 100))
+            prediction, mu, log_var = net(matrix.view(batch_size, 80, 80))
             #prediction = prediction.view(batch_size, 100, 100)
             loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
             avg_valid_loss+= loss.item()
@@ -177,7 +177,7 @@ def main():
 
     # initialize network
     net = CovNet.Network_VAE(train_cholesky).to(CovNet.try_gpu())
-    net_2 = CovNet.Network_Features(6, 10).to(CovNet.try_gpu())
+    net_2 = CovNet.Network_Features(7, 10).to(CovNet.try_gpu())
 
     net.apply(He)
     net_2.apply(xavier)
@@ -219,11 +219,11 @@ def main():
         valid_f = torch.zeros(N_valid, 10, device=CovNet.try_gpu())
         encoder.eval()
         for n in range(N_train):
-            matrix = train_data[n][1].view(1,100,100)
+            matrix = train_data[n][1].view(1,80,80)
             z, mu, log_var = encoder(matrix)
             train_f[n] = z.view(10)
         for n in range(N_valid):
-            matrix = valid_data[n][1].view(1,100,100)
+            matrix = valid_data[n][1].view(1,80,80)
             z, mu, log_var = encoder(matrix)
             valid_f[n] = z.view(10)
 

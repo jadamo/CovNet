@@ -12,16 +12,18 @@ import covariance_emulator as ce
 sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
 import CovNet, CovaPT
-import tracemalloc
+sys.path.append('/home/joeadamo/Research/Software')
+from pk_tools import pk_tools
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-NG/"
 data_dir =  "/home/joeadamo/Research/CovNet/Data/"
 PCA_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 CovaPT_dir = "/home/joeadamo/Research/CovaPT/Example-Data/"
+BOSS_dir = "/home/joeadamo/Research/Data/BOSS-DR12/Updated/"
 
 use_T0 = True
 
-C_fid_file = np.load(data_dir+"Cov_Fid_Far.npz")
+C_fid_file = np.load(data_dir+"Cov_Fid.npz")
 if use_T0 == True:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
 else:
@@ -29,19 +31,23 @@ else:
 
 P_fid = np.linalg.inv(C_fid)
 
-cosmo_prior = np.array([[66.0, 75.5],
-                        [0.10782, 0.13178],
-                        [0.0211375, 0.0233625],
-                        [2.4752, 3.7128],#[1.1885e-9, 2.031e-9],
-                        [1.9, 2.45],
-                        [-3.562, 0.551]])
+cosmo_prior = np.array([[60, 75],
+                        [0.09, 0.15],
+                        [0.02, 0.025],
+                        [2.4, 3.8],
+                        [0.94, 0.99],
+                        [1.7, 2.45],
+                        [-3.5, 0.75]])
 
-#                     H0,omch2, ombh2,  As,  b1,     b2
-cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,1.9485,-0.5387])
+#                     H0,omch2, ombh2,  As,  ns, b1,     b2
+cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,0.9649, 1.9485,-0.5387])
 
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
-redshift = 0.58
+redshift = 0.61
+
+W = pk_tools.read_matrix(BOSS_dir+"W_CMASS_North.matrix")
+M = pk_tools.read_matrix(BOSS_dir+"M_CMASS_North.matrix")
 
 def PCA_emulator():
     """
@@ -153,7 +159,7 @@ def model_vector(params, gparams, pgg):
     return np.concatenate((P0_emu, P2_emu))
 
 def model_vector_CLASS_PT(params):
-    z = 0.58
+    z = 0.61
     cosmo = Class()
     cosmo.set({'output':'mPk',
             'non linear':'PT',
@@ -166,7 +172,7 @@ def model_vector_CLASS_PT(params):
             'PNG':'No', # single-field inflation PNG
             'FFTLog mode':'FAST',
             'A_s':np.exp(params[3])/1e10,
-            'n_s':0.9649,
+            'n_s':params[4],
             'tau_reio':0.052,
             'omega_b':params[2],
             'omega_cdm':params[1],
@@ -177,18 +183,25 @@ def model_vector_CLASS_PT(params):
             'm_ncdm':0.06,
             'z_pk':z
             })  
-    k = np.linspace(0.005, 0.25, 50)
+    k = np.linspace(0.005, 0.395, 400)
     cosmo.compute()
     cosmo.initialize_output(k, z, len(k))
 
-    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[4], params[5], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[5], params[6], 0.1, -0.1, 0., 30., 0., 3000., 10.
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
 
+    # Convolve with the window function
+    model_vector = np.concatenate((pk_g0, pk_g2, pk_g4))
+    model_vector = np.matmul(M, model_vector)
+    model_vector = np.matmul(W, model_vector)
+
     # This line is necesary to prevent memory leaks
     cosmo.struct_cleanup()
-    return [pk_g0, 0, pk_g2, 0, pk_g4]
+
+    return np.concatenate([model_vector[0:40], model_vector[80:120]])
+    #return [pk_g0, 0, pk_g2, 0, pk_g4]
     #return np.concatenate((pk_g0, pk_g2))
 
 def ln_prior(theta):
@@ -197,24 +210,24 @@ def ln_prior(theta):
             return -np.inf
     return 0.
 
-def ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance):
+def ln_lkl(theta, data_vector, decoder, net, vary_covariance):
     #with io.StringIO() as buf, redirect_stdout(buf):
     #    x = data_vector - model_vector(theta, gparams, pgg)
     model_vector = model_vector_CLASS_PT(theta)
-    x = data_vector - np.concatenate((model_vector[0], model_vector[2]))
+    x = data_vector - model_vector
     P = get_covariance(decoder, net, theta, model_vector) if vary_covariance == True else P_fid
     lkl = -0.5 * (x.T @ P @ x)
     assert lkl < 0
     del x
     return lkl
 
-def ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance):
+def ln_prob(theta, data_vector, decoder, net, vary_covariance):
     p = ln_prior(theta)
     if p != -np.inf:
-        return p + ln_lkl(theta, pgg, data_vector, decoder, net, vary_covariance)
+        return p + ln_lkl(theta, data_vector, decoder, net, vary_covariance)
     else: return p
 
-def Metropolis_Hastings(theta, C_theta, N, NDIM, pgg, data_vector, decoder, net, vary_covariance, resume, save_str):
+def Metropolis_Hastings(theta, C_theta, N, NDIM, data_vector, decoder, net, vary_covariance, resume, save_str):
     """
     runs an mcmc based on metropolis hastings
     """
@@ -234,7 +247,7 @@ def Metropolis_Hastings(theta, C_theta, N, NDIM, pgg, data_vector, decoder, net,
         num_accept = acceptance_rate[start] * (start+1)
         del file
 
-    prob_old = ln_prob(theta, pgg, data_vector, decoder, net, vary_covariance)
+    prob_old = ln_prob(theta, data_vector, decoder, net, vary_covariance)
     for i in tqdm(range(start, N)):
         # STEP 1: save current state to the chain
         chain[i] = theta
@@ -245,7 +258,7 @@ def Metropolis_Hastings(theta, C_theta, N, NDIM, pgg, data_vector, decoder, net,
         theta_new = np.random.multivariate_normal(mean=theta, cov=C_theta)
 
         # STEP 3: determine if we move to the new position based on ln_prob
-        prob_new = ln_prob(theta_new, pgg, data_vector, decoder, net, vary_covariance)
+        prob_new = ln_prob(theta_new, data_vector, decoder, net, vary_covariance)
         p = np.random.uniform()
 
         #print(prob_new, np.exp(prob_new))
@@ -274,8 +287,8 @@ def main():
     if resume == True:
         print("Resuming previous mcmc run...")
 
-    N    = 60000
-    NDIM = 6
+    N    = 75000
+    NDIM = 7
 
     # Make sure that the covariance matrix we're using is positive definite
     if vary_covariance == False:
@@ -295,34 +308,37 @@ def main():
     #pgg = pkmu_hod()
     pgg = None
 
+    # Data vector taken from https://fbeutler.github.io/hub/deconv_paper.html
+    pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
+    data_vector = np.concatenate([pk_dict["pk0"], pk_dict["pk2"]])
+
     # Setup data vector as the Pk at the fiducial cosmology
-    data_vector = model_vector_CLASS_PT(cosmo_fid)
-    data_vector = np.concatenate((data_vector[0], data_vector[2]))
-    #data_vector = model_vector(cosmo_fid, gparams, pgg)
+    #data_vector = model_vector_CLASS_PT(cosmo_fid)
+    #data_vector = np.concatenate((data_vector[0], data_vector[2]))
 
     #Cov_emu = PCA_emulator()
     decoder, net = CovNet_emulator()
 
-    # 3ach std is 1/100 times the length of the prior
-    #theta_std  = np.array([0.1, 0.00025, 0.000025, 0.0125, 0.005, 0.04])
-    #theta_std  = np.array([0.17, 0.00035, 0.00004, 0.02, 0.008, 0.065])
-    #C_theta = np.diag(theta_std)**2
+    # Each naive std is 1/100 times the length of the prior
+    #theta_std  = np.array([0.15, 0.0006, 0.00005, 0.014, 0.0005, 0.0075, 0.0425])
+    #C_theta = np.diag(theta_std**2)
 
     # The parameter covariance matrix is calculated first by assigning it to an arbitrary value 
     # and then running a small chain, after which you calculate it again
-    C_theta = [[ 3.962143990721337, -0.004385610849896623, -0.00030540286189768595, -0.10241062772882889, 0.006924269348239488, 0.32942287451610086, ],
-              [ -0.004385610849896623, 2.6515841332851822e-05, 4.974629781472943e-07, 0.00018807264719907904, -0.00024509323162060886, -0.0009761931827464128, ],
-              [ -0.00030540286189768595, 4.974629781472943e-07, 3.633007555593623e-07, 1.3059893466482729e-05, -1.8930446330439895e-06, -2.247309703905299e-05, ],
-              [ -0.10241062772882889, 0.00018807264719907904, 1.3059893466482729e-05, 0.007296053413646783, -0.005173234103352741, -0.015881071905738654, ],
-              [ 0.006924269348239488, -0.00024509323162060886, -1.8930446330439895e-06, -0.005173234103352741, 0.006823283642342352, 0.011983121703152919, ],
-              [ 0.32942287451610086, -0.0009761931827464128, -2.247309703905299e-05, -0.015881071905738654, 0.011983121703152919, 0.056923623813101225, ]]
-
+    C_theta = [[ 0.2405221642216095, -0.0006647879371941228, 5.493002842565644e-05, -4.9376529831111246e-20, 0.0006864924384450742, 0.009309211180838137, -0.006338858679838664],
+            [ -0.0006647879371941228, 4.09199269027255e-06, 4.29237482335122e-08, -2.416555178220981e-23, -1.5736699953618452e-06, -3.295193559421507e-05, 2.4895044416134122e-05],
+            [ 5.493002842565644e-05, 4.29237482335122e-08, 7.82420643471774e-08, -2.0185585387776206e-23, 1.856688241129393e-07, 1.3381654236999501e-06, -4.452233472243282e-07],
+            [ -4.9376529831111246e-20, -2.416555178220981e-23, -2.0185585387776206e-23, 2.6557766993342034e-38, -1.4473650604616934e-22, -7.368298987085177e-22, 2.512353839421518e-22],
+            [ 0.0006864924384450742, -1.5736699953618452e-06, 1.856688241129393e-07, -1.4473650604616934e-22, 4.8814828001408e-06, 3.417911372450989e-05, -1.9165492104805046e-05],
+            [ 0.009309211180838137, -3.295193559421507e-05, 1.3381654236999501e-06, -7.368298987085177e-22, 3.417911372450989e-05, 0.0005764777675990455, -0.0003632923732010124],
+            [ -0.006338858679838664, 2.4895044416134122e-05, -4.452233472243282e-07, 2.512353839421518e-22, -1.9165492104805046e-05, -0.0003632923732010124, 0.00040236476347250505]]
+                
     if vary_covariance == True:
         save_str = "mcmc_chains_G_emulate_Varied.npz"
     else: 
         #theta_std  = np.array([0.5, 0.001, 0.0001, 0.1, 0.05, 0.1])
         if use_T0 == True:
-            save_str = "mcmc_chains_Fixed_Far.npz"
+            save_str = "mcmc_chains_Fixed.npz"
         else:
             save_str = "mcmc_chains_no_T0.npz"
 
@@ -332,7 +348,7 @@ def main():
     #theta0 = cosmo_fid + (theta_std * np.random.normal(size=(NDIM)))
     theta0 = sample_prior()
 
-    chain, log_lkl, acceptance_rate = Metropolis_Hastings(theta0, C_theta, N, NDIM, pgg, data_vector, decoder, net, vary_covariance, resume, save_str)
+    chain, log_lkl, acceptance_rate = Metropolis_Hastings(theta0, C_theta, N, NDIM, data_vector, decoder, net, vary_covariance, resume, save_str)
     np.savez("Data/"+save_str, chain=chain, lkl=log_lkl, rate=acceptance_rate)
 
 if __name__ == '__main__':

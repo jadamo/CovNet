@@ -7,8 +7,8 @@ import numpy as np
 class Network_Features(nn.Module):
     def __init__(self, num_params, num_features):
         super().__init__()
-        self.h1 = nn.Linear(num_params, 6)  # Hidden layer
-        self.h2 = nn.Linear(6, 8)
+        self.h1 = nn.Linear(num_params, 7)  # Hidden layer
+        self.h2 = nn.Linear(7, 8)
         self.h3 = nn.Linear(8, 10)  # Hidden layer
         self.out = nn.Linear(10, num_features)  # Output layer
 
@@ -28,9 +28,9 @@ class Block_Encoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.h1 = nn.Linear(101*50, 2500)
+        self.h1 = nn.Linear(81*40, 2000)
         #self.bn1 = nn.BatchNorm1d(2500)
-        self.h2 = nn.Linear(2500, 1000)
+        self.h2 = nn.Linear(2000, 1000)
         self.h3 = nn.Linear(1000, 1000)
         self.h4 = nn.Linear(1000, 500)
         self.h5 = nn.Linear(500, 100)
@@ -57,8 +57,8 @@ class Block_Encoder(nn.Module):
         #    return mu
 
     def forward(self, X):
-        X = rearange_to_half(X, 100)
-        X = X.view(-1, 101*50)
+        X = rearange_to_half(X, 80)
+        X = X.view(-1, 81*40)
 
         X = F.leaky_relu(self.h1(X))
         #X = F.leaky_relu(self.h2(self.bn1(X)))
@@ -97,9 +97,9 @@ class Block_Decoder(nn.Module):
         self.h4 = nn.Linear(100, 500)
         self.h5 = nn.Linear(500, 1000)
         self.h6 = nn.Linear(1000, 1000)
-        self.h7 = nn.Linear(1000, 2500)
+        self.h7 = nn.Linear(1000, 2000)
         #self.bn2 = nn.BatchNorm1d(2500)
-        self.out = nn.Linear(2500, 101*50)
+        self.out = nn.Linear(2000, 81*40)
 
     def forward(self, X):
 
@@ -113,8 +113,8 @@ class Block_Decoder(nn.Module):
         #X = self.out(self.bn2(X))
         X = self.out(X)
 
-        X = X.view(-1, 101, 50)
-        X = rearange_to_full(X, 100, self.train_cholesky)
+        X = X.view(-1, 81, 40)
+        X = rearange_to_full(X, 80, self.train_cholesky)
         return X
 
 class Network_VAE(nn.Module):
@@ -233,8 +233,8 @@ class Network_VAE(nn.Module):
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_gaussian=False, train_cholesky=False):
-        self.params = torch.zeros([N, 6], device=try_gpu())
-        self.matrices = torch.zeros([N, 100, 100], device=try_gpu())
+        self.params = torch.zeros([N, 7], device=try_gpu())
+        self.matrices = torch.zeros([N, 80, 80], device=try_gpu())
         self.features = None
         self.offset = offset
         self.N = N
@@ -289,8 +289,8 @@ def VAE_loss(prediction, target, mu, log_var, beta=1.0):
     """
     Calculates the KL Divergence and reconstruction terms and returns the full loss function
     """
-    prediction = rearange_to_half(prediction, 100)
-    target = rearange_to_half(target, 100)
+    prediction = rearange_to_half(prediction, 80)
+    target = rearange_to_half(target, 80)
 
     RLoss = F.l1_loss(prediction, target, reduction="sum")
     #RLoss = torch.sqrt(((prediction - target)**2).sum())
