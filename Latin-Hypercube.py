@@ -18,10 +18,10 @@ def main():
     # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
     H0_bounds    = [50, 100]      # Hubble constant
-    omch2_bounds = [0.002, 0.35]  # Omega_cdm h^2
-    ombh2_bounds = [0.005, 0.1]   # Omega b h^2
+    omch2_bounds = [0.002, 0.3]   # Omega_cdm h^2
+    ombh2_bounds = [0.005, 0.08]  # Omega b h^2
     As_planck = 3.0448
-    As_bounds    = [0.2, 5]       # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
+    As_bounds    = [0.2, 1.7]     # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
     ns_bounds    = [0.9, 1.1]     # Spectral index
     b1_bounds    = [1, 4]         # Linear bias       (b1 * (A/A_planck)^1/2)
     b2_bounds    = [-5, 5]        # non-linear bias?  (b2 * (A/A_planck)^1/2)
