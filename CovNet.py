@@ -234,7 +234,7 @@ class Network_VAE(nn.Module):
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, N, offset, train_log, train_gaussian=False, train_cholesky=False):
         self.params = torch.zeros([N, 7], device=try_gpu())
-        self.matrices = torch.zeros([N, 80, 80], device=try_gpu())
+        self.matrices = torch.zeros([N, 50, 50], device=try_gpu())
         self.features = None
         self.offset = offset
         self.N = N

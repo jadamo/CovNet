@@ -354,7 +354,10 @@ def CovAnalytic(H0, Omega_m, omch2, ombh2, As, ns, z, b1, b2, b3, be, g2, g3, g2
     # Get initial power spectrum
     pdata = Pk_lin(H0, omch2, ombh2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
+    # Get galaxy power spectrum
     Pk_g = Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z)
+    if len(Pk_g) == 0: return
+
     # Calculate the covariance
     covaG  = CovMatGauss(Pk_g)
     covaNG = CovMatNonGauss(Plin, be,b1,b2,g2)
