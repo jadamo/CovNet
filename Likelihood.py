@@ -3,9 +3,8 @@ import matplotlib.pyplot as plt
 import os, sys
 import torch
 from tqdm import tqdm
+from scipy.stats import norm
 from classy import Class
-import io
-from contextlib import redirect_stdout
 
 sys.path.insert(1, '/home/joeadamo/Research/covariance_emulator')
 import covariance_emulator as ce
@@ -30,49 +29,30 @@ else:
 
 P_fid = np.linalg.inv(C_fid)
 
-cosmo_prior = np.array([[60, 75],
-                        [0.09, 0.15],
-                        [0.02, 0.025],
-                        [2.4, 3.8],
-                        [0.94, 0.99],
-                        [1.7, 2.45],
-                        [-3.5, 0.75]])
+cosmo_prior = np.array([[52, 100],     #H0
+                        [0.002, 0.3],  #omch2
+                        [0.005, 0.08], #ombh2
+                        [0.3, 1.6],    #A / A_planck
+                        [0.9, 1.1],    #ns
+                        [1, 4],        #b1
+                        [0, 1],        #b2 (gaussian)
+                        [0, 1],        #bGamma2 (gaussian)
+                        [0, 30],       #c0 (gaussian)
+                        [0, 30],       #c2 (gaussian)
+                        [0, 5000]      #Pshot (gaussian)
+                        ])
 
-#                     H0,omch2, ombh2,  As,  ns, b1,     b2
-cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,0.9649, 1.9485,-0.5387])
+A_planck = 3.0448
 
-gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
-          'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
+# fiducial taken to be the cosmology used to generate Patchy mocks
+#                     H0,   omch2,  ombh2,  A,     ns,     b1,     b2      bG2, c0, c2,  Pshot
+#cosmo_fid = np.array([67.77,0.11827,0.02214,1.016, 0.9611, 1.9640,-0.5430, 0.1, 5., 15., 5e3])
+cosmo_fid = np.array([67.77,0.11827,0.02214,1.016, 0.9611, 1.9640, 0., 0., 0., 0., 0])
+
 redshift = 0.61
 
 W = pk_tools.read_matrix(BOSS_dir+"W_CMASS_North.matrix")
 M = pk_tools.read_matrix(BOSS_dir+"M_CMASS_North.matrix")
-
-def PCA_emulator():
-    """
-    Sets up the PCA covariance matrix emulator to use in likelihood analysis
-    """
-    N_C = 100
-    C_PCA = np.zeros((N_C, 100, 100))
-    params_PCA = np.zeros((N_C, 6))
-    for i in range(N_C):
-        temp = np.load(PCA_dir+"CovNG-"+f'{i:04d}'+".npz")
-        params_PCA[i] = temp["params"]
-        C_PCA[i] = temp["C"]
-    
-        # if the matrix doesn't match the transpose close enough, manually flip over the diagonal
-        try:
-            np.testing.assert_allclose(C_PCA[i], C_PCA[i].T, err_msg="covariance must match transpose")
-        except AssertionError:
-            L = np.tril(C_PCA[i])
-            U = np.tril(C_PCA[i], k=-1).T
-            C_PCA[i] = L + U
-    try:
-        Emu = ce.CovEmu(params_PCA, C_PCA, NPC_D=20, NPC_L=20)
-    except np.linalg.LinAlgError:
-        print("WARNING! PCA emulator unable to initialize - input matrices aren't positive definite!")
-        Emu = None
-    return Emu
 
 def CovNet_emulator():
     """
@@ -124,41 +104,18 @@ def sample_prior():
     nParams = cosmo_prior.shape[0] # the number of parameters
     theta0 = np.zeros((nParams))
     for i in range(nParams):
-        theta0[i] = (cosmo_prior[i,1]-cosmo_prior[i,0])* np.random.rand(1) + cosmo_prior[i,0] # randomly choose a value in the acceptable range
-    
+        if i < 6:
+            theta0[i] = (cosmo_prior[i,1]-cosmo_prior[i,0])* np.random.rand(1) + cosmo_prior[i,0] # randomly choose a value in the acceptable range
+        else:
+            theta0[i] = np.random.normal(cosmo_prior[i,0], cosmo_prior[i,1])
+
     return theta0 
-
-def model_vector(params, gparams, pgg):
-    """
-    Calculates the model vector using Yosuke's galaxy power spectrum emulator
-    """
-    #print(params)
-    h = params[0] / 100
-    omch2 = params[1]
-    ombh2 = params[2]
-    #assert omch2 <= 0.131780
-    As = params[3]
-    #assert As >= 2.47520
-    ns = 0.965
-    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
-    
-    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
-    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
-    redshift = 0.5
-    k = np.linspace(0.005, 0.25, 50)
-    mu = np.linspace(0.1,0.9,4)
-    alpha_perp = 1.1
-    alpha_para = 1
-
-    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
-    pgg.set_galaxy(gparams)
-    # takes ~0.28 s to run
-    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
-    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
-    return np.concatenate((P0_emu, P2_emu))
 
 def model_vector_CLASS_PT(params):
     z = 0.61
+
+    As = params[3] * A_planck
+
     cosmo = Class()
     cosmo.set({'output':'mPk',
             'non linear':'PT',
@@ -167,10 +124,10 @@ def model_vector_CLASS_PT(params):
             'cb':'Yes', # use CDM+baryon spectra
             'RSD':'Yes',
             'AP':'Yes', # Alcock-Paczynski effect
-            'Omfid':'0.31', # fiducial Omega_m
+            'Omfid':'0.307115', # fiducial Omega_m
             'PNG':'No', # single-field inflation PNG
             'FFTLog mode':'FAST',
-            'A_s':np.exp(params[3])/1e10,
+            'A_s':np.exp(As)/1e10,
             'n_s':params[4],
             'tau_reio':0.052,
             'omega_b':params[2],
@@ -186,7 +143,13 @@ def model_vector_CLASS_PT(params):
     cosmo.compute()
     cosmo.initialize_output(k, z, len(k))
 
-    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[5], params[6], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    b1 = params[5] / np.sqrt(params[3])
+    b2 = params[6] / np.sqrt(params[3])
+    bG2 = params[7] / np.sqrt(params[3])
+    bGamma3 = 0
+    cs4 = -5
+    b4 = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
+    cs0, cs2, Pshot = params[8], params[9], params[10]
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
@@ -199,15 +162,18 @@ def model_vector_CLASS_PT(params):
     # This line is necesary to prevent memory leaks
     cosmo.struct_cleanup()
 
-    return np.concatenate([model_vector[0:40], model_vector[80:120]])
-    #return [pk_g0, 0, pk_g2, 0, pk_g4]
-    #return np.concatenate((pk_g0, pk_g2))
+    return np.concatenate([model_vector[0:25], model_vector[80:105]])
 
 def ln_prior(theta):
+    prior = 0.
     for i in range(len(theta)):
-        if (theta[i] < cosmo_prior[i,0]) or (theta[i] > cosmo_prior[i,1]):
-            return -np.inf
-    return 0.
+        if i < 6:
+            if (theta[i] < cosmo_prior[i,0]) or (theta[i] > cosmo_prior[i,1]):
+                return -np.inf
+        else:
+            dist = norm(cosmo_prior[i,0], cosmo_prior[i,1])
+            prior += np.log(dist.pdf(theta[i]))
+    return prior
 
 def ln_lkl(theta, data_vector, decoder, net, vary_covariance):
     #with io.StringIO() as buf, redirect_stdout(buf):
@@ -216,8 +182,7 @@ def ln_lkl(theta, data_vector, decoder, net, vary_covariance):
     x = data_vector - model_vector
     P = get_covariance(decoder, net, theta, model_vector) if vary_covariance == True else P_fid
     lkl = -0.5 * (x.T @ P @ x)
-    assert lkl < 0
-    del x
+    assert lkl <= 0
     return lkl
 
 def ln_prob(theta, data_vector, decoder, net, vary_covariance):
@@ -261,7 +226,7 @@ def Metropolis_Hastings(theta, C_theta, N, NDIM, data_vector, decoder, net, vary
         p = np.random.uniform()
 
         #print(prob_new, np.exp(prob_new))
-        if prob_new > prob_old or p < min(np.exp(prob_new - prob_old), 1):
+        if p < min(np.exp(prob_new - prob_old), 1):
             theta = theta_new
             prob_old = prob_new
             num_accept += 1
@@ -286,8 +251,8 @@ def main():
     if resume == True:
         print("Resuming previous mcmc run...")
 
-    N    = 75000
-    NDIM = 7
+    N    = 100000
+    NDIM = 11
 
     # Make sure that the covariance matrix we're using is positive definite
     if vary_covariance == False:
@@ -304,34 +269,55 @@ def main():
             print("ERROR: NaN values in the percision matrix! Exiting...")
             return
 
-    #pgg = pkmu_hod()
-    pgg = None
-
     # Data vector taken from https://fbeutler.github.io/hub/deconv_paper.html
-    pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
-    data_vector = np.concatenate([pk_dict["pk0"], pk_dict["pk2"]])
+    #pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
+    #data_vector = np.concatenate([pk_dict["pk0"][:25], pk_dict["pk2"][:25]])
+    data_vector = model_vector_CLASS_PT(cosmo_fid)
 
     # Setup data vector as the Pk at the fiducial cosmology
     #data_vector = model_vector_CLASS_PT(cosmo_fid)
     #data_vector = np.concatenate((data_vector[0], data_vector[2]))
 
     #Cov_emu = PCA_emulator()
-    decoder, net = CovNet_emulator()
+    #decoder, net = CovNet_emulator()
+    decoder, net = None, None
+
+    print("min likelihood = ", -2*ln_prob(cosmo_fid, data_vector, decoder, net, vary_covariance))
+    last_theta = np.array([9.70979124e+01,  9.25151521e-02,  1.13833147e-02,  8.75263267e-01, 1.09011685e+00,  1.54921836e+00, -2.89903007e-01, -2.07437562e-01, 2.16834442e+01, -1.54617096e+00 , 5.27260532e+03])
+    print("last likelihood = ", -2*ln_prob(last_theta, data_vector, decoder, net, vary_covariance))
+
 
     # Each naive std is 1/100 times the length of the prior
-    #theta_std  = np.array([0.15, 0.0006, 0.00005, 0.014, 0.0005, 0.0075, 0.0425])
-    #C_theta = np.diag(theta_std**2)
+    # theta_std  = np.array([0.15, 0.0006, 0.00005, 0.015, 0.03, 0.1, 0.2, 
+    #                       0.25, 1.5, 1.5, 100.])
+    # C_theta = np.diag(theta_std**2)
 
     # The parameter covariance matrix is calculated first by assigning it to an arbitrary value 
     # and then running a small chain, after which you calculate it again
-    C_theta = [[ 0.2405221642216095, -0.0006647879371941228, 5.493002842565644e-05, -4.9376529831111246e-20, 0.0006864924384450742, 0.009309211180838137, -0.006338858679838664],
-            [ -0.0006647879371941228, 4.09199269027255e-06, 4.29237482335122e-08, -2.416555178220981e-23, -1.5736699953618452e-06, -3.295193559421507e-05, 2.4895044416134122e-05],
-            [ 5.493002842565644e-05, 4.29237482335122e-08, 7.82420643471774e-08, -2.0185585387776206e-23, 1.856688241129393e-07, 1.3381654236999501e-06, -4.452233472243282e-07],
-            [ -4.9376529831111246e-20, -2.416555178220981e-23, -2.0185585387776206e-23, 2.6557766993342034e-38, -1.4473650604616934e-22, -7.368298987085177e-22, 2.512353839421518e-22],
-            [ 0.0006864924384450742, -1.5736699953618452e-06, 1.856688241129393e-07, -1.4473650604616934e-22, 4.8814828001408e-06, 3.417911372450989e-05, -1.9165492104805046e-05],
-            [ 0.009309211180838137, -3.295193559421507e-05, 1.3381654236999501e-06, -7.368298987085177e-22, 3.417911372450989e-05, 0.0005764777675990455, -0.0003632923732010124],
-            [ -0.006338858679838664, 2.4895044416134122e-05, -4.452233472243282e-07, 2.512353839421518e-22, -1.9165492104805046e-05, -0.0003632923732010124, 0.00040236476347250505]]
-                
+    C_theta = [[ 0.1697034955221653, 0.0018756485455925004, -0.00012755042936932873, -0.010332333097359852, -0.0033011799151297146, 0.006200354536014686, -0.6436928031008571, -0.08722384596619201, -0.4350313866824416, -5.051284489525018, 256.2780292321567],
+            [ 0.0018756485455925004, 2.799370316852879e-05, -1.8453784982465928e-06, -0.00012758186346366332, -1.8352429736795777e-05, 0.0006312252042537553, -0.00801201765737572, -0.0004823754046332929, 0.0020136988499557746, -0.07129976129068936, 2.9971432614722766],
+            [ -0.00012755042936932873, -1.8453784982465928e-06, 1.280591606786456e-07, 1.3229372538141804e-05, 1.5038287395589148e-06, -3.961782848568164e-05, 0.0005532574588257828, 6.938278190532095e-05, 3.396951038779364e-05, 0.0041763784899615745, -0.17264736168221614],
+            [ -0.010332333097359852, -0.00012758186346366332, 1.3229372538141804e-05, 0.005992943270853318, 0.0002207541695949502, -0.00964197579582706, 0.03595480215171107, 0.036787840412673654, 0.052665129782016276, -0.4277753279325201, 30.26720873385464],
+            [ -0.0033011799151297146, -1.8352429736795777e-05, 1.5038287395589148e-06, 0.0002207541695949502, 0.00016282373245790955, 0.0018569112010070313, 0.012363940957063528, 0.0044137118080330015, 0.02034114827824286, 0.05104464045976817, -4.586211763094009],
+            [ 0.006200354536014686, 0.0006312252042537553, -3.961782848568164e-05, -0.00964197579582706, 0.0018569112010070313, 0.09335408994943094, 0.027777565011845248, 0.02399491417682217, 0.6542973382321724, 0.23534119915331547, -97.03749370508764],
+            [ -0.6436928031008571, -0.00801201765737572, 0.0005532574588257828, 0.03595480215171107, 0.012363940957063528, 0.027777565011845248, 2.949590154943253, 0.35384595482484155, 1.899159794079759, 23.621173375470676, -1222.5351008932134],
+            [ -0.08722384596619201, -0.0004823754046332929, 6.938278190532095e-05, 0.036787840412673654, 0.0044137118080330015, 0.02399491417682217, 0.35384595482484155, 0.3294484978231259, 0.75025413955197, -2.9550103209501883, 129.29793022615905],
+            [ -0.4350313866824416, 0.0020136988499557746, 3.396951038779364e-05, 0.052665129782016276, 0.02034114827824286, 0.6542973382321724, 1.899159794079759, 0.75025413955197, 21.24247266774503, 7.294219271434999, -1209.5534159524352],
+            [ -5.051284489525018, -0.07129976129068936, 0.0041763784899615745, -0.4277753279325201, 0.05104464045976817, 0.23534119915331547, 23.621173375470676, -2.9550103209501883, 7.294219271434999, 310.2678038182029, -15933.406639067536],
+            [ 256.2780292321567, 2.9971432614722766, -0.17264736168221614, 30.26720873385464, -4.586211763094009, -97.03749370508764, -1222.5351008932134, 129.29793022615905, -1209.5534159524352, -15933.406639067536, 906646.5149391479]]
+    # C_theta = [[ 59.701635739399165, 0.11718366222798778, -0.001575948849060138, 0.3041304679297917, -0.33031454009936423, -4.305132113831403, 2.0446929058559014, -6.673789819878645, -434.0780271117823, 303.9647122578785, -9857.735686069585],
+    #         [ 0.11718366222798778, 0.0003568176391651403, -8.445368959949013e-06, -4.217127384876915e-05, -0.0006942631181543851, -0.007631397175413029, 0.004326377651603874, -0.011428819343912149, -0.7870604261643722, 0.5925786732235578, -18.85495913572744],
+    #         [ -0.001575948849060138, -8.445368959949013e-06, 6.538688752325068e-07, 3.246833448220497e-05, 1.3541510378974185e-05, 6.939806404177026e-05, 1.479574625616169e-05, -2.3177520903475487e-05, 0.0093011166261074, -0.007844316365046868, 0.19148784119760376],
+    #         [ 0.3041304679297917, -4.217127384876915e-05, 3.246833448220497e-05, 0.013745549722847774, -0.001205514745582804, -0.03033738295806196, -0.019629812217130414, -0.01070222528760603, -2.054461647530049, 2.5950001799684848, -18.9273109425686],
+    #         [ -0.33031454009936423, -0.0006942631181543851, 1.3541510378974185e-05, -0.001205514745582804, 0.003910562686442331, 0.024723888334977705, -0.01047051646122979, 0.03674771345587102, 2.54550739051394, -1.6779713038358772, 58.81509895838024],
+    #         [ -4.305132113831403, -0.007631397175413029, 6.939806404177026e-05, -0.03033738295806196, 0.024723888334977705, 0.38109116756819583, -0.12012856409420239, 0.5111103503101484, 33.337442783185104, -24.58169393077532, 718.6408639323533],
+    #         [ 2.0446929058559014, 0.004326377651603874, 1.479574625616169e-05, -0.019629812217130414, -0.01047051646122979, -0.12012856409420239, 1.0775472776950819, -0.4172886162871941, -11.452368740691897, 7.835491256429384, -503.5217428498312],
+    #         [ -6.673789819878645, -0.011428819343912149, -2.3177520903475487e-05, -0.01070222528760603, 0.03674771345587102, 0.5111103503101484, -0.4172886162871941, 1.5784106559336368, 42.042921490817974, -25.178371583494325, 1136.7555363063125],
+    #         [ -434.0780271117823, -0.7870604261643722, 0.0093011166261074, -2.054461647530049, 2.54550739051394, 33.337442783185104, -11.452368740691897, 42.042921490817974, 3978.8186270733495, -2296.5623218296696, 91152.56349135115],
+    #         [ 303.9647122578785, 0.5925786732235578, -0.007844316365046868, 2.5950001799684848, -1.6779713038358772, -24.58169393077532, 7.835491256429384, -25.178371583494325, -2296.5623218296696, 2254.2254386584304, -54712.80399024705],
+    #         [ -9857.735686069585, -18.85495913572744, 0.19148784119760376, -18.9273109425686, 58.81509895838024, 718.6408639323533, -503.5217428498312, 1136.7555363063125, 91152.56349135115, -54712.80399024705, 2556836.914669397]]
+     
+
     if vary_covariance == True:
         save_str = "mcmc_chains_G_emulate_Varied.npz"
     else: 

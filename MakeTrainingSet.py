@@ -51,7 +51,7 @@ powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
 powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
 
 # Number of matrices to make
-N = 100000
+N = 150000
 # Number of processors to use
 N_PROC = 94
 

@@ -31,7 +31,11 @@ dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 
 #k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
-k = np.linspace(0.005, 0.395, 40); kbins=len(k)
+k = np.linspace(0.005, 0.245, 25); kbins=len(k)
+
+A_planck = 3.0448
+ns_planck = 0.9649
+ombh2_planck = 0.02237
 
 # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
 # These are needed to calculate the sigma^2 terms
@@ -41,6 +45,9 @@ powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
 
 # Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
 powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
+
+# As from Planck best-fit
+A_planck = 3.0448
 
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
@@ -245,9 +252,11 @@ def Pk_gg(params, pgg):
     return [P0_emu, 0, P2_emu, 0, P4_emu]
 
 #-------------------------------------------------------------------
-def Pk_CLASS_PT(params):
+def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.395, 400)):
     z = 0.61
+
     cosmo = Class()
+    As = params[2] * A_planck
     cosmo.set({'output':'mPk',
             'non linear':'PT',
             'IR resummation':'Yes',
@@ -255,13 +264,13 @@ def Pk_CLASS_PT(params):
             'cb':'Yes', # use CDM+baryon spectra
             'RSD':'Yes',
             'AP':'Yes', # Alcock-Paczynski effect
-            'Omfid':'0.31', # fiducial Omega_m
+            'Omfid':'0.307115', # fiducial Omega_m
             'PNG':'No', # single-field inflation PNG
             'FFTLog mode':'FAST',
-            'A_s':np.exp(params[3])/1e10,
-            'n_s':params[4],
+            'A_s':np.exp(As)/1e10,
+            'n_s':ns_planck,
             'tau_reio':0.052,
-            'omega_b':params[2],
+            'omega_b':ombh2_planck,
             'omega_cdm':params[1],
             'h':params[0] / 100.,
             'YHe':0.2425,
@@ -269,21 +278,34 @@ def Pk_CLASS_PT(params):
             'N_ncdm':1,
             'm_ncdm':0.06,
             'z_pk':z
-            })
-    k = np.linspace(0.005, 0.395, 400)
-    cosmo.compute()
+            })  
+    #k = np.linspace(0.005, 0.395, 400)
+    #k = np.linspace(0.005, 0.245, 25)
+    try:    cosmo.compute()
+    except: return [np.nan]
+
     cosmo.initialize_output(k, z, len(k))
 
-    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[5], params[6], 0.1, -0.1, 0., 30., 0., 3000., 10.
+    b1 = params[3] / np.sqrt(params[3])
+    b2 = params[4] / np.sqrt(params[3])
+    bG2 = params[5] / np.sqrt(params[3])
+    bGamma3 = 0
+    cs4 = -5
+    # NOTE: I'm pretty sure b4 is actually cbar
+    #b4 = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
+    cs0, cs2, b4, Pshot = params[6], params[7], params[8], params[9]
+    #b2, bG2, cs0, cs2, Pshot = -0.5387, 0.1, 5., 15., 5e3
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
-    # Ths line is necesary to prevent memory leaks
+
+    # This line is necesary to prevent memory leaks
     cosmo.struct_cleanup()
+
     return [pk_g0, 0, pk_g2, 0, pk_g4]
 
 #-------------------------------------------------------------------
-def get_gaussian_covariance(params, Pk_galaxy=[]):
+def get_gaussian_covariance(params, Pk_galaxy=[], k=np.linspace(0.005, 0.245, 25)):
     """
     Returns the (Monopole+Quadrupole) Gaussian covariance matrix
     If Pk_galaxy is already calculated, takes ~10 ms to run
@@ -291,7 +313,7 @@ def get_gaussian_covariance(params, Pk_galaxy=[]):
     """
     # generate galaxy redshift-space power spectrum if necesary
     if len(Pk_galaxy) == 0:
-        Pk_galaxy = Pk_CLASS_PT(params)
+        Pk_galaxy = Pk_CLASS_PT(params, k)
 
     covMat=np.zeros((2*kbins,2*kbins))
     for i in range(kbins):
@@ -306,78 +328,21 @@ def get_gaussian_covariance(params, Pk_galaxy=[]):
     covMat=(covMat+np.transpose(covMat))/2.
     return(covMat)
 
-def get_SSC_covariance(params):
-    # unpack parameters
-    H0, omch2, ombh2, As, ns, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5], params[6]
-    Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
-    # Below are expressions for non-local bias (g_i) from local lagrangian approximation
-    # and non-linear bias (b_i) from peak-background split fit of 
-    # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
-    # which could used if those parameters aren't constrained.
-    g2 = -2/7*(b1 - 1)
-    g3 = 11/63*(b1 - 1)
-    #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
-    g2x = -2/7*b2
-    g21 = -22/147*(b1 - 1)
-    b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
-    
-    # ---Bias and survey parameters---
-    z = 0.61 #mean redshift of the high-Z chunk
-    be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
-
-    # initializing bias parameters for trispectrum
-    T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
-
-    # Get initial power spectrum
-    pdata, s8 = Pk_lin(H0, ombh2, omch2, As, ns, z)
-    Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
-
-    # Get the derivativee of the linear power spectrum
-    dlnPk=derivative(Plin,k,dx=1e-4)*k/Plin(k)
-    
-    # Kaiser terms
-    rsd=np.zeros(5)
-    rsd[0]=1 + (2*be)/3 + be**2/5
-    rsd[2]=(4*be)/3 + (4*be**2)/7
-    rsd[4]=(8*be**2)/35
-    
-    # Calculating the RMS fluctuations of supersurvey modes 
-    #(e.g., sigma22Sq which was defined in Eq. (33) and later calculated in Eq.(65)
-    kwin = powW22[:,0]
-    [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
-    for i in range(9):
-        Pwin=InterpolatedUnivariateSpline(kwin, powW22x10[:,1+i])
-        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-
-        if(i<6):
-            Pwin=InterpolatedUnivariateSpline(kwin, powW22[:,1+i])
-            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-            Pwin=InterpolatedUnivariateSpline(kwin, powW10[:,1+i])
-            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-        else:
-            continue
-    
-    sigma22Sq = MatrixForm(temp); sigma10Sq = MatrixForm(temp2); sigma22x10 = MatrixForm(temp3)
-  
-    # Calculate the LA term
-    covaLAterm = CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2)
-    
-    covaSSCmult=np.zeros((2*kbins,2*kbins))
-    covaSSCmult[:kbins,:kbins]=covaSSC(0,0, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-    covaSSCmult[kbins:,kbins:]=covaSSC(2,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-    covaSSCmult[:kbins,kbins:]=covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
-    covaSSCmult[kbins:,:kbins]=np.transpose(covaSSCmult[:kbins,kbins:])
-
-    return covaSSCmult
-
 #-------------------------------------------------------------------
-def get_non_gaussian_covariance(params):
+def get_non_gaussian_covariance(params, do_T0=True):
     """
     Returns the Non-Gaussian portion of the covariance matrix
     Takes ~ 10 minutes to run
     """
     # unpack parameters
-    H0, omch2, ombh2, As, ns, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5], params[6]
+    H0, omch2, A, b1, b2 = params[0], params[1], params[2], params[3], params[4]
+    ombh2 = ombh2_planck
+    ns = ns_planck
+    #H0, omch2, ombh2, A, ns, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5], params[6]
+    As = A * A_planck
+    b1 = b1 / np.sqrt(A)
+    b2 = b2 / np.sqrt(A)
+
     Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
     # Below are expressions for non-local bias (g_i) from local lagrangian approximation
     # and non-linear bias (b_i) from peak-background split fit of 
@@ -437,6 +402,9 @@ def get_non_gaussian_covariance(params):
     covaSSCmult[:kbins,kbins:]=covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
     covaSSCmult[kbins:,:kbins]=np.transpose(covaSSCmult[:kbins,kbins:])
 
+    if do_T0 == False:
+        return covaSSCmult, None
+
     # Calculate the Non-Gaussian multipole covariance
     # Warning: the trispectrum takes a while to run
     covaT0mult=np.zeros((2*kbins,2*kbins))
@@ -447,7 +415,6 @@ def get_non_gaussian_covariance(params):
 
     covaT0mult[kbins:,:kbins]=np.transpose(covaT0mult[:kbins,kbins:])
 
-    covaNG=covaT0mult+covaSSCmult
     #return covaNG
     return covaSSCmult, covaT0mult
 
@@ -457,5 +424,5 @@ def get_full_covariance(params, pgg, Pk_galaxy=None):
     Returns the full analytic covariance matrix
     """
     cov_G = get_gaussian_covariance(params, pgg, Pk_galaxy)
-    cov_NG = get_non_gaussian_covariance(params)
-    return cov_G + cov_NG
+    cov_SSC, cov_T0 = get_non_gaussian_covariance(params)
+    return cov_G + cov_SSC + cov_T0

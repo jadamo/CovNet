@@ -28,11 +28,11 @@ class Block_Encoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.h1 = nn.Linear(81*40, 2000)
+        self.h1 = nn.Linear(51*25, 1000)
         #self.bn1 = nn.BatchNorm1d(2500)
-        self.h2 = nn.Linear(2000, 1000)
-        self.h3 = nn.Linear(1000, 1000)
-        self.h4 = nn.Linear(1000, 500)
+        self.h2 = nn.Linear(1000, 1000)
+        self.h3 = nn.Linear(1000, 750)
+        self.h4 = nn.Linear(750, 500)
         self.h5 = nn.Linear(500, 100)
         self.h6 = nn.Linear(100, 100)
         self.h7 = nn.Linear(100, 50)
@@ -57,8 +57,8 @@ class Block_Encoder(nn.Module):
         #    return mu
 
     def forward(self, X):
-        X = rearange_to_half(X, 80)
-        X = X.view(-1, 81*40)
+        X = rearange_to_half(X, 50)
+        X = X.view(-1, 51*25)
 
         X = F.leaky_relu(self.h1(X))
         #X = F.leaky_relu(self.h2(self.bn1(X)))
@@ -95,11 +95,11 @@ class Block_Decoder(nn.Module):
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 100)
         self.h4 = nn.Linear(100, 500)
-        self.h5 = nn.Linear(500, 1000)
-        self.h6 = nn.Linear(1000, 1000)
-        self.h7 = nn.Linear(1000, 2000)
+        self.h5 = nn.Linear(500, 750)
+        self.h6 = nn.Linear(750, 1000)
+        self.h7 = nn.Linear(1000, 1000)
         #self.bn2 = nn.BatchNorm1d(2500)
-        self.out = nn.Linear(2000, 81*40)
+        self.out = nn.Linear(1000, 51*25)
 
     def forward(self, X):
 
@@ -113,8 +113,8 @@ class Block_Decoder(nn.Module):
         #X = self.out(self.bn2(X))
         X = self.out(X)
 
-        X = X.view(-1, 81, 40)
-        X = rearange_to_full(X, 80, self.train_cholesky)
+        X = X.view(-1, 51, 25)
+        X = rearange_to_full(X, 50, self.train_cholesky)
         return X
 
 class Network_VAE(nn.Module):
@@ -289,8 +289,8 @@ def VAE_loss(prediction, target, mu, log_var, beta=1.0):
     """
     Calculates the KL Divergence and reconstruction terms and returns the full loss function
     """
-    prediction = rearange_to_half(prediction, 80)
-    target = rearange_to_half(target, 80)
+    prediction = rearange_to_half(prediction, 50)
+    target = rearange_to_half(target, 50)
 
     RLoss = F.l1_loss(prediction, target, reduction="sum")
     #RLoss = torch.sqrt(((prediction - target)**2).sum())

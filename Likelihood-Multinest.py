@@ -5,11 +5,10 @@ import threading, subprocess
 from classy import Class
 import torch
 import sys, os, io, time, math
-from contextlib import redirect_stdout
+from scipy.stats import norm
 sys.path.insert(1, '/home/joeadamo/Research/covariance_emulator')
 import covariance_emulator as ce
 sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
-from DarkEmuPowerRSD import pkmu_nn, pkmu_hod
 import CovNet
 sys.path.append('/home/joeadamo/Research/Software')
 from pk_tools import pk_tools
@@ -33,45 +32,35 @@ else:
 
 P_fid = np.linalg.inv(C_fid)
 
-cosmo_prior = np.array([[60, 75],
-                        [0.09, 0.15],
-                        [0.02, 0.025],
-                        [2.4, 3.8],
-                        [0.94, 0.99],
-                        [1.7, 2.45],
-                        [-3.5, 0.75]])
+cosmo_prior = [[52, 90],     #H0
+               [0.002, 0.3],  #omch2
+               [0.005, 0.08], #ombh2
+               [0.3, 1.6],    #A / A_planck
+               #[0.9, 1.1],    #ns
+               [1, 4],        #b1
+               norm(0, 1),        #b2 (gaussian)
+               norm(0, 1),        #bGamma2 (gaussian)
+               norm(0, 30),       #c0 (gaussian)
+               norm(0, 30),       #c2 (gaussian)
+               norm(500, 500),    #cbar (gaussian)
+               norm(0, 5000)      #Pshot (gaussian)
+               ]
 
-#                     H0,omch2, ombh2,  As,  ns, b1,     b2
-cosmo_fid = np.array([67.8,0.1190,0.02215,3.094,0.9649, 1.9485,-0.5387])
+A_planck = 3.0448
+ns_planck = 0.9649
+omch2_planck = 0.02237
 
-gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
-          'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
+# fiducial taken to be the cosmology used to generate Patchy mocks
+#                     H0,   omch2,  ombh2,  A,    ns,     b1,     b2      bG2, c0, c2,  cbar, Pshot
+#cosmo_fid = np.array([67.77,0.11827,0.02214,1.016,0.9611, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
+cosmo_fid = np.array([67.77,0.11827,0.02214,1.016, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
+
 redshift = 0.61
+
+cosmo = Class()
 
 W = pk_tools.read_matrix(BOSS_dir+"W_CMASS_North.matrix")
 M = pk_tools.read_matrix(BOSS_dir+"M_CMASS_North.matrix")
-
-def PCA_emulator():
-    """
-    Sets up the PCA covariance matrix emulator to use in likelihood analysis
-    """    
-    N_C = 100
-    C_PCA = np.zeros((N_C, 100, 100))
-    params_PCA = np.zeros((N_C, 6))
-    for i in range(N_C):
-        temp = np.load(PCA_dir+"CovNG-"+f'{i:04d}'+".npz")
-        params_PCA[i] = temp["params"]
-        C_PCA[i] = temp["C"]
-    
-        # if the matrix doesn't match the transpose close enough, manually flip over the diagonal
-        try:
-            np.testing.assert_allclose(C_PCA[i], C_PCA[i].T, err_msg="covariance must match transpose")
-        except AssertionError:
-            L = np.tril(C_PCA[i])
-            U = np.tril(C_PCA[i], k=-1).T
-            C_PCA[i] = L + U
-    Emu = ce.CovEmu(params_PCA, C_PCA, NPC_D=20, NPC_L=20)
-    return Emu
 
 def CovNet_emulator():
     """
@@ -91,39 +80,10 @@ def CovNet_emulator():
 #Cov_emu = PCA_emulator()
 Cov_emu = None
 
-def model_vector(params, gparams, pgg):
-    """
-    Calculates the model vector using Yosuke's galaxy power spectrum emulator
-    """
-    #print(params)
-    h = params[0] / 100
-    omch2 = params[1]
-    ombh2 = params[2]
-    #assert omch2 <= 0.131780
-    #As = np.log(1e10 * params[3])
-    As = params[3]
-    #assert As >= 2.47520
-    ns = 0.965
-    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
-    
-    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
-    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
-    redshift = 0.58
-    k = np.linspace(0.005, 0.25, 50)
-    mu = np.linspace(0.1,0.9,4)
-    alpha_perp = 1.1
-    alpha_para = 1
-
-    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
-    pgg.set_galaxy(gparams)
-    # takes ~0.28 s to run
-    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
-    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
-    return np.concatenate((P0_emu, P2_emu))
-
-def model_vector_CLASS_PT(params):
+def model_vector_CLASS_PT(params, cosmo):
     z = 0.61
-    cosmo = Class()
+
+    As = params[3] * A_planck
     cosmo.set({'output':'mPk',
             'non linear':'PT',
             'IR resummation':'Yes',
@@ -131,11 +91,11 @@ def model_vector_CLASS_PT(params):
             'cb':'Yes', # use CDM+baryon spectra
             'RSD':'Yes',
             'AP':'Yes', # Alcock-Paczynski effect
-            'Omfid':'0.31', # fiducial Omega_m
+            'Omfid':'0.307115', # fiducial Omega_m
             'PNG':'No', # single-field inflation PNG
             'FFTLog mode':'FAST',
-            'A_s':np.exp(params[3])/1e10,
-            'n_s':params[4],
+            'A_s':np.exp(As)/1e10,
+            'n_s':ns_planck,
             'tau_reio':0.052,
             'omega_b':params[2],
             'omega_cdm':params[1],
@@ -147,10 +107,21 @@ def model_vector_CLASS_PT(params):
             'z_pk':z
             })  
     k = np.linspace(0.005, 0.395, 400)
-    cosmo.compute()
+    #k = np.linspace(0.005, 0.245, 25)
+    try:    cosmo.compute()
+    except: return [np.nan]
+
     cosmo.initialize_output(k, z, len(k))
 
-    b1, b2, bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = params[5], params[6], 0.1, -0.1, 5., 15., -5., 1.3e3, 100.
+    b1 = params[4] / np.sqrt(params[3])
+    b2 = params[5] / np.sqrt(params[3])
+    bG2 = params[6] / np.sqrt(params[3])
+    bGamma3 = 0
+    cs4 = -5
+    # NOTE: I'm pretty sure b4 is actually cbar
+    #b4 = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
+    cs0, cs2, b4, Pshot = params[7], params[8], params[9], params[10]
+    #b2, bG2, cs0, cs2, Pshot = -0.5387, 0.1, 5., 15., 5e3
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
     pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
     pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
@@ -163,34 +134,47 @@ def model_vector_CLASS_PT(params):
     # This line is necesary to prevent memory leaks
     cosmo.struct_cleanup()
 
-    return np.concatenate([model_vector[0:40], model_vector[80:120]])
+    #return np.concatenate([pk_g0, pk_g2])
+    return np.concatenate([model_vector[0:25], model_vector[80:105]])
 
-pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
-data_vector = np.concatenate([pk_dict["pk0"], pk_dict["pk2"]])
+#pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
+#data_vector = np.concatenate([pk_dict["pk0"], pk_dict["pk2"]])
+data_vector = model_vector_CLASS_PT(cosmo_fid, cosmo)
 
-# def get_covariance(decoder, net, theta):
-#     # first convert theta to the format expected by our emulators
-#     params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
-#     features = net(params); C = decoder(features.view(1,10)).view(100, 100)
-#     C = CovNet.corr_to_cov(C).cpu().detach().numpy()
-#     return C
-
-def get_covariance(Emu, theta):
+def get_covariance(decoder, net, theta):
     # first convert theta to the format expected by our emulators
-    params = np.array([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]])
-    C = Emu.predict(params)
+    params = torch.tensor([theta[0], theta[2], theta[1], theta[3], theta[4], theta[5]]).float()
+    features = net(params); C = decoder(features.view(1,10)).view(50, 50)
+    C = CovNet.corr_to_cov(C).cpu().detach().numpy()
     return C
 
 def prior(cube, ndim, nparams):
-    for i in range(6):
-        cube[i] = cube[i] * (cosmo_prior[i, 1] - cosmo_prior[i, 0]) + cosmo_prior[i, 0]
+    """
+    Get prior bounds
+    """
+    for i in range(ndim):
+        if i < 5:
+            cube[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
+        else:
+            cube[i] = cosmo_prior[i].ppf(cube[i])
 
-def ln_lkl(cube, ndim, nparams):
+    # calculate Omega_m (TODO: Also calculate sigma8)
+    #params = np.append(params, (params[1] + params[2] + 0.00064) / (params[0]/100)**2)
+    #return params
+
+
+def ln_lkl(theta, ndim, nparams):
     #C = get_covariance(decoder, net, cube) if vary_covariance else C_fixed
-    C = get_covariance(Cov_emu, cube) if vary_covariance else C_fid
+    C = get_covariance(Cov_emu, theta) if vary_covariance else C_fid
     P = np.linalg.inv(C)
-    x = data_vector - model_vector_CLASS_PT(cube)
+    x = data_vector - model_vector_CLASS_PT(theta, cosmo)
     lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
+
+    # Current workaround - if model vector is invalid for some reason, return a huge likelihood
+    # this "should" be ok, since CLASS-PT only fails for parameters far from the fiducial value
+    if True in np.isnan(x):
+        return -1e10
+
     assert lkl < 0
     return lkl
 
@@ -199,21 +183,21 @@ def main():
     print("Running MCMC with varying covariance: " + str(vary_covariance))
     print("Using T0 term of the covariance: " + str(use_T0))
 
-    parameters = ["H0", "omch2","ombh2", "As", "ns", "b1","b2"]
+    parameters = ["H0", "omch2","ombh2", "As", "b1","b2", "bGamma3", "cs0", "cs2", "cbar", "Pshot"]
     n_params = len(parameters)
     # name of the output files
     if vary_covariance == True:
-        prefix = "chains/Varied-"
+        prefix = "chains/Multinest/test-"
     else: 
-        if use_T0 == True: prefix = "chains/Fixed-"
-        else: prefix = "chains/Fixed-"
+        if use_T0 == True: prefix = "chains/Multinest/test-"
+        else: prefix = "chains/Multinest/test-"
 
     # https://arxiv.org/pdf/0809.3437.pdf
     t1 = time.time()
     #progress = pymultinest.ProgressPlotter(n_params = n_params, outputfiles_basename=prefix); progress.start()
     #threading.Timer(2, show, [prefix+"phys_live.points.pdf"]).start() # delayed opening
     # run MultiNest
-    pymultinest.run(ln_lkl, prior, n_params, outputfiles_basename=prefix, 
+    pymultinest.run(ln_lkl, prior, n_params, outputfiles_basename=prefix, log_zero=-1e9, write_output=True,
                     sampling_efficiency = 1, n_live_points=400, resume=resume, verbose=True)
     #progress.stop()
     t2 = time.time()

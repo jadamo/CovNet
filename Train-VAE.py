@@ -7,7 +7,7 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 65500
+N = 116500
 #N = 20000
 
 # wether to train using the log of the matrix
@@ -17,7 +17,7 @@ train_gaussian = False
 # wether or not to train with the Cholesky decomposition
 train_cholesky = False
 # wether to train the VAE and features nets
-do_VAE = True; do_features = True
+do_VAE = False; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 if train_gaussian == True:   save_dir = "/home/joeadamo/Research/CovNet/Data/Gaussian/"
@@ -59,7 +59,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         avg_train_KLD = 0.
         for (i, batch) in enumerate(train_loader):
             params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 80, 80))
+            prediction, mu, log_var = net(matrix.view(batch_size, 50, 50))
             #prediction = prediction.view(batch_size, 100, 100)
             #print(torch.min(prediction), torch.max(prediction))
             loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
@@ -79,7 +79,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         avg_valid_KLD = 0.
         for (i, batch) in enumerate(valid_loader):
             params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 80, 80))
+            prediction, mu, log_var = net(matrix.view(batch_size, 50, 50))
             #prediction = prediction.view(batch_size, 100, 100)
             loss = CovNet.VAE_loss(prediction, matrix, mu, log_var, BETA)
             avg_valid_loss+= loss.item()
@@ -167,9 +167,9 @@ def main():
     print("Training VAE net: features net:      [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr = 0.0025
+    lr = 0.003
     lr_2 = 0.008
-    num_epochs = 70
+    num_epochs = 80
     num_epochs_2 = 200
 
     N_train = int(N*0.8)
@@ -219,11 +219,11 @@ def main():
         valid_f = torch.zeros(N_valid, 10, device=CovNet.try_gpu())
         encoder.eval()
         for n in range(N_train):
-            matrix = train_data[n][1].view(1,80,80)
+            matrix = train_data[n][1].view(1,50,50)
             z, mu, log_var = encoder(matrix)
             train_f[n] = z.view(10)
         for n in range(N_valid):
-            matrix = valid_data[n][1].view(1,80,80)
+            matrix = valid_data[n][1].view(1,50,50)
             z, mu, log_var = encoder(matrix)
             valid_f[n] = z.view(10)
 
