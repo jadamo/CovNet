@@ -32,14 +32,14 @@ else:
 
 P_fid = np.linalg.inv(C_fid)
 
-cosmo_prior = [#[52., 90.],     #H0
+cosmo_prior = [[52., 90.],     #H0
                [0.002, 0.3],  #omch2
                #[0.005, 0.08], #ombh2
                [0.3, 1.6],    #A / A_planck
                #[0.9, 1.1],    #ns
                [1, 4],        #b1
-               #norm(0, 1),        #b2 (gaussian)
-               #norm(0, 1),        #bGamma2 (gaussian)
+               norm(0, 1),        #b2 (gaussian)
+               norm(0, 1),        #bGamma2 (gaussian)
                #norm(0, 30),       #c0 (gaussian)
                #norm(0, 30),       #c2 (gaussian)
                #norm(500, 500),    #cbar (gaussian)
@@ -54,29 +54,29 @@ ombh2_planck = 0.02237
 #                     H0,   omch2,  ombh2,  A,    ns,     b1,     b2      bG2, c0, c2,  cbar, Pshot
 #cosmo_fid = np.array([67.77,0.11827,0.02214,1.016,0.9611, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
 #cosmo_fid = np.array([67.77,0.11827,1.016, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
-cosmo_fid = np.array([0.11827,1.016,1.9485])#, 5., 15., 100, 5e3])
+cosmo_fid = np.array([67.77, 0.11827,1.016,1.9485, -0.5387, 0.1])#, 5., 15., 100, 5e3])
 z = 0.61
 
 cosmo = Class()
-common_settings = {'output':'mPk',
-            'non linear':'PT',
-            'IR resummation':'Yes',
-            'Bias tracers':'Yes',
-            'cb':'Yes', # use CDM+baryon spectra
-            'RSD':'Yes',
-            'AP':'Yes', # Alcock-Paczynski effect
-            'Omfid':'0.31', # fiducial Omega_m
-            'PNG':'No', # single-field inflation PNG
-            'FFTLog mode':'FAST',
-            'k_pivot':0.05,
-            'P_k_max_h/Mpc':100.,
-            'tau_reio':0.05,
-            'YHe':0.2454,
-            'N_ur':2.0328,    
-            'N_ncdm':1,        # 1 massive neutrino
-            'm_ncdm':0.06,     # mass of neutrino (eV)
-            'T_ncdm':0.71611,
-            }
+common_settings = {'output':'mPk',         # what to output
+                   'non linear':'PT',      # {None, Halofit, PT}
+                   'IR resummation':'Yes',
+                   'Bias tracers':'Yes',
+                   'cb':'Yes',             # use CDM+baryon spectra
+                   'RSD':'Yes',            # Redshift-space distortions
+                   'AP':'Yes',             # Alcock-Paczynski effect
+                   'Omfid':'0.31',         # fiducial Omega_m
+                   'PNG':'No',             # single-field inflation PNG
+                   'FFTLog mode':'FAST',
+                   'k_pivot':0.05,
+                   'P_k_max_h/Mpc':100.,
+                   'tau_reio':0.05,        # ?
+                   'YHe':0.2454,           # Helium fraction?
+                   'N_ur':2.0328,          # ?
+                   'N_ncdm':1,             # 1 massive neutrino
+                   'm_ncdm':0.06,          # mass of neutrino (eV)
+                   'T_ncdm':0.71611,       # neutrino temperature?
+                   }
 
 W = pk_tools.read_matrix(BOSS_dir+"W_CMASS_North.matrix")
 M = pk_tools.read_matrix(BOSS_dir+"M_CMASS_North.matrix")
@@ -103,15 +103,15 @@ def model_vector_CLASS_PT(params, cosmo):
     z = 0.61
 
     # unpack / specify parameters
-    H0    = 67.77
-    omch2 = params[0]
+    H0    = params[0]
+    omch2 = params[1]
     ombh2 = ombh2_planck
+    As    = params[2] * A_planck
     ns    = ns_planck
-    As    = params[1] * A_planck
 
-    b1    = params[2] / np.sqrt(params[0])
-    b2    = -0.5387 #params[1] / np.sqrt(params[0])
-    bG2   = 0.1 #params[1] / np.sqrt(params[0])
+    b1    = params[3] / np.sqrt(params[2])
+    b2    = params[4] / np.sqrt(params[2])
+    bG2   = params[5] / np.sqrt(params[2])
     bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
     # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
     cs4 = -5.
@@ -171,7 +171,7 @@ def prior(cube):
     """
     params = cube.copy()
     for i in range(len(params)):
-        if i < 3:
+        if i < 4:
             params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
         else:
             params[i] = cosmo_prior[i].ppf(cube[i])
@@ -213,7 +213,7 @@ def main():
         return -1
 
     #param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
-    param_names = ["omch2", "As", "bG2"]#, "cs0", "cs2", "cbar", "Pshot"]
+    param_names = ["H0", "omch2", "As", "b1", "b2", "bG2"]#, "cs0", "cs2", "cbar", "Pshot"]
 
     t1 = time.time()
     sampler = ultranest.ReactiveNestedSampler(param_names, ln_lkl, prior,
