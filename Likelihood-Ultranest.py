@@ -6,9 +6,7 @@ import torch
 import sys, os, io, time, math
 from scipy.stats import norm
 from contextlib import redirect_stdout
-sys.path.insert(1, '/home/joeadamo/Research/covariance_emulator')
 sys.path.append('/home/joeadamo/Research')
-import covariance_emulator as ce
 import CovNet, CovaPT
 sys.path.append('/home/joeadamo/Research/Software')
 from pk_tools import pk_tools
@@ -40,8 +38,8 @@ cosmo_prior = [[52., 90.],     #H0
                [1, 4],        #b1
                norm(0, 1),        #b2 (gaussian)
                norm(0, 1),        #bGamma2 (gaussian)
-               #norm(0, 30),       #c0 (gaussian)
-               #norm(0, 30),       #c2 (gaussian)
+               norm(0, 30),       #c0 (gaussian)
+               norm(0, 30),       #c2 (gaussian)
                #norm(500, 500),    #cbar (gaussian)
                #norm(0, 5000)      #Pshot (gaussian)
                ]
@@ -54,7 +52,7 @@ ombh2_planck = 0.02237
 #                     H0,   omch2,  ombh2,  A,    ns,     b1,     b2      bG2, c0, c2,  cbar, Pshot
 #cosmo_fid = np.array([67.77,0.11827,0.02214,1.016,0.9611, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
 #cosmo_fid = np.array([67.77,0.11827,1.016, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
-cosmo_fid = np.array([67.77, 0.11827,1.016,1.9485, -0.5387, 0.1])#, 5., 15., 100, 5e3])
+cosmo_fid = np.array([67.77, 0.11827,1.016,1.9485, -0.5387, 0.1, 5., 15.])#, 100, 5e3])
 z = 0.61
 
 cosmo = Class()
@@ -117,8 +115,8 @@ def model_vector_CLASS_PT(params, cosmo):
     cs4 = -5.
     # NOTE: I'm pretty sure b4 is actually cbar
     #cbar = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
-    cs0   = 0.1 #params[3]
-    cs2   = 15. #params[4]
+    cs0   = params[6]
+    cs2   = params[7]
     cbar  = 100 #params[5]
     Pshot = 5e3 #params[6]
 
@@ -213,13 +211,13 @@ def main():
         return -1
 
     #param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
-    param_names = ["H0", "omch2", "As", "b1", "b2", "bG2"]#, "cs0", "cs2", "cbar", "Pshot"]
+    param_names = ["H0", "omch2", "As", "b1", "b2", "bG2", "cs0", "cs2"]#, "cbar", "Pshot"]
 
     t1 = time.time()
     sampler = ultranest.ReactiveNestedSampler(param_names, ln_lkl, prior,
                                               derived_param_names=["Omega_0"],
                                               draw_multiple=True,
-                                              log_dir="chains/Ultranest/test/", resume="overwrite")
+                                              log_dir="chains/Ultranest/test/", resume=True)
 
     # params = np.array([67,0.11827,0.02214,1.02,0.9611, 1.9485,-0.5387, 0.1, 5., 15., 5e3])
     # t = time.time()
@@ -228,11 +226,11 @@ def main():
     # t2 = time.time()
     # print("Likelihood calculation avg time: {:0.3f} s".format((t2 - t)/100))
 
-    #nsteps = len(param_names)
+    nsteps = len(param_names)
     # create step sampler:
-    # sampler.stepsampler = ultranest.stepsampler.SliceSampler(
-    #      nsteps=nsteps,
-    #      generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
+    sampler.stepsampler = ultranest.stepsampler.SliceSampler(
+         nsteps=nsteps,
+         generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
 
     # sample nuisance parameters less frequently
     # sampler.stepsampler = ultranest.stepsampler.SpeedVariableRegionSliceSampler([Ellipsis, slice(4,10)])
@@ -240,7 +238,7 @@ def main():
     sampler.run(min_num_live_points=300, 
                 dlogz=0.5, 
                 min_ess=300,
-                max_ncalls=300000,
+                max_ncalls=350000,
                 frac_remain=0.5,
                 max_num_improvement_loops=3)
                 #region_class="MLFriends")
