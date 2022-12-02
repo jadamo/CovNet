@@ -4,8 +4,8 @@ import ultranest.stepsampler
 from classy import Class
 import torch
 import sys, os, io, time, math
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
 from scipy.stats import norm
-from contextlib import redirect_stdout
 sys.path.append('/home/joeadamo/Research')
 import CovNet, CovaPT
 sys.path.append('/home/joeadamo/Research/Software')
@@ -22,26 +22,33 @@ use_T0 = True
 vary_covariance = False
 resume = False
 
-C_fid_file = np.load(data_dir+"Cov_Fid.npz")
-if use_T0 == True:
-    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
-else:
-    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
+# C_fid_file = np.load(data_dir+"Cov_Fid.npz")
+# if use_T0 == True:
+#     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
+# else:
+#     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
+
+C_fid = pk_tools.read_matrix(BOSS_dir+"Updated/Cov_CMASS_North.matrix.gz")
+krange = np.linspace(0.005, 0.395, num=40)
+fit_selection = np.logical_and(0<krange,krange<0.25)
+pole_selection = [True, False, True, False, False]
+fit_selection = np.logical_and(np.tile(fit_selection, 5), np.repeat(pole_selection , 40))
+C_fid = C_fid[np.ix_(fit_selection , fit_selection)]
 
 P_fid = np.linalg.inv(C_fid)
 
 cosmo_prior = [[52., 90.],     #H0
                [0.002, 0.3],  #omch2
                #[0.005, 0.08], #ombh2
-               [0.3, 1.6],    #A / A_planck
+               #[0.3, 1.6],    #A / A_planck
                #[0.9, 1.1],    #ns
                [1, 4],        #b1
                norm(0, 1),        #b2 (gaussian)
                norm(0, 1),        #bGamma2 (gaussian)
                norm(0, 30),       #c0 (gaussian)
                norm(0, 30),       #c2 (gaussian)
-               #norm(500, 500),    #cbar (gaussian)
-               #norm(0, 5000)      #Pshot (gaussian)
+               norm(500, 500),    #cbar (gaussian)
+               norm(0, 5000)      #Pshot (gaussian)
                ]
 
 A_planck = 3.0448
@@ -51,8 +58,8 @@ ombh2_planck = 0.02237
 # fiducial taken to be the cosmology used to generate Patchy mocks
 #                     H0,   omch2,  ombh2,  A,    ns,     b1,     b2      bG2, c0, c2,  cbar, Pshot
 #cosmo_fid = np.array([67.77,0.11827,0.02214,1.016,0.9611, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
-#cosmo_fid = np.array([67.77,0.11827,1.016, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
-cosmo_fid = np.array([67.77, 0.11827,1.016,1.9485, -0.5387, 0.1, 5., 15.])#, 100, 5e3])
+cosmo_fid = np.array([67.77,0.11827,1.016, 1.9485,-0.5387, 0.1, 5., 15., 100, 5e3])
+#cosmo_fid = np.array([67.77, 0.11827])#, 5e3])#, 100, 5e3])
 z = 0.61
 
 cosmo = Class()
@@ -117,8 +124,8 @@ def model_vector_CLASS_PT(params, cosmo):
     #cbar = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
     cs0   = params[6]
     cs2   = params[7]
-    cbar  = 100 #params[5]
-    Pshot = 5e3 #params[6]
+    cbar  = params[8]
+    Pshot = params[9]
 
     # set cosmology parameters
     cosmo.set(common_settings)
@@ -169,7 +176,7 @@ def prior(cube):
     """
     params = cube.copy()
     for i in range(len(params)):
-        if i < 4:
+        if i < 2:
             params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
         else:
             params[i] = cosmo_prior[i].ppf(cube[i])
@@ -210,14 +217,14 @@ def main():
         print("ERROR! Fiducial matrix is not positive definite! Aborting...")
         return -1
 
-    #param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
-    param_names = ["H0", "omch2", "As", "b1", "b2", "bG2", "cs0", "cs2"]#, "cbar", "Pshot"]
+    param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
+    #param_names = ["H0", "omch2"]#, "Pshot"]#, "cbar", "Pshot"]
 
     t1 = time.time()
     sampler = ultranest.ReactiveNestedSampler(param_names, ln_lkl, prior,
                                               derived_param_names=["Omega_0"],
                                               draw_multiple=True,
-                                              log_dir="chains/Ultranest/test/", resume=True)
+                                              log_dir="chains/Ultranest/test/", resume="overwrite")
 
     # params = np.array([67,0.11827,0.02214,1.02,0.9611, 1.9485,-0.5387, 0.1, 5., 15., 5e3])
     # t = time.time()

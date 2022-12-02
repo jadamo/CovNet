@@ -33,6 +33,7 @@ WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 #k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
 k = np.linspace(0.005, 0.245, 25); kbins=len(k)
 
+# A, ns, ombh2 from Planck best-fit
 A_planck = 3.0448
 ns_planck = 0.9649
 ombh2_planck = 0.02237
@@ -46,9 +47,6 @@ powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
 # Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
 powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
 
-# As from Planck best-fit
-A_planck = 3.0448
-
 # The following parameters are calculated from the survey random catalog
 # Using Iij convention in Eq.(3)
 alpha = 0.02; 
@@ -61,6 +59,27 @@ i12oi22 = 2825379.84558/454.2155; #Effective shot noise
 # Galaxy parameters for generating galaxy power spectra
 gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
           'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
+
+# common CLASS-PT settings
+common_settings = {'output':'mPk',         # what to output
+                   'non linear':'PT',      # {None, Halofit, PT}
+                   'IR resummation':'Yes',
+                   'Bias tracers':'Yes',
+                   'cb':'Yes',             # use CDM+baryon spectra
+                   'RSD':'Yes',            # Redshift-space distortions
+                   'AP':'Yes',             # Alcock-Paczynski effect
+                   'Omfid':'0.31',         # fiducial Omega_m
+                   'PNG':'No',             # single-field inflation PNG
+                   'FFTLog mode':'FAST',
+                   'k_pivot':0.05,
+                   'P_k_max_h/Mpc':100.,
+                   'tau_reio':0.05,        # ?
+                   'YHe':0.2454,           # Helium fraction?
+                   'N_ur':2.0328,          # ?
+                   'N_ncdm':1,             # 1 massive neutrino
+                   'm_ncdm':0.06,          # mass of neutrino (eV)
+                   'T_ncdm':0.71611,       # neutrino temperature?
+                   }
 
 #-------------------------------------------------------------------
 # HELPER FUNCTIONS
@@ -256,48 +275,43 @@ def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.395, 400)):
     z = 0.61
 
     cosmo = Class()
-    As = params[2] * A_planck
-    cosmo.set({'output':'mPk',
-            'non linear':'PT',
-            'IR resummation':'Yes',
-            'Bias tracers':'Yes',
-            'cb':'Yes', # use CDM+baryon spectra
-            'RSD':'Yes',
-            'AP':'Yes', # Alcock-Paczynski effect
-            'Omfid':'0.307115', # fiducial Omega_m
-            'PNG':'No', # single-field inflation PNG
-            'FFTLog mode':'FAST',
-            'A_s':np.exp(As)/1e10,
-            'n_s':ns_planck,
-            'tau_reio':0.052,
-            'omega_b':ombh2_planck,
-            'omega_cdm':params[1],
-            'h':params[0] / 100.,
-            'YHe':0.2425,
-            'N_ur':2.0328,
-            'N_ncdm':1,
-            'm_ncdm':0.06,
-            'z_pk':z
-            })  
-    #k = np.linspace(0.005, 0.395, 400)
-    #k = np.linspace(0.005, 0.245, 25)
-    try:    cosmo.compute()
-    except: return [np.nan]
+    # unpack / specify parameters
+    H0    = params[0]
+    omch2 = params[1]
+    ombh2 = ombh2_planck
+    As    = params[2] * A_planck
+    ns    = ns_planck
+
+    b1    = params[3] / np.sqrt(params[2])
+    b2    = params[4] / np.sqrt(params[2])
+    bG2   = params[5] / np.sqrt(params[2])
+    bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
+    # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
+    cs4 = -5.
+    # NOTE: I'm pretty sure b4 is actually cbar
+    #cbar = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
+    cs0   = params[6]
+    cs2   = params[7]
+    cbar  = params[8]
+    Pshot = params[9]
+
+    # set cosmology parameters
+    cosmo.set(common_settings)
+    cosmo.set({'A_s':np.exp(As)/1e10,
+               'n_s':ns,
+               'omega_b':ombh2,
+               'omega_cdm':omch2,
+               'H0':H0,
+               'z_pk':z
+               })  
+    cosmo.compute()
 
     cosmo.initialize_output(k, z, len(k))
 
-    b1 = params[3] / np.sqrt(params[3])
-    b2 = params[4] / np.sqrt(params[3])
-    bG2 = params[5] / np.sqrt(params[3])
-    bGamma3 = 0
-    cs4 = -5
-    # NOTE: I'm pretty sure b4 is actually cbar
-    #b4 = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
-    cs0, cs2, b4, Pshot = params[6], params[7], params[8], params[9]
-    #b2, bG2, cs0, cs2, Pshot = -0.5387, 0.1, 5., 15., 5e3
-    pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
-    pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
-    pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
+    # calculate galaxy power spectrum multipoles
+    pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
+    pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, cbar)
+    pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, cbar)
 
     # This line is necesary to prevent memory leaks
     cosmo.struct_cleanup()
@@ -338,7 +352,6 @@ def get_non_gaussian_covariance(params, do_T0=True):
     H0, omch2, A, b1, b2 = params[0], params[1], params[2], params[3], params[4]
     ombh2 = ombh2_planck
     ns = ns_planck
-    #H0, omch2, ombh2, A, ns, b1, b2 = params[0], params[1], params[2], params[3], params[4], params[5], params[6]
     As = A * A_planck
     b1 = b1 / np.sqrt(A)
     b2 = b2 / np.sqrt(A)
