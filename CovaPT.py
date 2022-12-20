@@ -12,10 +12,11 @@ import camb
 from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
-from DarkEmuPowerRSD import pkmu_hod
+#from DarkEmuPowerRSD import pkmu_hod
 
 #sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
 #-------------------------------------------------------------------
@@ -23,7 +24,8 @@ import T0
 #-------------------------------------------------------------------
 
 # directory with window functions (I assumed these are calculated beforehand)
-dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function

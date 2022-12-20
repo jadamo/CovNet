@@ -22,33 +22,39 @@ use_T0 = True
 vary_covariance = False
 resume = False
 
-# C_fid_file = np.load(data_dir+"Cov_Fid.npz")
-# if use_T0 == True:
-#     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
-# else:
-#     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
+C_fid_file = np.load(data_dir+"Cov_Fid.npz")
+if use_T0 == True:
+    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
+else:
+    C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
 
-C_fid = pk_tools.read_matrix(BOSS_dir+"Updated/Cov_CMASS_North.matrix.gz")
-krange = np.linspace(0.005, 0.395, num=40)
-fit_selection = np.logical_and(0<krange,krange<0.25)
-pole_selection = [True, False, True, False, False]
-fit_selection = np.logical_and(np.tile(fit_selection, 5), np.repeat(pole_selection , 40))
-C_fid = C_fid[np.ix_(fit_selection , fit_selection)]
+# C_fid = pk_tools.read_matrix(BOSS_dir+"Updated/Cov_CMASS_North.matrix.gz")
+# krange = np.linspace(0.005, 0.395, num=40)
+# fit_selection = np.logical_and(0<krange,krange<0.25)
+# pole_selection = [True, False, True, False, False]
+# fit_selection = np.logical_and(np.tile(fit_selection, 5), np.repeat(pole_selection , 40))
+# C_fid = C_fid[np.ix_(fit_selection , fit_selection)]
 
 P_fid = np.linalg.inv(C_fid)
 
 cosmo_prior = [[52., 90.],     #H0
                [0.002, 0.3],  #omch2
                #[0.005, 0.08], #ombh2
-               #[0.3, 1.6],    #A / A_planck
+               [0.3, 1.6],    #A / A_planck
                #[0.9, 1.1],    #ns
                [1, 4],        #b1
-               norm(0, 1),        #b2 (gaussian)
-               norm(0, 1),        #bGamma2 (gaussian)
-               norm(0, 30),       #c0 (gaussian)
-               norm(0, 30),       #c2 (gaussian)
-               norm(500, 500),    #cbar (gaussian)
-               norm(0, 5000)      #Pshot (gaussian)
+               [-4, 4],
+               [-4, 4],
+               [-120, 120],
+               [-120, 120],
+               [-1500, 2500],
+               [-20000, 20000]
+            #    norm(0, 1),        #b2 (gaussian)
+            #    norm(0, 1),        #bGamma2 (gaussian)
+            #    norm(0, 30),       #c0 (gaussian)
+            #    norm(0, 30),       #c2 (gaussian)
+            #    norm(500, 500),    #cbar (gaussian)
+            #    norm(0, 5000)      #Pshot (gaussian)
                ]
 
 A_planck = 3.0448
@@ -176,10 +182,10 @@ def prior(cube):
     """
     params = cube.copy()
     for i in range(len(params)):
-        if i < 2:
-            params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
-        else:
-            params[i] = cosmo_prior[i].ppf(cube[i])
+        #if i < 2:
+        params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
+        # else:
+        #     params[i] = cosmo_prior[i].ppf(cube[i])
 
     # calculate Omega_m (TODO: Also calculate sigma8)
     params = np.append(params, (params[1] + ombh2_planck + 0.00064) / (params[0]/100)**2)
@@ -191,8 +197,11 @@ def ln_lkl(theta):
     x = data_vector - model_vector_CLASS_PT(theta, cosmo)
     C = get_covariance(Cov_emu, theta) if vary_covariance else C_fid
     P = np.linalg.inv(C)
-    lkl = -0.5 * np.matmul(x.T, np.matmul(P, x))
-
+    lkl = np.matmul(x.T, np.matmul(P, x))
+    b2, bG2, cs0, cs2, cbar, Pshot = theta[4], theta[5], theta[6], theta[7], theta[8], theta[9]
+    lkl += (b2 - 0.)**2./1**2. + (bG2 - 0.)**2/1**2. + (cs0)**2/30**2 + cs2**2/30**2 + (cbar-500.)**2/500**2 + (Pshot - 0.)**2./(5e3)**2.
+    lkl *= -0.5
+    
     # Current workaround - if model vector is invalid for some reason, return a huge likelihood
     # this "should" be ok, since CLASS-PT only fails for parameters far from the fiducial value
     if True in np.isnan(x):
@@ -248,7 +257,6 @@ def main():
                 max_ncalls=350000,
                 frac_remain=0.5,
                 max_num_improvement_loops=3)
-                #region_class="MLFriends")
 
     sampler.print_results()
 
