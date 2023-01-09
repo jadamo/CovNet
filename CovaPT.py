@@ -12,7 +12,6 @@ import camb
 from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
-#from DarkEmuPowerRSD import pkmu_hod
 
 #sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
 #sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
@@ -24,6 +23,7 @@ import T0
 #-------------------------------------------------------------------
 
 # directory with window functions (I assumed these are calculated beforehand)
+#dire='/home/u12/jadamo/CovaPT/Example-Data/'
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 
@@ -246,31 +246,6 @@ def covaSSC(l1,l2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g
 #-------------------------------------------------------------------
 # Functions meant to be called elsewhere
 # ------------------------------------------------------------------
-
-#-------------------------------------------------------------------
-def Pk_gg(params, pgg):
-    """
-    Calculates the galaxy power spectrum using Yosuke's dark emulator
-    """
-    h, omch2, ombh2, As = params[0] / 100, params[1], params[2], params[3]
-    ns = 0.965
-    Om0 = (omch2 + ombh2 + 0.00064) / (h**2)
-    
-    # rebuild parameters into correct format (ombh2, omch2, 1-Om0, ln As, ns, w)
-    cparams = np.array([ombh2, omch2, 1-Om0, As, ns, -1])
-    redshift = 0.58
-    k = np.linspace(0.005, 0.25, 50)
-    #mu = np.linspace(0.1,0.9,4)
-    alpha_perp = 1.1
-    alpha_para = 1
-
-    pgg.set_cosmology(cparams, redshift) # <- takes ~0.17s to run
-    pgg.set_galaxy(gparams)
-    # takes ~0.28 s to run
-    P0_emu = pgg.get_pl_gg_ref(0, k, alpha_perp, alpha_para, name='total')
-    P2_emu = pgg.get_pl_gg_ref(2, k, alpha_perp, alpha_para, name='total')
-    P4_emu = pgg.get_pl_gg_ref(4, k, alpha_perp, alpha_para, name='total')
-    return [P0_emu, 0, P2_emu, 0, P4_emu]
 
 #-------------------------------------------------------------------
 def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.395, 400)):

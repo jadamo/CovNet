@@ -6,10 +6,18 @@ import torch
 import sys, os, io, time, math
 os.environ["OPENBLAS_NUM_THREADS"] = "4"
 from scipy.stats import norm
+#sys.path.append('/home/u12/jadamo/')
 sys.path.append('/home/joeadamo/Research')
 import CovNet, CovaPT
+#sys.path.append('/home/u12/jadamo/software')
 sys.path.append('/home/joeadamo/Research/Software')
 from pk_tools import pk_tools
+
+# training_dir = "/home/u12/jadamo/CovNet/Data/Training-Set-HighZ-NGC/"
+# data_dir =  "/home/u12/jadamo/CovNet/Data/"
+# PCA_dir = "/home/u12/jadamo/CovNet/Data/PCA-Set/"
+# BOSS_dir = "/home/u12/jadamo/CovNet/Data/BOSS-DR12/Updated/"
+# CovaPT_dir = "/home/u12/jadamo/CovaPT/Example-Data/"
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 data_dir =  "/home/joeadamo/Research/CovNet/Data/"
@@ -27,6 +35,8 @@ if use_T0 == True:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
 else:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
+P_fid = np.linalg.inv(C_fid)
+
 
 # C_fid = pk_tools.read_matrix(BOSS_dir+"Updated/Cov_CMASS_North.matrix.gz")
 # krange = np.linspace(0.005, 0.395, num=40)
@@ -43,18 +53,18 @@ cosmo_prior = [[52., 90.],     #H0
                [0.3, 1.6],    #A / A_planck
                #[0.9, 1.1],    #ns
                [1, 4],        #b1
-               [-4, 4],
-               [-4, 4],
-               [-120, 120],
-               [-120, 120],
-               [-1500, 2500],
-               [-20000, 20000]
-            #    norm(0, 1),        #b2 (gaussian)
-            #    norm(0, 1),        #bGamma2 (gaussian)
-            #    norm(0, 30),       #c0 (gaussian)
-            #    norm(0, 30),       #c2 (gaussian)
-            #    norm(500, 500),    #cbar (gaussian)
-            #    norm(0, 5000)      #Pshot (gaussian)
+            #    [-4, 4],
+            #    [-4, 4],
+            #    [-120, 120],
+            #    [-120, 120],
+            #    [-1500, 2500],
+            #    [-20000, 20000]
+                norm(0, 1),        #b2 (gaussian)
+                norm(0, 1),        #bGamma2 (gaussian)
+                norm(0, 30),       #c0 (gaussian)
+                norm(0, 30),       #c2 (gaussian)
+                norm(500, 500),    #cbar (gaussian)
+                norm(0, 5000)      #Pshot (gaussian)
                ]
 
 A_planck = 3.0448
@@ -182,10 +192,10 @@ def prior(cube):
     """
     params = cube.copy()
     for i in range(len(params)):
-        #if i < 2:
-        params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
-        # else:
-        #     params[i] = cosmo_prior[i].ppf(cube[i])
+        if i < 7:
+            params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
+        else:
+            params[i] = cosmo_prior[i].ppf(cube[i])
 
     # calculate Omega_m (TODO: Also calculate sigma8)
     params = np.append(params, (params[1] + ombh2_planck + 0.00064) / (params[0]/100)**2)
@@ -195,17 +205,16 @@ def prior(cube):
 def ln_lkl(theta):
     #C = get_covariance(decoder, net, cube) if vary_covariance else C_fixed
     x = data_vector - model_vector_CLASS_PT(theta, cosmo)
-    C = get_covariance(Cov_emu, theta) if vary_covariance else C_fid
-    P = np.linalg.inv(C)
-    lkl = np.matmul(x.T, np.matmul(P, x))
-    b2, bG2, cs0, cs2, cbar, Pshot = theta[4], theta[5], theta[6], theta[7], theta[8], theta[9]
-    lkl += (b2 - 0.)**2./1**2. + (bG2 - 0.)**2/1**2. + (cs0)**2/30**2 + cs2**2/30**2 + (cbar-500.)**2/500**2 + (Pshot - 0.)**2./(5e3)**2.
-    lkl *= -0.5
+    P = get_covariance(Cov_emu, theta) if vary_covariance else P_fid
+    lkl = -0.5*np.matmul(x.T, np.matmul(P, x))
+    #b2, bG2, cs0, cs2, cbar, Pshot = theta[4], theta[5], theta[6], theta[7], theta[8], theta[9]
+    #lkl += (b2 - 0.)**2./1**2. + (bG2 - 0.)**2/1**2. + (cs0)**2/30**2 + cs2**2/30**2 + (cbar-500.)**2/500**2 + (Pshot - 0.)**2./(5e3)**2.
+    #lkl *= -0.5
     
     # Current workaround - if model vector is invalid for some reason, return a huge likelihood
     # this "should" be ok, since CLASS-PT only fails for parameters far from the fiducial value
     if True in np.isnan(x):
-        return -1e10# + (theta - cosmo_fid)
+        return -1e10 # + (theta - cosmo_fid)
 
     assert lkl < 0
     return lkl
@@ -221,7 +230,7 @@ def main():
 
     # Sanity check: the fiducial matrix is positive definite
     try:
-        L = np.linalg.cholesky(C_fid)
+        L = np.linalg.cholesky(P_fid)
     except:
         print("ERROR! Fiducial matrix is not positive definite! Aborting...")
         return -1
