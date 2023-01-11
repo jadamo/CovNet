@@ -14,8 +14,8 @@ from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
 #sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
-sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
+sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+#sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
 #-------------------------------------------------------------------
@@ -24,8 +24,8 @@ import T0
 
 # directory with window functions (I assumed these are calculated beforehand)
 #dire='/home/u12/jadamo/CovaPT/Example-Data/'
-#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
+dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+#dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 
 #Using the window kernels calculated from the survey random catalog as input
 #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
@@ -33,10 +33,11 @@ dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
 
 #k=np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
-k = np.linspace(0.005, 0.245, 25); kbins=len(k)
+k = np.linspace(0.005, 0.245, 25)
+kbins=len(k)
 
 # A, ns, ombh2 from Planck best-fit
-A_planck = 3.0448
+A_planck = 3.0447
 ns_planck = 0.9649
 ombh2_planck = 0.02237
 
@@ -75,7 +76,7 @@ common_settings = {'output':'mPk',         # what to output
                    'FFTLog mode':'FAST',
                    'k_pivot':0.05,
                    'P_k_max_h/Mpc':100.,
-                   'tau_reio':0.05,        # ?
+                   'tau_reio':0.0543,      # ?
                    'YHe':0.2454,           # Helium fraction?
                    'N_ur':2.0328,          # ?
                    'N_ncdm':1,             # 1 massive neutrino
@@ -409,10 +410,10 @@ def get_non_gaussian_covariance(params, do_T0=True):
     return covaSSCmult, covaT0mult
 
 #-------------------------------------------------------------------
-def get_full_covariance(params, pgg, Pk_galaxy=None):
+def get_full_covariance(params, Pk_galaxy=None):
     """
     Returns the full analytic covariance matrix
     """
-    cov_G = get_gaussian_covariance(params, pgg, Pk_galaxy)
+    cov_G = get_gaussian_covariance(params, Pk_galaxy)
     cov_SSC, cov_T0 = get_non_gaussian_covariance(params)
     return cov_G + cov_SSC + cov_T0

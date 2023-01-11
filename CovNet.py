@@ -86,12 +86,6 @@ class Block_Decoder(nn.Module):
 
         self.h1 = nn.Linear(10, 50)
         self.bn1 = nn.BatchNorm1d(50)
-        # self.h2 = nn.Linear(1000, 1000)
-        # self.h3 = nn.Linear(1000, 1000)
-        # self.h4 = nn.Linear(1000, 1000)
-        # self.h5 = nn.Linear(1000, 1000)
-        # self.h6 = nn.Linear(1000, 1000)
-        # self.out = nn.Linear(1000, 101*50)
         self.h2 = nn.Linear(50, 100)
         self.h3 = nn.Linear(100, 100)
         self.h4 = nn.Linear(100, 500)

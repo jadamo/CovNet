@@ -47,10 +47,10 @@ P_fid = np.linalg.inv(C_fid)
 
 P_fid = np.linalg.inv(C_fid)
 
-cosmo_prior = [[52., 90.],     #H0
+cosmo_prior = [[40., 120.],     #H0
                [0.002, 0.3],  #omch2
                #[0.005, 0.08], #ombh2
-               [0.3, 1.6],    #A / A_planck
+               [0.1, 4],    #A / A_planck
                #[0.9, 1.1],    #ns
                [1, 4],        #b1
             #    [-4, 4],
@@ -67,7 +67,7 @@ cosmo_prior = [[52., 90.],     #H0
                 norm(0, 5000)      #Pshot (gaussian)
                ]
 
-A_planck = 3.0448
+A_planck = 3.0447
 ns_planck = 0.9649
 ombh2_planck = 0.02237
 
@@ -91,7 +91,7 @@ common_settings = {'output':'mPk',         # what to output
                    'FFTLog mode':'FAST',
                    'k_pivot':0.05,
                    'P_k_max_h/Mpc':100.,
-                   'tau_reio':0.05,        # ?
+                   'tau_reio':0.0543,      # ?
                    'YHe':0.2454,           # Helium fraction?
                    'N_ur':2.0328,          # ?
                    'N_ncdm':1,             # 1 massive neutrino
@@ -120,8 +120,29 @@ def CovNet_emulator():
 #Cov_emu = PCA_emulator()
 Cov_emu = None
 
-def model_vector_CLASS_PT(params, cosmo):
-    z = 0.61
+def calc_sigma8(params):
+    H0    = params[0]
+    omch2 = params[1]
+    ombh2 = ombh2_planck
+    As    = A_planck #params[2] * A_planck
+    ns    = ns_planck
+    # This line is necesary to prevent memory leaks
+    cosmo.struct_cleanup()
+    cosmo.set(common_settings)
+    cosmo.set({'A_s':np.exp(As)/1e10,
+               'n_s':ns,
+               'omega_b':ombh2,
+               'omega_cdm':omch2,
+               'H0':H0,
+               'z_pk':z
+               })  
+    try:    
+        cosmo.compute()
+        return cosmo.sigma8()
+    except:
+        return -1
+
+def model_vector_CLASS_PT(params):
 
     # unpack / specify parameters
     H0    = params[0]
@@ -137,13 +158,11 @@ def model_vector_CLASS_PT(params, cosmo):
     # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
     cs4 = -5.
     # NOTE: I'm pretty sure b4 is actually cbar
-    #cbar = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
     cs0   = params[6]
     cs2   = params[7]
     cbar  = params[8]
     Pshot = params[9]
 
-    # set cosmology parameters
     cosmo.set(common_settings)
     cosmo.set({'A_s':np.exp(As)/1e10,
                'n_s':ns,
@@ -152,10 +171,11 @@ def model_vector_CLASS_PT(params, cosmo):
                'H0':H0,
                'z_pk':z
                })  
+    try:    cosmo.compute()
+    except: return np.nan
+
     k = np.linspace(0.005, 0.395, 400)
     #k = np.linspace(0.005, 0.245, 25)
-    try:    cosmo.compute()
-    except: return [np.nan]
 
     cosmo.initialize_output(k, z, len(k))
 
@@ -169,7 +189,6 @@ def model_vector_CLASS_PT(params, cosmo):
     model_vector = np.matmul(M, model_vector)
     model_vector = np.matmul(W, model_vector)
 
-    # This line is necesary to prevent memory leaks
     cosmo.struct_cleanup()
 
     #return np.concatenate([pk_g0, pk_g2])
@@ -177,7 +196,7 @@ def model_vector_CLASS_PT(params, cosmo):
 
 #pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
 #data_vector = np.concatenate([pk_dict["pk0"][:25], pk_dict["pk2"][:25]])
-data_vector = model_vector_CLASS_PT(cosmo_fid, cosmo)
+data_vector = model_vector_CLASS_PT(cosmo_fid)
 
 def get_covariance(decoder, net, theta):
     # first convert theta to the format expected by our emulators
@@ -192,26 +211,36 @@ def prior(cube):
     """
     params = cube.copy()
     for i in range(len(params)):
-        if i < 7:
+        if i < 4:
             params[i] = cube[i] * (cosmo_prior[i][1] - cosmo_prior[i][0]) + cosmo_prior[i][0]
         else:
             params[i] = cosmo_prior[i].ppf(cube[i])
 
-    # calculate Omega_m (TODO: Also calculate sigma8)
+    # calculate Omega_m
     params = np.append(params, (params[1] + ombh2_planck + 0.00064) / (params[0]/100)**2)
+    
+    # calculate sigma8
+    # NOTE: Due to ultranest's structure we have to call cosmo.compute() here as well as in ln_lkl
+    # if we want to keep track of sigma8. This is inefficient, but it's not the end of the world
+    s8 = calc_sigma8(params)
+    params = np.append(params, s8)
+
     return params
 
-
 def ln_lkl(theta):
-    #C = get_covariance(decoder, net, cube) if vary_covariance else C_fixed
-    x = data_vector - model_vector_CLASS_PT(theta, cosmo)
+    """
+    Log likelihood function to pass to Ultranest
+    """
+    # calculate data - model
+    x = data_vector - model_vector_CLASS_PT(theta)
+
     P = get_covariance(Cov_emu, theta) if vary_covariance else P_fid
     lkl = -0.5*np.matmul(x.T, np.matmul(P, x))
     #b2, bG2, cs0, cs2, cbar, Pshot = theta[4], theta[5], theta[6], theta[7], theta[8], theta[9]
     #lkl += (b2 - 0.)**2./1**2. + (bG2 - 0.)**2/1**2. + (cs0)**2/30**2 + cs2**2/30**2 + (cbar-500.)**2/500**2 + (Pshot - 0.)**2./(5e3)**2.
     #lkl *= -0.5
     
-    # Current workaround - if model vector is invalid for some reason, return a huge likelihood
+    # Current workaround: if model vector is invalid for some reason, return a huge likelihood
     # this "should" be ok, since CLASS-PT only fails for parameters far from the fiducial value
     if True in np.isnan(x):
         return -1e10 # + (theta - cosmo_fid)
@@ -220,7 +249,7 @@ def ln_lkl(theta):
     return lkl
 
 def main():
-    # number of dimensions our problem has
+
     print("Running MCMC with varying covariance: " + str(vary_covariance))
     print("Using T0 term of the covariance: " + str(use_T0))
 
@@ -240,7 +269,7 @@ def main():
 
     t1 = time.time()
     sampler = ultranest.ReactiveNestedSampler(param_names, ln_lkl, prior,
-                                              derived_param_names=["Omega_0"],
+                                              derived_param_names=["Omega_0", "sigma8"],
                                               draw_multiple=True,
                                               log_dir="chains/Ultranest/test/", resume="overwrite")
 
@@ -263,8 +292,8 @@ def main():
     sampler.run(min_num_live_points=300, 
                 dlogz=0.5, 
                 min_ess=300,
-                max_ncalls=350000,
-                frac_remain=0.5,
+                max_ncalls=400000,
+                frac_remain=0.75,
                 max_num_improvement_loops=3)
 
     sampler.print_results()
