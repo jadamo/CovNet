@@ -35,7 +35,7 @@ if use_T0 == True:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
 else:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
-P_fid = np.linalg.inv(C_fid)
+#P_fid = np.linalg.inv(C_fid)
 
 
 # C_fid = pk_tools.read_matrix(BOSS_dir+"Updated/Cov_CMASS_North.matrix.gz")
@@ -127,7 +127,6 @@ def calc_sigma8(params):
     As    = A_planck #params[2] * A_planck
     ns    = ns_planck
     # This line is necesary to prevent memory leaks
-    cosmo.struct_cleanup()
     cosmo.set(common_settings)
     cosmo.set({'A_s':np.exp(As)/1e10,
                'n_s':ns,
@@ -138,9 +137,11 @@ def calc_sigma8(params):
                })  
     try:    
         cosmo.compute()
-        return cosmo.sigma8()
+        s8 = cosmo.sigma8()
     except:
-        return -1
+        s8 = -1
+    cosmo.struct_cleanup()
+    return s8
 
 def model_vector_CLASS_PT(params):
 
@@ -151,17 +152,17 @@ def model_vector_CLASS_PT(params):
     As    = params[2] * A_planck
     ns    = ns_planck
 
-    b1    = params[3] / np.sqrt(params[2])
-    b2    = params[4] / np.sqrt(params[2])
-    bG2   = params[5] / np.sqrt(params[2])
+    b1    = 1.984 #params[3] / np.sqrt(params[2])
+    b2    = -0.5387 #params[4] / np.sqrt(params[2])
+    bG2   = 0.6 #params[5] / np.sqrt(params[2])
     bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
     # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
     cs4 = -5.
     # NOTE: I'm pretty sure b4 is actually cbar
-    cs0   = params[6]
-    cs2   = params[7]
-    cbar  = params[8]
-    Pshot = params[9]
+    cs0   = 5 #params[6]
+    cs2   = 15 #params[7]
+    cbar  = 100 #params[8]
+    Pshot = 5e3 #params[9]
 
     cosmo.set(common_settings)
     cosmo.set({'A_s':np.exp(As)/1e10,
@@ -177,7 +178,7 @@ def model_vector_CLASS_PT(params):
     k = np.linspace(0.005, 0.395, 400)
     #k = np.linspace(0.005, 0.245, 25)
 
-    cosmo.initialize_output(k, z, len(k))
+    cosmo.initialize_output(k*cosmo.h(), z, len(k))
 
     # calculate galaxy power spectrum multipoles
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
@@ -194,9 +195,9 @@ def model_vector_CLASS_PT(params):
     #return np.concatenate([pk_g0, pk_g2])
     return np.concatenate([model_vector[0:25], model_vector[80:105]])
 
-#pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
-#data_vector = np.concatenate([pk_dict["pk0"][:25], pk_dict["pk2"][:25]])
-data_vector = model_vector_CLASS_PT(cosmo_fid)
+pk_dict = pk_tools.read_power(BOSS_dir+"P_CMASS_North.dat" , combine_bins =10)
+data_vector = np.concatenate([pk_dict["pk0"][:25], pk_dict["pk2"][:25]])
+#data_vector = model_vector_CLASS_PT(cosmo_fid)
 
 def get_covariance(decoder, net, theta):
     # first convert theta to the format expected by our emulators
@@ -264,8 +265,8 @@ def main():
         print("ERROR! Fiducial matrix is not positive definite! Aborting...")
         return -1
 
-    param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
-    #param_names = ["H0", "omch2"]#, "Pshot"]#, "cbar", "Pshot"]
+    #param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
+    param_names = ["H0", "omch2", "A"]#, "cbar", "Pshot"]
 
     t1 = time.time()
     sampler = ultranest.ReactiveNestedSampler(param_names, ln_lkl, prior,
@@ -280,11 +281,11 @@ def main():
     # t2 = time.time()
     # print("Likelihood calculation avg time: {:0.3f} s".format((t2 - t)/100))
 
-    nsteps = len(param_names)
-    # create step sampler:
-    sampler.stepsampler = ultranest.stepsampler.SliceSampler(
-         nsteps=nsteps,
-         generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
+    # nsteps = len(param_names)
+    # # create step sampler:
+    # sampler.stepsampler = ultranest.stepsampler.SliceSampler(
+    #      nsteps=nsteps,
+    #      generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
 
     # sample nuisance parameters less frequently
     # sampler.stepsampler = ultranest.stepsampler.SpeedVariableRegionSliceSampler([Ellipsis, slice(4,10)])
