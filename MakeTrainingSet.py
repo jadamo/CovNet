@@ -1,377 +1,136 @@
 # This script is basically CovaPT's jupyter notebook, but in script form so you can more easily run it
 
-import scipy, time,sys, warnings, math
-from scipy.integrate import quad
+import time, os, sys, warnings, math
 import numpy as np
-from scipy.interpolate import InterpolatedUnivariateSpline
-from numpy import exp, log, log10, cos, sin, pi, cosh, sinh , sqrt, amin, amax, mean, dot, power, conj
-from scipy.misc import derivative
-import camb
-from camb import model, initialpower
-from classy import Class
+from scipy.stats import qmc
 
 from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
 
-sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+#sys.path.append('/home/u12/jadamo/')
+sys.path.append("/home/joeadamo/Research")
+import CovaPT
+
+#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 import T0
 
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
 #-------------------------------------------------------------------
+A_planck = 3.0447
+ns_planck = 0.9649
+ombh2_planck = 0.02237
 
-dire='/home/u12/jadamo/CovaPT/Example-Data/'
-home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-HighZ-NGC/"
-#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-#home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
+# wether or not to also vary nuisance parameters
+# if you want to emulate both gaussian and non-gaussian parts of the covariance matrix, set this to true
+# NOTE: This doubles the dimensionality of the parameter space, so you should also increase the 
+# number of samples to compensate
+vary_nuisance = False
 
-#Using the window kernels calculated from the survey random catalog as input
-#See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
-# The survey window used throughout this code is BOSS NGC-highZ (0.5<z<0.75)
-WijFile=np.load(dire+'Wij_k120_HighZ_NGC.npy')
-
-#k = np.loadtxt(dire+'k_Patchy.dat'); kbins=len(k) #number of k-bins
-# k ranges from 0 - 0.25 h/Mpc with bin spacing of 0.01
-k = np.array([0.0075537,  0.01605231, 0.02563667, 0.03546681, 0.04535813, 0.05529577,
-              0.06523939, 0.07519344, 0.08517664, 0.0951767,  0.10516214, 0.11514009,
-              0.12513216, 0.13511399, 0.14510524, 0.15510556, 0.16509706, 0.17509644,
-              0.18509116, 0.19508538, 0.2050806,  0.21507724, 0.22507482, 0.23506711, 0.24505837])
-kbins = len(k)
-#k = np.linspace(0.005, 0.245, 25); kbins=len(k)
-
-# Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
-# These are needed to calculate the sigma^2 terms
-# Columns are k P00 P02 P04 P22 P24 P44 Nmodes
-powW22=np.loadtxt(dire+'WindowPower_W22_highz.dat')
-powW10=np.loadtxt(dire+'WindowPower_W10_highz.dat')
-
-# Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
-powW22x10=np.loadtxt(dire+'WindowPower_W22xW10_highz.dat')
-
-# Number of matrices to make
-N = 150000
-# Number of processors to use
-N_PROC = 94
-
-# Planck value for As
-As_planck = 3.0448
-
-# The following parameters are calculated from the survey random catalog
-# Using Iij convention in Eq.(3)
-alpha = 0.02; 
-i22 = 454.2155*alpha; i11 = 7367534.87288*alpha; i12 = 2825379.84558*alpha;
-i10 = 23612072*alpha; i24 = 58.49444652*alpha; 
-i14 = 756107.6916375*alpha; i34 = 8.993832235e-3*alpha;
-i44 = 2.158444115e-6*alpha; i32 = 0.11702382*alpha;
-i12oi22 = 2825379.84558/454.2155; #Effective shot noise
-
-gparams = {'logMmin': 13.9383, 'sigma_sq': 0.7918725**2, 'logM1': 14.4857, 'alpha': 1.19196,  'kappa': 0.600692, 
-          'poff': 0.0, 'Roff': 2.0, 'alpha_inc': 0., 'logM_inc': 0., 'cM_fac': 1., 'sigv_fac': 1., 'P_shot': 0.}
+#N = 150000
+N = 16
+#N_PROC = 94
+N_PROC=4
 
 #-------------------------------------------------------------------
 # FUNCTIONS
 #-------------------------------------------------------------------
 
-#-------------------------------------------------------------------
-# For generating individual elements of the Gaussian covariance matrix
-# see Survey_window_kernels.ipynb for further details where the same function is used
-def Cij(kt, Wij, Pfit):
-    temp=np.zeros((7,6))
-    for i in range(-3,4):
-        if(kt+i<0 or kt+i>=kbins):
-            temp[i+3]=0.
-            continue
-        temp[i+3]=Wij[i+3,0]*Pfit[0][kt]*Pfit[0][kt+i]+\
-        Wij[i+3,1]*Pfit[0][kt]*Pfit[2][kt+i]+\
-        Wij[i+3,2]*Pfit[0][kt]*Pfit[4][kt+i]+\
-        Wij[i+3,3]*Pfit[2][kt]*Pfit[0][kt+i]+\
-        Wij[i+3,4]*Pfit[2][kt]*Pfit[2][kt+i]+\
-        Wij[i+3,5]*Pfit[2][kt]*Pfit[4][kt+i]+\
-        Wij[i+3,6]*Pfit[4][kt]*Pfit[0][kt+i]+\
-        Wij[i+3,7]*Pfit[4][kt]*Pfit[2][kt+i]+\
-        Wij[i+3,8]*Pfit[4][kt]*Pfit[4][kt+i]+\
-        1.01*(Wij[i+3,9]*(Pfit[0][kt]+Pfit[0][kt+i])/2.+\
-        Wij[i+3,10]*Pfit[2][kt]+Wij[i+3,11]*Pfit[4][kt]+\
-        Wij[i+3,12]*Pfit[2][kt+i]+Wij[i+3,13]*Pfit[4][kt+i])+\
-        1.01**2*Wij[i+3,14]
-    return(temp)
+#dire='/home/u12/jadamo/CovaPT/Example-Data/'
+#home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-HighZ-NGC/"
+dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
-#-------------------------------------------------------------------
-# Growth factor for LCDM cosmology
-def Dz(z,Om0):
-    return(scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3)
-                                /scipy.special.hyp2f1(1/3., 1, 11/6., 1-1/Om0)/(1+z))
-
-#-------------------------------------------------------------------
-# Growth rate for LCDM cosmology
-def fgrowth(z,Om0):
-    return(1. + 6*(Om0-1)*scipy.special.hyp2f1(4/3., 2, 17/6., (1-1/Om0)/(1+z)**3)
-                  /( 11*Om0*(1+z)**3*scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3) ))
-
-#-------------------------------------------------------------------
-def Pk_lin(H0, omch2, ombh2, As, ns, z):
+def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """
-    Generates a linear initial power spectrum from CAMB
+    Generates a random latin hypercube sample of the parameters for generating the training set
+    @param N {int} the number of samples to generate
     """
-    #get matter power spectra at the redshift we want
-    pars = camb.CAMBparams()
-    pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
-    pars.InitPower.set_params(ns=ns, As=np.exp(As)/1e10)
-    #Note non-linear corrections couples to smaller scales than you want
-    pars.set_matter_power(redshifts=[z], kmax=0.26)
+    # TODO: impliment varying ombh2 and ns
 
-    #Linear spectra
-    pars.NonLinear = model.NonLinear_none
-    results = camb.get_results(pars)
-    # k bins will be interpolated to what we want later, so it's "ok" if this isn't exact
-    kh, z1, pk = results.get_matter_power_spectrum(minkh=np.amin(k)/2., maxkh=np.amax(k), npoints = 100)
-    
-    pdata = np.vstack((kh, pk[0])).T
-    return pdata
+    n_dim = 5
+    if vary_nuisance == True: n_dim += 5
+    #if vary_ombh2 == True:    n_dim += 1
+    #if vary_ns == True:       n_dim += 1
 
-def Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z):
-    cosmo = Class()
-    cosmo.set({'output':'mPk',
-            'non linear':'PT',
-            'IR resummation':'Yes',
-            'Bias tracers':'Yes',
-            'cb':'Yes', # use CDM+baryon spectra
-            'RSD':'Yes',
-            'AP':'Yes', # Alcock-Paczynski effect
-            'Omfid':'0.31', # fiducial Omega_m
-            'PNG':'No', # single-field inflation PNG
-            'A_s':np.exp(As)/1e10,
-            'n_s':ns,
-            'tau_reio':0.052,
-            'omega_b':ombh2,
-            'omega_cdm':omch2,
-            'h':H0 / 100.,
-            'YHe':0.2425,
-            'N_ur':2.0328,
-            'N_ncdm':1,
-            'm_ncdm':0.06,
-            'z_pk':z
-            })
-    try:  
-        cosmo.compute()
-    except:
-        print("cosmo compute failed for given parameters:", H0, omch2, ombh2, As, ns, b1, b2)
-        return []
+    # bounds either taken from Wadekar et al (2020) or assumed to be "very wide"
+    # NOTE: H0, A, and ombh2 have no assumed priors in that paper, so I chose an arbitrary large range
+    # NOTE: ns and omega_b have assumed values, as they claim using Planck priors makes no difference.
+    # I'll therefore try to chose a range based on those priors found from https://wiki.cosmos.esa.int/planckpla/index.php/Cosmological_Parameters 
+    # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf table 1 (the best fit column), 
+    # since Wadekar uses A = As / As_planck
+    # ---Cosmology parameters sample bounds---
+    H0_bounds    = [52, 100]      # Hubble constant
+    omch2_bounds = [0.002, 0.3]   # Omega_cdm h^2
+    A_bounds     = [0.1, 2]       # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
+    b1_bounds    = [1, 4]         # Linear bias       (b1 * (A/A_planck)^1/2)
+    b2_bounds    = [-4, 4]        # Quadratic bias?   (b2 * (A/A_planck)^1/2)
 
-    cosmo.initialize_output(k, z, len(k))
+    ombh2_bounds = [0.005, 0.08]  # Omega b h^2
+    ns_bounds    = [0.9, 1.1]     # Spectral index
+    # nuisance parameter sample bounds, should you chose to vary these when generating your training set
+    bG2_bounds   = [-4, 4]
+    cs0_bounds   = [-120, 120]
+    cs2_bounds   = [-120, 120]
+    cbar_bounds  = [-1500, 2500]
+    Pshot_bounds = [-20000, 20000]
 
-    bG2, bGamma3, cs0, cs2, cs4, Pshot, b4 = 0.1, -0.1, 0., 30., 0., 3000., 10.
-    pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, b4)
-    pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, b4)
-    pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, b4)
+    # sample the distribution of points using a Latin Hypercube
+    sampler = qmc.LatinHypercube(d=n_dim)
+    dist = sampler.random(n=N)
 
-    # This line is necesary to prevent memory leaks
-    cosmo.struct_cleanup()
-    return [pk_g0, 0, pk_g2, 0, pk_g4]
+    # ---Cosmology parameters---
+    #Omega_m = dist[:,0]*(Omega_m_bounds[1] - Omega_m_bounds[0]) + Omega_m_bounds[0]
+    H0 = dist[:,0]*(H0_bounds[1] - H0_bounds[0]) + H0_bounds[0]
+    omch2 = dist[:,1]*(omch2_bounds[1] - omch2_bounds[0]) + omch2_bounds[0]
+    A = dist[:,2]*(A_bounds[1] - A_bounds[0]) + A_bounds[0]
+    b1 = dist[:,3]*(b1_bounds[1] - b1_bounds[0]) + b1_bounds[0]
+    b2 = dist[:,4]*(b2_bounds[1] - b2_bounds[0]) + b2_bounds[0]
 
-#-------------------------------------------------------------------
-def trispIntegrand(u12,k1,k2,Plin):
-    return( (8*i44*(Plin(k1)**2*T0.e44o44_1(u12,k1,k2) + Plin(k2)**2*T0.e44o44_1(u12,k2,k1))
-            +16*i44*Plin(k1)*Plin(k2)*T0.e44o44_2(u12,k1,k2)
-             +8*i34*(Plin(k1)*T0.e34o44_2(u12,k1,k2)+Plin(k2)*T0.e34o44_2(u12,k2,k1))
-            +2*i24*T0.e24o44(u12,k1,k2))
-            *Plin(np.sqrt(k1**2+k2**2+2*k1*k2*u12)) )
+    # if vary_ombh2:
+    #     ombh2 = dist[:,2]*(ombh2_bounds[1] - ombh2_bounds[0]) + ombh2_bounds[0]
+    # if vary_ns:
+    #     ns = dist[:,4]*(ns_bounds[1] - ns_bounds[0]) + ns_bounds[0]
+    if vary_nuisance == True:
+        bG2 = dist[:,5]*(bG2_bounds[1] - bG2_bounds[0]) + bG2_bounds[0]
+        cs0 = dist[:,6]*(cs0_bounds[1] - cs0_bounds[0]) + cs0_bounds[0]
+        cs2 = dist[:,7]*(cs2_bounds[1] - cs2_bounds[0]) + cs2_bounds[0]
+        cbar = dist[:,8]*(cbar_bounds[1] - cbar_bounds[0]) + cbar_bounds[0]
+        Pshot = dist[:,9]*(Pshot_bounds[1] - Pshot_bounds[0]) + Pshot_bounds[0]
 
-#-------------------------------------------------------------------
-# Returns the tree-level trispectrum as a function of multipoles and k1, k2
-def trisp(l1,l2,k1,k2, Plin):
-    T0.l1=l1; T0.l2=l2
-    expr = i44*(Plin(k1)**2*Plin(k2)*T0.ez3(k1,k2) + Plin(k2)**2*Plin(k1)*T0.ez3(k2,k1))\
-           +8*i34*Plin(k1)*Plin(k2)*T0.e34o44_1(k1,k2)
+        samples = np.vstack((H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
+        header_str = "H0, omch2, ombh2, A, ns, b1 A^1/2, b2 A^1/2, bG2, cs0, cs2, cbar, Pshot"
+    else:
+        header_str = "H0, omch2, ombh2, A, ns, b1 A^1/2, b2 A^1/2"
+        samples = np.vstack((H0, omch2, A, b1, b2)).T
 
-    temp = (quad(trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=60)[0]/2. + expr)/i22**2
-    return(temp)
-trisp = np.vectorize(trisp)
+    np.savetxt("Sample-params.txt", samples, header=header_str)
 
-#-------------------------------------------------------------------
-# Using the Z12 kernel which is defined in Eq. (A9) (equations copy-pasted from Generating_T0_Z12_expressions.nb)
-def Z12Kernel(l,mu,be,b1,b2,g2,dlnpk):
-    if(l==0):
-        exp=(7*b1**2*be*(70 + 42*be + (-35*(-3 + dlnpk) + 3*be*(28 + 13*be - 14*dlnpk - 5*be*dlnpk))*mu**2) + 
-            b1*(35*(47 - 7*dlnpk) + be*(798 + 153*be - 98*dlnpk - 21*be*dlnpk + 
-            4*(84 + be*(48 - 21*dlnpk) - 49*dlnpk)*mu**2)) + 
-            98*(5*b2*(3 + be) + 4*g2*(-5 + be*(-2 + mu**2))))/(735.*b1**2)
-    elif(l==2):
-        exp=(14*b1**2*be*(14 + 12*be + (2*be*(12 + 7*be) - (1 + be)*(7 + 5*be)*dlnpk)*mu**2) + 
-            b1*(4*be*(69 + 19*be) - 7*be*(2 + be)*dlnpk + 
-            (24*be*(11 + 6*be) - 7*(21 + be*(22 + 9*be))*dlnpk)*mu**2 + 7*(-8 + 7*dlnpk + 24*mu**2)) + 
-            28*(7*b2*be + g2*(-7 - 13*be + (21 + 11*be)*mu**2)))/(147.*b1**2)
-    elif(l==4):
-        exp=(8*be*(b1*(-132 + 77*dlnpk + be*(23 + 154*b1 + 14*dlnpk)) - 154*g2 + 
-            (b1*(396 - 231*dlnpk + be*(272 + 308*b1 + 343*b1*be - 7*(17 + b1*(22 + 15*be))*dlnpk)) + 
-            462*g2)*mu**2))/(2695.*b1**2)
-    return(exp)
+    return samples
 
-#-------------------------------------------------------------------
-# Legendre polynomials
-def lp(l,mu):
-    if (l==0): exp=1
-    if (l==2): exp=((3*mu**2 - 1)/2.)
-    if (l==4): exp=((35*mu**4 - 30*mu**2 + 3)/8.)
-    return(exp)
-
-#-------------------------------------------------------------------
-# For transforming the linear array to a matrix
-def MatrixForm(a):
-    b=np.zeros((3,3))
-    if len(a)==6:
-        b[0,0]=a[0]; b[1,0]=b[0,1]=a[1]; 
-        b[2,0]=b[0,2]=a[2]; b[1,1]=a[3];
-        b[2,1]=b[1,2]=a[4]; b[2,2]=a[5];
-    if len(a)==9:
-        b[0,0]=a[0]; b[0,1]=a[1]; b[0,2]=a[2]; 
-        b[1,0]=a[3]; b[1,1]=a[4]; b[1,2]=a[5];
-        b[2,0]=a[6]; b[2,1]=a[7]; b[2,2]=a[8];
-    return(b)
-
-#-------------------------------------------------------------------
-# Calculating multipoles of the Z12 kernel
-def Z12Multipoles(i,l,be,b1,b2,g2,dlnpk):
-    return(quad(lambda mu: lp(i,mu)*Z12Kernel(l,mu,be,b1,b2,g2,dlnpk), -1, 1, limit=60)[0])
-Z12Multipoles = np.vectorize(Z12Multipoles)
-
-#-------------------------------------------------------------------
-def CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2):
-    """
-    Calculates the LA terms used in the SSC calculations
-    """
-    covaLAterm=np.zeros((3,len(k)))
-    for l in range(3):
-        for i in range(3):
-            for j in range(3):
-                covaLAterm[l]+=1/4.*sigma22x10[i,j]*Z12Multipoles(2*i,2*l,be,b1,b2,g2,dlnPk)\
-                *quad(lambda mu: lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]
-    return covaLAterm
-        
-#-------------------------------------------------------------------
-def covaSSC(l1,l2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk):
-    """
-    Returns the SSC covariance matrix contrbution
-    BC= beat-coupling, LA= local average effect, SSC= super sample covariance
-    """
-    
-    covaBC=np.zeros((len(k),len(k)))
-    for i in range(3):
-        for j in range(3):
-            covaBC+=1/4.*sigma22Sq[i,j]*np.outer(Plin(k)*Z12Multipoles(2*i,l1,be,b1,b2,g2,dlnPk),Plin(k)*Z12Multipoles(2*j,l2,be,b1,b2,g2,dlnPk))
-            sigma10Sq[i,j]=1/4.*sigma10Sq[i,j]*quad(lambda mu: lp(2*i,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]\
-            *quad(lambda mu: lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]
-
-    covaLA=-rsd[l2]*np.outer(Plin(k)*(covaLAterm[int(l1/2)]+i32/i22/i10*rsd[l1]*Plin(k)*b2/b1**2+2/i10*rsd[l1]),Plin(k))\
-           -rsd[l1]*np.outer(Plin(k),Plin(k)*(covaLAterm[int(l2/2)]+i32/i22/i10*rsd[l2]*Plin(k)*b2/b1**2+2/i10*rsd[l2]))\
-           +(np.sum(sigma10Sq)+1/i10)*rsd[l1]*rsd[l2]*np.outer(Plin(k),Plin(k))
-
-    return(covaBC+covaLA)
-    
-#-------------------------------------------------------------------
-def CovMatGauss(Pfit):
-    """
-    Returns the full (Monopole+Quadrupole) Gaussian covariance matrix
-    """
-    covMat=np.zeros((2*kbins,2*kbins))
-    for i in range(kbins):
-        temp=Cij(i,WijFile[i], Pfit)
-        C00=temp[:,0]; C22=temp[:,1]; C20=temp[:,3]
-        for j in range(-3,4):
-            if(i+j>=0 and i+j<kbins):
-                covMat[i,i+j]=C00[j+3]
-                covMat[kbins+i,kbins+i+j]=C22[j+3]
-                covMat[kbins+i,i+j]=C20[j+3]
-    covMat[:kbins,kbins:kbins*2]=np.transpose(covMat[kbins:kbins*2,:kbins])
-    covMat=(covMat+np.transpose(covMat))/2.
-    return(covMat)
-
-#-------------------------------------------------------------------
-def CovMatNonGauss(Plin, be,b1,b2,g2):
-    """
-    Returns the full Non-Gaussian covariance matrix
-    """
-    # Get the derivativee of the linear power spectrum
-    dlnPk=derivative(Plin,k,dx=1e-4)*k/Plin(k)
-    
-    # Kaiser terms
-    rsd=np.zeros(5)
-    rsd[0]=1 + (2*be)/3 + be**2/5
-    rsd[2]=(4*be)/3 + (4*be**2)/7
-    rsd[4]=(8*be**2)/35
-    
-    # Calculating the RMS fluctuations of supersurvey modes 
-    #(e.g., sigma22Sq which was defined in Eq. (33) and later calculated in Eq.(65)
-    kwin = powW22[:,0]
-    [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
-    for i in range(9):
-        Pwin=InterpolatedUnivariateSpline(kwin, powW22x10[:,1+i])
-        temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-
-        if(i<6):
-            Pwin=InterpolatedUnivariateSpline(kwin, powW22[:,1+i])
-            temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-            Pwin=InterpolatedUnivariateSpline(kwin, powW10[:,1+i])
-            temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-        else:
-            continue
-    
-    sigma22Sq = MatrixForm(temp); sigma10Sq = MatrixForm(temp2); sigma22x10 = MatrixForm(temp3)
-  
-    # Calculate the LA term
-    covaLAterm = CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2)
-    
-    # Calculate the Non-Gaussian multipole covariance
-    # Warning: the trispectrum takes a while to run
-    covaT0mult=np.zeros((2*kbins,2*kbins))
-    for i in range(len(k)):
-        covaT0mult[i,:kbins]=trisp(0,0,k[i],k, Plin)
-        covaT0mult[i,kbins:]=trisp(0,2,k[i],k, Plin)
-        covaT0mult[kbins+i,kbins:]=trisp(2,2,k[i],k, Plin)
-
-    covaT0mult[kbins:,:kbins]=np.transpose(covaT0mult[:kbins,kbins:])
-
-    covaSSCmult=np.zeros((2*kbins,2*kbins))
-    covaSSCmult[:kbins,:kbins]=covaSSC(0,0, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-    covaSSCmult[kbins:,kbins:]=covaSSC(2,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-    covaSSCmult[:kbins,kbins:]=covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
-    covaSSCmult[kbins:,:kbins]=np.transpose(covaSSCmult[:kbins,kbins:])
-
-    covaNG=covaT0mult+covaSSCmult
-    return covaNG
-
-def CovAnalytic(H0, Omega_m, omch2, ombh2, As, ns, z, b1, b2, b3, be, g2, g3, g2x, g21, i):
+def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
     Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
     in parallel.
     Also returns sigma8, which is derived when calculating the initial power spectrum
     """
-    # initializing bias parameters for trispectrum
-    T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
-    # Get initial power spectrum
-    pdata = Pk_lin(H0, omch2, ombh2, As, ns, z)
-    Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
-    # Get galaxy power spectrum
-    Pk_g = Pk_galaxy(H0, omch2, ombh2, As, ns, b1, b2, z)
-    if len(Pk_g) == 0: return
+    params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
 
-    # Calculate the covariance
-    covaG  = CovMatGauss(Pk_g)
-    covaNG = CovMatNonGauss(Plin, be,b1,b2,g2)
-
-    covAnl=covaG+covaNG
+    # calculate the covariance matrix
+    C_G, Pk_galaxy = CovaPT.get_gaussian_covariance(params, return_Pk=True)
+    C_SSC, C_T0 = CovaPT.get_non_gaussian_covariance(params)
 
     # Test that the matrix we calculated is positive definite. It it isn't, then skip
     try:
-        L = np.linalg.cholesky(covAnl)
+        L = np.linalg.cholesky(C_G + C_SSC + C_T0)
 
         # save results to a file for training
         idx = f'{i:05d}'
-        params = np.array([H0, omch2, ombh2, As, ns, b1, b2])
-        np.savez(home_dir+"CovA-"+idx+".npz", params=params, C_G=covaG, C_NG=covaNG)
+        params = np.array([H0, omch2, A, b1, b2])
+        np.savez(home_dir+"CovA-"+idx+".npz", params=params, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
     except:
         print("idx", i, "is not positive definite! skipping...")
 
@@ -384,62 +143,65 @@ def main():
     size = MPI.COMM_WORLD.Get_size()
     rank = MPI.COMM_WORLD.Get_rank()
 
+    if rank == 0:
+        print("Varying nuisance parameters:", vary_nuisance)
+
     # TEMP: ignore integration warnings to make output more clean
     warnings.filterwarnings("ignore")
 
     t1 = time.time(); t2 = t1
 
-    # Split up data to multiple MPI ranks
+    # generate samples (done on each rank for simplicity)
+    full_sample = Latin_Hypercube(N, vary_nuisance)
+
+    # Split up samples to multiple MPI ranks
     # Aparently MPI scatter doesn't work on Puma, so this uses a different way
     assert N % size == 0
     offset = int((N / size) * rank)
     data_len = int(N / size)
-    data = np.loadtxt("Sample-params.txt", skiprows=1+offset, max_rows = data_len)
+    sample = full_sample[offset:offset+data_len, :]
 
     # ---Cosmology parameters---
-    H0 = data[:,0]
-    omch2 = data[:,1]
-    ombh2 = data[:,2]
-    A = data[:,3]
-    ns = data[:,4]
-    b1_A = data[:,5]
-    b2_A = data[:,6]
+    H0 = sample[:,0]
+    omch2 = sample[:,1]
+    A = sample[:,2]
+    b1_A = sample[:,3]
+    b2_A = sample[:,4]
 
-    As = A * As_planck
-    b1 = b1_A / np.sqrt(A)
-    b2 = b2_A / np.sqrt(A)
+    if vary_nuisance == True:
+        bG2 = sample[:5]
+        cs0 = sample[:6]
+        cs2 = sample[:7]
+        cbar = sample[:8]
+        Pshot = sample[:9]
+    else:
+        bG2 = np.ones(data_len)*-0.0442
+        cs0 = np.ones(data_len)*12.01
+        cs2 = np.ones(data_len)*4.54
+        cbar = np.ones(data_len)*382
+        Pshot = np.ones(data_len)*984
 
-    Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
-    # Below are expressions for non-local bias (g_i) from local lagrangian approximation
-    # and non-linear bias (b_i) from peak-background split fit of 
-    # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
-    # which could used if those parameters aren't constrained.
-    g2 = -2/7*(b1 - 1)
-    g3 = 11/63*(b1 - 1)
-    #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
-    g2x = -2/7*b2
-    g21 = -22/147*(b1 - 1)
-    b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
-    
-    # ---Bias and survey parameters---
-    z = 0.61 #mean redshift of the high-Z chunk
-    be = fgrowth(z, Omega_m)/b1; #beta = f/b1, zero for real space
-    
+    z = 0.61
     # split up workload to different nodes
     i = np.arange(offset, offset+data_len, dtype=np.int)
 
-    #pgg = pkmu_hod()
     # initialize pool for multiprocessing
     print("Rank", rank, "beginning matrix calculations...")
     t1 = time.time()
     with Pool(processes=N_PROC) as pool:
-        pool.starmap(CovAnalytic, zip(H0, Omega_m, omch2, ombh2, As, ns,
-                                      repeat(z), b1, b2, b3, be, g2, g3, g2x, g21, i))
-        #(H0, Pfit, Omega_m, ombh2, omch2, z, b1, b2, b3, be, g2, g3, g2x, g21)
+        pool.starmap(CovAnalytic, zip(H0, omch2, A, b1_A, b2_A, bG2, cs0, cs2, cbar, Pshot, repeat(z), i))
+    
+    print("Rank " + str(rank) + " is done!")
+
+    comm.Barrier()
     t2 = time.time()
-    
-    print("Done! Took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
-    print("Rank " + str(rank) + " Made " + str(int(N / size)) + " matrices")
-    
+    if rank == 0:
+        print("Done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
+
+        # there (should be) no directories in the output directory, so no need to loop over the files
+        files = os.listdir(home_dir)
+        num_success = len(files)
+        print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
+
 if __name__ == "__main__":
     main()

@@ -140,9 +140,34 @@ def Pk_lin(H0, omch2, ombh2, As, ns, z):
     pars.NonLinear = model.NonLinear_none
     results = camb.get_results(pars)
     # k bins will be interpolated to what we want later, so it's "ok" if this isn't exact
+    # this k is in units of h/Mpc
     kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.4, npoints = 100)
     
     pdata = np.vstack((kh, pk[0])).T
+    return pdata
+
+#-------------------------------------------------------------------
+def Pk_lin_CLASS(H0, omch2, ombh2, As, ns, z):
+    """
+    Generates a linear initial power spectrum with CLASS
+    """
+    cosmo = Class()
+    cosmo.set(common_settings)
+
+    cosmo.set({'A_s':np.exp(As)/1e10,
+               'n_s':ns,
+               'omega_b':ombh2,
+               'omega_cdm':omch2,
+               'H0':H0,
+               'z_pk':z
+               })  
+    cosmo.compute()
+    k = np.linspace(0.0025, 0.25, 100)
+    khvec = k * cosmo.h()
+    #get matter power spectra and sigma8 at the redshift we want
+    pk_lin = np.asarray([cosmo.pk_lin(kh,z)*cosmo.h()**3. for kh in khvec])
+
+    pdata = np.vstack((k, pk_lin)).T
     return pdata
 
 #-------------------------------------------------------------------
@@ -249,7 +274,7 @@ def covaSSC(l1,l2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g
 # ------------------------------------------------------------------
 
 #-------------------------------------------------------------------
-def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.395, 400)):
+def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.245, 400)):
     z = 0.61
 
     cosmo = Class()
@@ -284,7 +309,7 @@ def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.395, 400)):
                })  
     cosmo.compute()
 
-    cosmo.initialize_output(k, z, len(k))
+    cosmo.initialize_output(k*cosmo.h(), z, len(k))
 
     # calculate galaxy power spectrum multipoles
     pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
@@ -297,7 +322,7 @@ def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.395, 400)):
     return [pk_g0, 0, pk_g2, 0, pk_g4]
 
 #-------------------------------------------------------------------
-def get_gaussian_covariance(params, Pk_galaxy=[], k=np.linspace(0.005, 0.245, 25)):
+def get_gaussian_covariance(params, return_Pk=False, Pk_galaxy=[], k=np.linspace(0.005, 0.245, 25)):
     """
     Returns the (Monopole+Quadrupole) Gaussian covariance matrix
     If Pk_galaxy is already calculated, takes ~10 ms to run
@@ -318,7 +343,9 @@ def get_gaussian_covariance(params, Pk_galaxy=[], k=np.linspace(0.005, 0.245, 25
                 covMat[kbins+i,i+j]=C20[j+3]
     covMat[:kbins,kbins:kbins*2]=np.transpose(covMat[kbins:kbins*2,:kbins])
     covMat=(covMat+np.transpose(covMat))/2.
-    return(covMat)
+
+    if return_Pk==False: return covMat
+    else: return covMat, Pk_galaxy
 
 #-------------------------------------------------------------------
 def get_non_gaussian_covariance(params, do_T0=True):
@@ -354,7 +381,7 @@ def get_non_gaussian_covariance(params, do_T0=True):
     T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
     # Get initial power spectrum
-    pdata = Pk_lin(H0, omch2, ombh2, As, ns, z)
+    pdata = Pk_lin_CLASS(H0, omch2, ombh2, As, ns, z)
     Plin=InterpolatedUnivariateSpline(pdata[:,0], Dz(z, Omega_m)**2*b1**2*pdata[:,1])
 
     # Get the derivativee of the linear power spectrum

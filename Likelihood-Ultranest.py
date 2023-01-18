@@ -124,7 +124,7 @@ def calc_sigma8(params):
     H0    = params[0]
     omch2 = params[1]
     ombh2 = ombh2_planck
-    As    = A_planck #params[2] * A_planck
+    As    = params[2] * A_planck
     ns    = ns_planck
     # This line is necesary to prevent memory leaks
     cosmo.set(common_settings)
@@ -299,7 +299,7 @@ def main():
 
     sampler.print_results()
 
-    sampler.plot()
+    #sampler.plot()
 
     t2 = time.time()
     print("Done!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))

@@ -42,7 +42,7 @@ cosmo_prior = np.array([[52, 100],     #H0
                         [0, 5000]      #Pshot (gaussian)
                         ])
 
-A_planck = 3.0448
+A_planck = 3.0447
 
 # fiducial taken to be the cosmology used to generate Patchy mocks
 #                     H0,   omch2,  ombh2,  A,     ns,     b1,     b2      bG2, c0, c2,  Pshot
