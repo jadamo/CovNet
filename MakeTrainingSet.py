@@ -16,6 +16,8 @@ import CovaPT
 sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 import T0
 
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
+
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
 #-------------------------------------------------------------------
@@ -29,7 +31,7 @@ ombh2_planck = 0.02237
 # number of samples to compensate
 vary_nuisance = False
 
-#N = 150000
+#N = 150400
 N = 16
 #N_PROC = 94
 N_PROC=4
@@ -57,14 +59,15 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
 
     # bounds either taken from Wadekar et al (2020) or assumed to be "very wide"
     # NOTE: H0, A, and ombh2 have no assumed priors in that paper, so I chose an arbitrary large range
+    # that minimizes the amount of failures when computing power spectra
     # NOTE: ns and omega_b have assumed values, as they claim using Planck priors makes no difference.
     # I'll therefore try to chose a range based on those priors found from https://wiki.cosmos.esa.int/planckpla/index.php/Cosmological_Parameters 
     # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf table 1 (the best fit column), 
     # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
-    H0_bounds    = [52, 100]      # Hubble constant
+    H0_bounds    = [50, 100]      # Hubble constant
     omch2_bounds = [0.002, 0.3]   # Omega_cdm h^2
-    A_bounds     = [0.1, 2]       # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
+    A_bounds     = [0.1, 1.75]    # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
     b1_bounds    = [1, 4]         # Linear bias       (b1 * (A/A_planck)^1/2)
     b2_bounds    = [-4, 4]        # Quadratic bias?   (b2 * (A/A_planck)^1/2)
 
@@ -121,6 +124,10 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
 
     # calculate the covariance matrix
     C_G, Pk_galaxy = CovaPT.get_gaussian_covariance(params, return_Pk=True)
+    if True in np.isnan(C_G):
+        print("idx", i, "failed to compute power spectrum! skipping...")
+        return -1
+
     C_SSC, C_T0 = CovaPT.get_non_gaussian_covariance(params)
 
     # Test that the matrix we calculated is positive definite. It it isn't, then skip
@@ -131,8 +138,10 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         idx = f'{i:05d}'
         params = np.array([H0, omch2, A, b1, b2])
         np.savez(home_dir+"CovA-"+idx+".npz", params=params, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
+        return 0
     except:
         print("idx", i, "is not positive definite! skipping...")
+        return -2
 
 #-------------------------------------------------------------------
 # MAIN
@@ -168,6 +177,7 @@ def main():
     b1_A = sample[:,3]
     b2_A = sample[:,4]
 
+    # sample nuisance parameters, or set them to a constant
     if vary_nuisance == True:
         bG2 = sample[:5]
         cs0 = sample[:6]
@@ -175,11 +185,11 @@ def main():
         cbar = sample[:8]
         Pshot = sample[:9]
     else:
-        bG2 = np.ones(data_len)*-0.0442
-        cs0 = np.ones(data_len)*12.01
-        cs2 = np.ones(data_len)*4.54
-        cbar = np.ones(data_len)*382
-        Pshot = np.ones(data_len)*984
+        bG2 = np.ones(data_len)*-0.3067
+        cs0 = np.ones(data_len)*3.423
+        cs2 = np.ones(data_len)*-1.25
+        cbar = np.ones(data_len)*327
+        Pshot = np.ones(data_len)*862
 
     z = 0.61
     # split up workload to different nodes
@@ -188,13 +198,22 @@ def main():
     # initialize pool for multiprocessing
     print("Rank", rank, "beginning matrix calculations...")
     t1 = time.time()
+    fail_compute_sub = 0
+    fail_posdef_sub = 0
     with Pool(processes=N_PROC) as pool:
-        pool.starmap(CovAnalytic, zip(H0, omch2, A, b1_A, b2_A, bG2, cs0, cs2, cbar, Pshot, repeat(z), i))
-    
+        for result in pool.starmap(CovAnalytic, zip(H0, omch2, A, b1_A, b2_A, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
+            if result == -1: fail_compute_sub+=1
+            if result == -2: fail_posdef_sub+=1
+
     print("Rank " + str(rank) + " is done!")
 
     comm.Barrier()
     t2 = time.time()
+
+    # gather reasons for failure
+    fail_compute = comm.reduce(fail_compute_sub, op=MPI.SUM, root=0)
+    fail_posdef = comm.reduce(fail_posdef_sub, op=MPI.SUM, root=0)
+
     if rank == 0:
         print("Done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
 
@@ -202,6 +221,8 @@ def main():
         files = os.listdir(home_dir)
         num_success = len(files)
         print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
+        print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
+        print("{:0.0f} matrices were not positive definite".format(fail_posdef))
 
 if __name__ == "__main__":
     main()

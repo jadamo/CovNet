@@ -307,7 +307,8 @@ def Pk_CLASS_PT(params, k=np.linspace(0.005, 0.245, 400)):
                'H0':H0,
                'z_pk':z
                })  
-    cosmo.compute()
+    try: cosmo.compute()
+    except: return []
 
     cosmo.initialize_output(k*cosmo.h(), z, len(k))
 
@@ -331,6 +332,10 @@ def get_gaussian_covariance(params, return_Pk=False, Pk_galaxy=[], k=np.linspace
     # generate galaxy redshift-space power spectrum if necesary
     if len(Pk_galaxy) == 0:
         Pk_galaxy = Pk_CLASS_PT(params, k)
+    # if generating the galaxy power spectrum failed, return nan value
+    if len(Pk_galaxy) == 0:
+        if return_Pk == False: return np.nan
+        else: return np.nan, np.nan
 
     covMat=np.zeros((2*kbins,2*kbins))
     for i in range(kbins):
