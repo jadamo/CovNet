@@ -21,7 +21,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "2"
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
 #-------------------------------------------------------------------
-A_planck = 3.0447
+As_planck = 3.0447
 ns_planck = 0.9649
 ombh2_planck = 0.02237
 
@@ -52,7 +52,7 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """
     # TODO: impliment varying ombh2 and ns
 
-    n_dim = 5
+    n_dim = 6
     if vary_nuisance == True: n_dim += 5
     #if vary_ombh2 == True:    n_dim += 1
     #if vary_ns == True:       n_dim += 1
@@ -66,15 +66,15 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
     H0_bounds    = [50, 100]      # Hubble constant
-    omch2_bounds = [0.002, 0.3]   # Omega_cdm h^2
-    A_bounds     = [0.1, 1.75]    # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
-    b1_bounds    = [1, 4]         # Linear bias       (b1 * (A/A_planck)^1/2)
-    b2_bounds    = [-4, 4]        # Quadratic bias?   (b2 * (A/A_planck)^1/2)
+    omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
+    A_bounds     = [0.2, 1.75]    # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
+    b1_bounds    = [1, 4]         # Linear bias
+    b2_bounds    = [-4, 4]        # Quadratic bias?
+    bG2_bounds   = [-4, 4]        # 
 
     ombh2_bounds = [0.005, 0.08]  # Omega b h^2
     ns_bounds    = [0.9, 1.1]     # Spectral index
     # nuisance parameter sample bounds, should you chose to vary these when generating your training set
-    bG2_bounds   = [-4, 4]
     cs0_bounds   = [-120, 120]
     cs2_bounds   = [-120, 120]
     cbar_bounds  = [-1500, 2500]
@@ -91,23 +91,23 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     A = dist[:,2]*(A_bounds[1] - A_bounds[0]) + A_bounds[0]
     b1 = dist[:,3]*(b1_bounds[1] - b1_bounds[0]) + b1_bounds[0]
     b2 = dist[:,4]*(b2_bounds[1] - b2_bounds[0]) + b2_bounds[0]
+    bG2 = dist[:,5]*(bG2_bounds[1] - bG2_bounds[0]) + bG2_bounds[0]
 
     # if vary_ombh2:
     #     ombh2 = dist[:,2]*(ombh2_bounds[1] - ombh2_bounds[0]) + ombh2_bounds[0]
     # if vary_ns:
     #     ns = dist[:,4]*(ns_bounds[1] - ns_bounds[0]) + ns_bounds[0]
     if vary_nuisance == True:
-        bG2 = dist[:,5]*(bG2_bounds[1] - bG2_bounds[0]) + bG2_bounds[0]
         cs0 = dist[:,6]*(cs0_bounds[1] - cs0_bounds[0]) + cs0_bounds[0]
         cs2 = dist[:,7]*(cs2_bounds[1] - cs2_bounds[0]) + cs2_bounds[0]
         cbar = dist[:,8]*(cbar_bounds[1] - cbar_bounds[0]) + cbar_bounds[0]
         Pshot = dist[:,9]*(Pshot_bounds[1] - Pshot_bounds[0]) + Pshot_bounds[0]
 
         samples = np.vstack((H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
-        header_str = "H0, omch2, ombh2, A, ns, b1 A^1/2, b2 A^1/2, bG2, cs0, cs2, cbar, Pshot"
+        header_str = "H0, omch2, ombh2, A, ns, b1, b2, bG2, cs0, cs2, cbar, Pshot"
     else:
-        header_str = "H0, omch2, ombh2, A, ns, b1 A^1/2, b2 A^1/2"
-        samples = np.vstack((H0, omch2, A, b1, b2)).T
+        header_str = "H0, omch2, ombh2, A, ns, b1, b2, bG2"
+        samples = np.vstack((H0, omch2, A, b1, b2, bG2)).T
 
     np.savetxt("Sample-params.txt", samples, header=header_str)
 
@@ -117,18 +117,19 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
     Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
     in parallel.
-    Also returns sigma8, which is derived when calculating the initial power spectrum
     """
 
     params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
 
+    Mat_Calc = CovaPT.Analytic_Covmat(z)
+
     # calculate the covariance matrix
-    C_G, Pk_galaxy = CovaPT.get_gaussian_covariance(params, return_Pk=True)
+    C_G, Pk_galaxy = Mat_Calc.get_gaussian_covariance(params, return_Pk=True)
     if True in np.isnan(C_G):
         print("idx", i, "failed to compute power spectrum! skipping...")
         return -1
 
-    C_SSC, C_T0 = CovaPT.get_non_gaussian_covariance(params)
+    C_SSC, C_T0 = Mat_Calc.get_non_gaussian_covariance(params)
 
     # Test that the matrix we calculated is positive definite. It it isn't, then skip
     try:
@@ -136,7 +137,7 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
 
         # save results to a file for training
         idx = f'{i:05d}'
-        params = np.array([H0, omch2, A, b1, b2])
+        params = np.array([H0, omch2, A, b1, b2, bG2])
         np.savez(home_dir+"CovA-"+idx+".npz", params=params, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
         return 0
     except:
@@ -176,20 +177,19 @@ def main():
     A = sample[:,2]
     b1_A = sample[:,3]
     b2_A = sample[:,4]
+    bG2 = sample[:5]
 
     # sample nuisance parameters, or set them to a constant
     if vary_nuisance == True:
-        bG2 = sample[:5]
         cs0 = sample[:6]
         cs2 = sample[:7]
         cbar = sample[:8]
         Pshot = sample[:9]
     else:
-        bG2 = np.ones(data_len)*-0.3067
-        cs0 = np.ones(data_len)*3.423
-        cs2 = np.ones(data_len)*-1.25
-        cbar = np.ones(data_len)*327
-        Pshot = np.ones(data_len)*862
+        cs0 = np.ones(data_len)*0.
+        cs2 = np.ones(data_len)*0.
+        cbar = np.ones(data_len)*500.
+        Pshot = np.ones(data_len)*0.
 
     z = 0.61
     # split up workload to different nodes

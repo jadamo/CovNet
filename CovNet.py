@@ -4,13 +4,19 @@ from torch.nn import functional as F
 import numpy as np
 
 #network to go from parameters to features
-class Network_Features(nn.Module):
-    def __init__(self, num_params, num_features):
+class Network_Latent(nn.Module):
+    def __init__(self, train_nuisance=False):
         super().__init__()
-        self.h1 = nn.Linear(num_params, 7)  # Hidden layer
-        self.h2 = nn.Linear(7, 8)
-        self.h3 = nn.Linear(8, 10)  # Hidden layer
-        self.out = nn.Linear(10, num_features)  # Output layer
+        if train_nuisance==False:
+            self.h1 = nn.Linear(5, 7)  # Hidden layer
+            self.h2 = nn.Linear(7, 8)
+            self.h3 = nn.Linear(8, 10)
+            self.out = nn.Linear(10, 10)  # Output layer
+        else:
+            self.h1 = nn.Linear(10, 10)  # Hidden layer
+            self.h2 = nn.Linear(10, 10)
+            self.h3 = nn.Linear(10, 10)
+            self.out = nn.Linear(10, 10)  # Output layer
 
     # Define the forward propagation of the model
     def forward(self, X):
@@ -73,8 +79,8 @@ class Block_Encoder(nn.Module):
         mu = F.relu(self.fmu(X))
         log_var = F.relu(self.fvar(X))
 
-        # The encoder outputs a distribution, so we need to draw some random sample from that
-        # distribution in order to go through the decoder
+        # The encoder outputs parameters of some distribution, so we need to draw some random sample from
+        # that distribution in order to go through the decoder
         z = self.reparameterize(mu, log_var)
         return z, mu, log_var
 
@@ -128,114 +134,36 @@ class Network_VAE(nn.Module):
         assert not True in torch.isnan(X)
         return X, mu, log_var
 
-
-# class Block_Encoder_Quad(nn.Module):
-#     """
-#     Encoder block for a Variational Autoencoder (VAE). Input is an analytical covariance matrix, 
-#     and the output is the normal distribution of a latent feature space
-#     """
-#     def __init__(self, N, do_half):
-#         super().__init__()
-
-#         self.do_half = do_half
-#         in_dim = int(N*N) if not do_half else int((N+1)*N/2)
-#         self.h1 = nn.Linear(in_dim, 750)
-#         self.h2 = nn.Linear(750, 200)
-#         self.h3 = nn.Linear(200, 50)
-#         self.h4 = nn.Linear(50, 50)
-#         self.bn = nn.BatchNorm1d(50)
-#         # 2 seperate layers - one for mu and one for log_var
-#         self.fmu = nn.Linear(50, 10)
-#         self.fvar = nn.Linear(50, 10)
-
-#     def reparameterize(self, mu, log_var):
-#         #if self.training:
-#         std = torch.exp(0.5*log_var)
-#         eps = std.data.new(std.size()).normal_()
-#         return mu + (eps * std) # sampling as if coming from the input space
-#         #else:
-#         #    return mu
-
-#     def forward(self, X):
-#         if self.do_half: 
-#             X = rearange_to_half(X, 50)
-#             X = X.view(-1, 51*25)
-#         else:
-#             X = X.reshape(-1, 50*50)
-
-#         X = F.leaky_relu(self.h1(X))
-#         X = F.leaky_relu(self.h2(X))
-#         X = F.leaky_relu(self.h3(X))
-#         X = F.leaky_relu(self.bn(self.h4(X)))
-
-#         # using sigmoid here to keep log_var between 0 and 1
-#         mu = F.relu(self.fmu(X))
-#         log_var = F.relu(self.fvar(X))
-
-#         # The encoder outputs a distribution, so we need to draw some random sample from that
-#         # distribution in order to go through the decoder
-#         z = self.reparameterize(mu, log_var)
-#         return z, mu, log_var
-
-# class Block_Decoder_Quad(nn.Module):
- 
-#     def __init__(self, N, do_half, train_cholesky=False):
-#         super().__init__()
-#         self.train_cholesky = train_cholesky
-#         self.do_half = do_half
-#         out_dim = int(N*N) if not do_half else int((N+1)*N/2)
-
-#         self.h1 = nn.Linear(10, 50)
-#         self.bn = nn.BatchNorm1d(50)
-#         self.h2 = nn.Linear(50, 50)
-#         self.h3 = nn.Linear(50, 200)
-#         self.h4 = nn.Linear(200, 750)
-#         self.out = nn.Linear(750, out_dim)
-
-#     def forward(self, X):
-
-#         X = F.leaky_relu(self.bn(self.h1(X)))
-#         X = F.leaky_relu(self.h2(X))
-#         X = F.leaky_relu(self.h3(X))
-#         X = F.leaky_relu(self.h4(X))
-#         X = self.out(X)
-
-#         if self.do_half:
-#             X = X.view(-1, 51, 25)
-#             X = rearange_to_full(X, 50, self.train_cholesky)
-#         else:
-#             X = X.reshape(-1, 50, 50)
-#         return X
-
-# class Network_VAE_Quad(nn.Module):
-#     def __init__(self, N, do_half, train_cholesky=False):
-#         super().__init__()
-#         self.Encoder = Block_Encoder_Quad(N, do_half)
-#         self.Decoder = Block_Decoder_Quad(N, do_half, train_cholesky)
-
-#     def forward(self, X):
-#         # run through the encoder
-#         # assumes that z has been reparamaterized in the forward pass
-#         z, mu, log_var = self.Encoder(X)
-#         assert not True in torch.isnan(z)
-
-#         # run through the decoder
-#         X = self.Decoder(z)
-#         assert not True in torch.isnan(X)
-#         return X, mu, log_var
-
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, N, offset, train_log, train_gaussian=False, train_cholesky=False):
-        self.params = torch.zeros([N, 7], device=try_gpu())
+    def __init__(self, data_dir, N, offset, train_nuisance, train_cholesky=False, 
+                 train_gaussian_only=False, train_T0_only=True):
+        """
+        Initialize and load in dataset for training
+        @param data_dir {string} location of training set
+        @param N {int} size of training set
+        @param offset {int} index number to begin reading training set (used when splitting set into training / validation / test sets)
+        @param train_nuisance {bool} whether you will be varying nuisance parameters when training
+        @param train_cholesky {bool} whether to represent each matrix as its cholesky decomposition
+        @param train_gaussian {bool} whether to store only the gaussian term of the covariance matrix (for testing)
+        @param train_T0_only {bool} whether to store only the T0 term of the covariance matrix (for testing)
+        """
+
+        assert not (train_gaussian_only == True and train_T0_only == True)
+        assert not (train_T0_only == True and train_nuisance == True)
+
+        num_params=5 if train_nuisance==False else 10
+        self.params = torch.zeros([N, num_params], device=try_gpu())
         self.matrices = torch.zeros([N, 50, 50], device=try_gpu())
         self.features = None
         self.offset = offset
         self.N = N
 
-        self.has_features = False
-        self.gaussian = train_gaussian
+        self.has_latent_space = False
+
         self.cholesky = train_cholesky
+        self.T0_only = train_T0_only
+        self.gaussian_only = train_gaussian_only
 
         for i in range(N):
 
@@ -243,13 +171,16 @@ class MatrixDataset(torch.utils.data.Dataset):
             idx = i + offset
             data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
             self.params[i] = torch.from_numpy(data["params"])
-            #self.params[i] = torch.from_numpy(data["params"])
-            if self.cholesky and not self.gaussian:
-                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_NG"])
-            elif self.gaussian:
+
+            # store specific terms of each matrix depending on the circumstances
+            if train_nuisance:
+                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"])
+            elif self.gaussian_only:
                 self.matrices[i] = torch.from_numpy(data["C_G"])
+            elif self.T0_only:
+                self.matrices[i] = torch.from_numpy(data["C_T0"])
             else:
-                self.matrices[i] = torch.from_numpy(data["C_NG"])
+                self.matrices[i] = torch.from_numpy(data["C_SSC"] + data["C_T0"])
 
             # if train_correlation:
             #     # the diagonal for correlation matrices is 1 everywhere, so let's store the diagonal there
@@ -260,22 +191,21 @@ class MatrixDataset(torch.utils.data.Dataset):
             #     self.matrices[i] = self.matrices[i] + (symmetric_log(D) - torch.eye(100).to(try_gpu()))
 
             if train_cholesky:
-                #self.matrices[i] = torch.linalg.inv(self.matrices[i])
                 self.matrices[i] = torch.linalg.cholesky(self.matrices[i])
 
-            if train_log == True:# and train_correlation == False:
-                self.matrices[i] = symmetric_log(self.matrices[i])
+            # if train_correlation == False:
+            self.matrices[i] = symmetric_log(self.matrices[i])
 
-    def add_features(self, z):
-        self.features = z.detach()
-        self.has_features = True
+    def add_latent_space(self, z):
+        self.latent_space = z.detach()
+        self.has_latent_space = True
 
     def __len__(self):
         return self.N
 
     def __getitem__(self, idx):
-        if self.has_features:
-            return self.params[idx], self.matrices[idx], self.features[idx]
+        if self.has_latent_space:
+            return self.params[idx], self.matrices[idx], self.latent_space[idx]
         else:
             return self.params[idx], self.matrices[idx]
 
