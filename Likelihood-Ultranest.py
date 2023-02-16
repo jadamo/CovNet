@@ -8,7 +8,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "4"
 from scipy.stats import norm
 #sys.path.append('/home/u12/jadamo/')
 sys.path.append('/home/joeadamo/Research')
-import CovNet, CovaPT
+import CovNet
 #sys.path.append('/home/u12/jadamo/software')
 sys.path.append('/home/joeadamo/Research/Software')
 from pk_tools import pk_tools
@@ -35,8 +35,6 @@ if use_T0 == True:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"] + C_fid_file["C_T0"]
 else:
     C_fid = C_fid_file["C_G"] + C_fid_file["C_SSC"]
-#P_fid = np.linalg.inv(C_fid)
-
 
 # C_fid = pk_tools.read_matrix(BOSS_dir+"Updated/Cov_CMASS_North.matrix.gz")
 # krange = np.linspace(0.005, 0.395, num=40)
@@ -53,12 +51,6 @@ cosmo_prior = [[40., 120.],     #H0
                [0.1, 4],    #A / A_planck
                #[0.9, 1.1],    #ns
                [1, 4],        #b1
-            #    [-4, 4],
-            #    [-4, 4],
-            #    [-120, 120],
-            #    [-120, 120],
-            #    [-1500, 2500],
-            #    [-20000, 20000]
                 norm(0, 1),        #b2 (gaussian)
                 norm(0, 1),        #bGamma2 (gaussian)
                 norm(0, 30),       #c0 (gaussian)
@@ -152,17 +144,17 @@ def model_vector_CLASS_PT(params):
     As    = params[2] * A_planck
     ns    = ns_planck
 
-    b1    = 1.984 #params[3] / np.sqrt(params[2])
-    b2    = -0.5387 #params[4] / np.sqrt(params[2])
-    bG2   = 0.6 #params[5] / np.sqrt(params[2])
+    b1    = params[3]
+    b2    = params[4]
+    bG2   = params[5]
     bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
     # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
     cs4 = -5.
     # NOTE: I'm pretty sure b4 is actually cbar
-    cs0   = 5 #params[6]
-    cs2   = 15 #params[7]
-    cbar  = 100 #params[8]
-    Pshot = 5e3 #params[9]
+    cs0   = params[6]
+    cs2   = params[7]
+    cbar  = params[8]
+    Pshot = params[9]
 
     cosmo.set(common_settings)
     cosmo.set({'A_s':np.exp(As)/1e10,
@@ -175,7 +167,7 @@ def model_vector_CLASS_PT(params):
     try:    cosmo.compute()
     except: return np.nan
 
-    k = np.linspace(0.005, 0.395, 400)
+    k = np.linspace(0.005, 0.3995, 400)
     #k = np.linspace(0.005, 0.245, 25)
 
     cosmo.initialize_output(k*cosmo.h(), z, len(k))
@@ -265,8 +257,8 @@ def main():
         print("ERROR! Fiducial matrix is not positive definite! Aborting...")
         return -1
 
-    #param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
-    param_names = ["H0", "omch2", "A"]#, "cbar", "Pshot"]
+    param_names = ["H0","omch2", "A", "b1","b2", "bG2", "cs0", "cs2", "cbar", "Pshot"]
+    #param_names = ["H0", "omch2", "A"]#, "cbar", "Pshot"]
 
     t1 = time.time()
     sampler = ultranest.ReactiveNestedSampler(param_names, ln_lkl, prior,
@@ -281,11 +273,11 @@ def main():
     # t2 = time.time()
     # print("Likelihood calculation avg time: {:0.3f} s".format((t2 - t)/100))
 
-    # nsteps = len(param_names)
-    # # create step sampler:
-    # sampler.stepsampler = ultranest.stepsampler.SliceSampler(
-    #      nsteps=nsteps,
-    #      generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
+    nsteps = len(param_names)
+    # create step sampler:
+    sampler.stepsampler = ultranest.stepsampler.SliceSampler(
+         nsteps=nsteps,
+         generate_direction=ultranest.stepsampler.generate_mixture_random_direction)
 
     # sample nuisance parameters less frequently
     # sampler.stepsampler = ultranest.stepsampler.SpeedVariableRegionSliceSampler([Ellipsis, slice(4,10)])
@@ -294,7 +286,7 @@ def main():
                 dlogz=0.5, 
                 min_ess=300,
                 max_ncalls=400000,
-                frac_remain=0.75,
+                frac_remain=0.95,
                 max_num_improvement_loops=3)
 
     sampler.print_results()
