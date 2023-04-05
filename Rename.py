@@ -8,7 +8,7 @@ import numpy as np
 def main():
 
     path = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
-    N = 150000
+    N = 150400
     idx = 0
 
     remove = 0
@@ -16,7 +16,7 @@ def main():
         filename = path + "CovA-"+f'{i:05d}'+".npz"
         if os.path.exists(filename):
             F_1 = np.load(filename)
-            C = F_1["C_G"] + F_1["C_NG"]
+            C = F_1["C_G"] + F_1["C_SSC"] + F_1["C_T0"]
             try:
                 L = np.linalg.cholesky(C)
             except np.linalg.LinAlgError as err:

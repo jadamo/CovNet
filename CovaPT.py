@@ -80,7 +80,7 @@ class Analytic_Covmat():
                             'FFTLog mode':'FAST',
                             'k_pivot':0.05,
                             'P_k_max_h/Mpc':100.,
-                            'tau_reio':0.0543,      # ?
+                            'tau_reio':0.0543,      # optical depth at reionization
                             'YHe':0.2454,           # Helium fraction?
                             'N_ur':2.0328,          # ?
                             'N_ncdm':1,             # 1 massive neutrino
@@ -313,6 +313,7 @@ class Analytic_Covmat():
 
         cosmo.initialize_output(self.k*cosmo.h(), self.z, len(self.k))
 
+        #print(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
         # calculate galaxy power spectrum multipoles
         pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
         pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, cbar)
@@ -322,6 +323,62 @@ class Analytic_Covmat():
         cosmo.struct_cleanup()
 
         return [pk_g0, 0, pk_g2, 0, pk_g4]
+
+#-------------------------------------------------------------------
+    def Pk_CLASS_PT_2(self, params, k, return_sigma8=False):
+        """
+        Same function as above, except with user-specified k-bins
+        """
+        cosmo = Class()
+        # unpack / specify parameters
+        H0    = params[0]
+        omch2 = params[1]
+        ombh2 = self.ombh2_planck
+        As    = params[2] * self.A_planck
+        ns    = self.ns_planck
+
+        b1    = params[3]
+        b2    = params[4]
+        bG2   = params[5]
+        bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
+        # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
+        cs4 = -5.
+        # NOTE: I'm pretty sure b4 is actually cbar
+        cs0   = 0.
+        cs2   = 0.
+        cbar  = 500.
+        Pshot = 0
+
+        # set cosmology parameters
+        cosmo.set(self.common_settings)
+        cosmo.set({'A_s':np.exp(As)/1e10,
+                'n_s':ns,
+                'omega_b':ombh2,
+                'omega_cdm':omch2,
+                'H0':H0,
+                'z_pk':self.z
+                })  
+        try: cosmo.compute()
+        except: return []
+
+        cosmo.initialize_output(k*cosmo.h(), self.z, len(k))
+
+        #print(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
+        # calculate galaxy power spectrum multipoles
+        pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
+        pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, cbar)
+        pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, cbar)
+
+        sigma8 = cosmo.sigma8()
+        # This line is necesary to prevent memory leaks
+        cosmo.struct_cleanup()
+
+        if return_sigma8 == False: return np.concatenate([pk_g0, pk_g2, pk_g4])
+        else: return np.concatenate([pk_g0, pk_g2, pk_g4]), sigma8
+
+    #-------------------------------------------------------------------
+    def get_k_bins(self):
+        return self.k
 
     #-------------------------------------------------------------------
     def get_gaussian_covariance(self, params, return_Pk=False, Pk_galaxy=[]):
@@ -337,6 +394,9 @@ class Analytic_Covmat():
         if len(Pk_galaxy) == 0:
             if return_Pk == False: return np.nan
             else: return np.nan, np.nan
+
+        # sanity check to make sure the galaxy power spectrum has the correct dimensions
+        assert len(Pk_galaxy[0]) == len(self.k), "Galaxy power spectrum has wrong dimensions! Double check your k-bins"
 
         covMat=np.zeros((2*self.kbins,2*self.kbins))
         for i in range(self.kbins):
@@ -446,6 +506,6 @@ class Analytic_Covmat():
         """
         Returns the full analytic covariance matrix
         """
-        cov_G = self.get_gaussian_covariance(params, Pk_galaxy)
+        cov_G = self.get_gaussian_covariance(params, False, Pk_galaxy)
         cov_SSC, cov_T0 = self.get_non_gaussian_covariance(params)
-        return cov_G + cov_SSC + cov_T0
+        return cov_G, cov_SSC, cov_T0

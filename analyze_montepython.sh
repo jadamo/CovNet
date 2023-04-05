@@ -4,8 +4,7 @@
 # directory names and settings stuff every time
 
 #output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/test-2/"
-#output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/montepython-data/initial/"
-output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/montepython-data/multinest/NS"
-
+output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test/"
+#output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/montepython-data/multinest/"
 
 ./montepython/MontePython.py info $output_folder

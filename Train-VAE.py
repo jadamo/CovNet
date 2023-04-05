@@ -7,13 +7,13 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 116500
+N = 110000
 #N = 20000
 
 # whether or not nuiscane parameters are varied in the training set
 train_nuisance = False
 # wether or not to train with the Cholesky decomposition
-train_cholesky = False
+train_cholesky = True
 # wether or not to train on just the gaussian covariance (this is a test)
 train_gaussian_only = False
 # wether or not to train on just the T0 term of the covariance (this is a test)
@@ -23,13 +23,12 @@ do_VAE = True; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
-if train_nuisance == True:  folder = "Full/"
-elif train_gaussian_only == True:  folder = "Gaussian/"
+if train_gaussian_only == True:  folder = "gaussian/"
 elif train_gaussian_only == True:  folder = "T0/"
-elif train_cholesky == True: folder = "Cholesky-decomp/"
-else: folder = "test/"
+elif train_nuisance == True:  folder = "full/"
+else: folder = "marg/"
 
-save_dir = "/home/joeadamo/Research/CovNet/emulators/Non-Gaussian/"+folder
+save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
@@ -186,7 +185,7 @@ def main():
 
     # initialize network
     net = CovNet.Network_VAE(train_cholesky).to(CovNet.try_gpu())
-    net_latent = CovNet.Network_Features(train_nuisance).to(CovNet.try_gpu())
+    net_latent = CovNet.Network_Latent(train_nuisance).to(CovNet.try_gpu())
 
     net.apply(He)
     net_latent.apply(xavier)

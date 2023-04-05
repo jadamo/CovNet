@@ -8,8 +8,8 @@ class Network_Latent(nn.Module):
     def __init__(self, train_nuisance=False):
         super().__init__()
         if train_nuisance==False:
-            self.h1 = nn.Linear(5, 7)  # Hidden layer
-            self.h2 = nn.Linear(7, 8)
+            self.h1 = nn.Linear(6, 6)  # Hidden layer
+            self.h2 = nn.Linear(6, 8)
             self.h3 = nn.Linear(8, 10)
             self.out = nn.Linear(10, 10)  # Output layer
         else:
@@ -136,8 +136,8 @@ class Network_VAE(nn.Module):
 
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, N, offset, train_nuisance, train_cholesky=False, 
-                 train_gaussian_only=False, train_T0_only=True):
+    def __init__(self, data_dir, N, offset, train_nuisance, train_cholesky=True, 
+                 train_gaussian_only=False, train_T0_only=False):
         """
         Initialize and load in dataset for training
         @param data_dir {string} location of training set
@@ -152,7 +152,7 @@ class MatrixDataset(torch.utils.data.Dataset):
         assert not (train_gaussian_only == True and train_T0_only == True)
         assert not (train_T0_only == True and train_nuisance == True)
 
-        num_params=5 if train_nuisance==False else 10
+        num_params=6 if train_nuisance==False else 10
         self.params = torch.zeros([N, num_params], device=try_gpu())
         self.matrices = torch.zeros([N, 50, 50], device=try_gpu())
         self.features = None
@@ -173,14 +173,12 @@ class MatrixDataset(torch.utils.data.Dataset):
             self.params[i] = torch.from_numpy(data["params"])
 
             # store specific terms of each matrix depending on the circumstances
-            if train_nuisance:
-                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"])
-            elif self.gaussian_only:
+            if self.gaussian_only:
                 self.matrices[i] = torch.from_numpy(data["C_G"])
             elif self.T0_only:
                 self.matrices[i] = torch.from_numpy(data["C_T0"])
             else:
-                self.matrices[i] = torch.from_numpy(data["C_SSC"] + data["C_T0"])
+                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"])
 
             # if train_correlation:
             #     # the diagonal for correlation matrices is 1 everywhere, so let's store the diagonal there

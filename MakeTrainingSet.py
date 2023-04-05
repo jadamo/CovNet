@@ -12,10 +12,6 @@ from mpi4py import MPI
 sys.path.append("/home/joeadamo/Research")
 import CovaPT
 
-#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
-import T0
-
 os.environ["OPENBLAS_NUM_THREADS"] = "2"
 
 #-------------------------------------------------------------------
@@ -104,9 +100,9 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
         Pshot = dist[:,9]*(Pshot_bounds[1] - Pshot_bounds[0]) + Pshot_bounds[0]
 
         samples = np.vstack((H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
-        header_str = "H0, omch2, ombh2, A, ns, b1, b2, bG2, cs0, cs2, cbar, Pshot"
+        header_str = "H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot"
     else:
-        header_str = "H0, omch2, ombh2, A, ns, b1, b2, bG2"
+        header_str = "H0, omch2, A, ns, b1, b2, bG2"
         samples = np.vstack((H0, omch2, A, b1, b2, bG2)).T
 
     np.savetxt("Sample-params.txt", samples, header=header_str)
@@ -175,9 +171,9 @@ def main():
     H0 = sample[:,0]
     omch2 = sample[:,1]
     A = sample[:,2]
-    b1_A = sample[:,3]
-    b2_A = sample[:,4]
-    bG2 = sample[:5]
+    b1 = sample[:,3]
+    b2 = sample[:,4]
+    bG2 = sample[:,5]
 
     # sample nuisance parameters, or set them to a constant
     if vary_nuisance == True:
@@ -201,7 +197,7 @@ def main():
     fail_compute_sub = 0
     fail_posdef_sub = 0
     with Pool(processes=N_PROC) as pool:
-        for result in pool.starmap(CovAnalytic, zip(H0, omch2, A, b1_A, b2_A, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
+        for result in pool.starmap(CovAnalytic, zip(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
             if result == -1: fail_compute_sub+=1
             if result == -2: fail_posdef_sub+=1
 
