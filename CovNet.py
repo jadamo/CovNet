@@ -39,8 +39,8 @@ class Block_Encoder(nn.Module):
         self.h2 = nn.Linear(1000, 1000)
         self.h3 = nn.Linear(1000, 750)
         self.h4 = nn.Linear(750, 500)
-        self.h5 = nn.Linear(500, 100)
-        self.h6 = nn.Linear(100, 100)
+        self.h5 = nn.Linear(500, 250)
+        self.h6 = nn.Linear(250, 100)
         self.h7 = nn.Linear(100, 50)
         self.bn2 = nn.BatchNorm1d(50)
         # self.h1 = nn.Linear(101*50, 1000)
@@ -93,8 +93,8 @@ class Block_Decoder(nn.Module):
         self.h1 = nn.Linear(10, 50)
         self.bn1 = nn.BatchNorm1d(50)
         self.h2 = nn.Linear(50, 100)
-        self.h3 = nn.Linear(100, 100)
-        self.h4 = nn.Linear(100, 500)
+        self.h3 = nn.Linear(100, 250)
+        self.h4 = nn.Linear(250, 500)
         self.h5 = nn.Linear(500, 750)
         self.h6 = nn.Linear(750, 1000)
         self.h7 = nn.Linear(1000, 1000)
@@ -191,7 +191,6 @@ class MatrixDataset(torch.utils.data.Dataset):
             if train_cholesky:
                 self.matrices[i] = torch.linalg.cholesky(self.matrices[i])
 
-            # if train_correlation == False:
             self.matrices[i] = symmetric_log(self.matrices[i])
 
     def add_latent_space(self, z):
@@ -206,6 +205,19 @@ class MatrixDataset(torch.utils.data.Dataset):
             return self.params[idx], self.matrices[idx], self.latent_space[idx]
         else:
             return self.params[idx], self.matrices[idx]
+        
+    def get_full_matrix(self, idx):
+        """
+        reverses all data pre-processing to return the full covariance matrix
+        """
+        # reverse logarithm (always true)
+        mat = symmetric_exp(self.matrices[idx])
+
+        if self.cholesky == True:
+            mat = torch.matmul(mat, torch.t(mat))
+
+        return mat.detach().numpy()
+
 
 def VAE_loss(prediction, target, mu, log_var, beta=1.0):
     """

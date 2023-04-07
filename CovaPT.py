@@ -67,6 +67,11 @@ class Analytic_Covmat():
         self.vec_Z12Multipoles = np.vectorize(self.Z12Multipoles)
         self.vec_trisp = np.vectorize(self.trisp)
 
+        # k bins for the theory power spectrum
+        dkf = 0.001
+        self.kbins3 = np.zeros(400)
+        for i in range(400): self.kbins3[i] = dkf/2+i*dkf
+
         # common CLASS-PT settings
         self.common_settings = {'output':'mPk',         # what to output
                             'non linear':'PT',      # {None, Halofit, PT}
@@ -76,7 +81,7 @@ class Analytic_Covmat():
                             'RSD':'Yes',            # Redshift-space distortions
                             'AP':'Yes',             # Alcock-Paczynski effect
                             'Omfid':'0.31',         # fiducial Omega_m
-                            'PNG':'No',             # single-field inflation PNG
+                            #'PNG':'No',             # single-field inflation PNG
                             'FFTLog mode':'FAST',
                             'k_pivot':0.05,
                             'P_k_max_h/Mpc':100.,
@@ -86,6 +91,8 @@ class Analytic_Covmat():
                             'N_ncdm':1,             # 1 massive neutrino
                             'm_ncdm':0.06,          # mass of neutrino (eV)
                             'T_ncdm':0.71611,       # neutrino temperature?
+                            'omega_b':self.ombh2_planck,
+                            'n_s':self.ns_planck
                             }
 
 #-------------------------------------------------------------------
@@ -282,28 +289,23 @@ class Analytic_Covmat():
         # unpack / specify parameters
         H0    = params[0]
         omch2 = params[1]
-        ombh2 = self.ombh2_planck
         As    = params[2] * self.A_planck
-        ns    = self.ns_planck
 
         b1    = params[3]
         b2    = params[4]
         bG2   = params[5]
         bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
         # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
-        cs4 = -5.
+        cs4 = 0.
         # NOTE: I'm pretty sure b4 is actually cbar
-        #cbar = 100. # from CLASS-PT Notebook (I don't think Wadekar varies this)
-        cs0   = params[6]
-        cs2   = params[7]
-        cbar  = params[8]
-        Pshot = params[9]
+        # these parameters are normally analytically marginalized over, but you can specify them if don't want to do that
+        cs0, cs2, b4, Pshot  = params[6], params[7], params[8], params[9]
+        a0 = 0
+        a2 = 0
 
         # set cosmology parameters
         cosmo.set(self.common_settings)
         cosmo.set({'A_s':np.exp(As)/1e10,
-                'n_s':ns,
-                'omega_b':ombh2,
                 'omega_cdm':omch2,
                 'H0':H0,
                 'z_pk':self.z
@@ -311,13 +313,58 @@ class Analytic_Covmat():
         try: cosmo.compute()
         except: return []
 
-        cosmo.initialize_output(self.k*cosmo.h(), self.z, len(self.k))
+        # theory calculations taken from Misha Ivanov's likelihood function
+        norm = 1
+        h = cosmo.h()
+        fz = cosmo.scale_independent_growth_factor_f(self.z)
+        all_theory = cosmo.get_pk_mult(self.kbins3*h,self.z, 400)
+        kinloop1 = self.kbins3 * h
 
-        #print(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
-        # calculate galaxy power spectrum multipoles
-        pk_g0 = cosmo.pk_gg_l0(b1, b2, bG2, bGamma3, cs0, Pshot, cbar)
-        pk_g2 = cosmo.pk_gg_l2(b1, b2, bG2, bGamma3, cs2, cbar)
-        pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, cbar)
+        theory4 = ((norm**2*all_theory[20] + norm**4*all_theory[27]
+                + b1*norm**3*all_theory[28]
+                + b1**2*norm**2*all_theory[29]
+                + b2*norm**3*all_theory[38]
+                + bG2*norm**3*all_theory[39]
+                + 2.*cs4*norm**2*all_theory[13]/h**2)*h**3
+                + fz**2*b4*self.kbins3**2*(norm**2*fz**2*48./143. + 48.*fz*b1*norm/77.+8.*b1**2/35.)*(35./8.)*all_theory[13]*h)
+
+        theory2 = ((norm**2*all_theory[18]
+                + norm**4*(all_theory[24])
+                + norm**1*b1*all_theory[19]
+                + norm**3*b1*(all_theory[25])
+                + b1**2*norm**2*all_theory[26]
+                + b1*b2*norm**2*all_theory[34]
+                + b2*norm**3*all_theory[35]
+                + b1*bG2*norm**2*all_theory[36]
+                + bG2*norm**3*all_theory[37]
+                + 2.*(cs2 + 0.*b4*kinloop1**2)*norm**2*all_theory[12]/h**2
+                + (2.*bG2+0.8*bGamma3*norm)*norm**3*all_theory[9])*h**3
+                + a2*(2./3.)*(self.kbins3/0.45)**2.
+                + fz**2*b4*self.kbins3**2*((norm**2*fz**2*70. + 165.*fz*b1*norm+99.*b1**2)*4./693.)*(35./8.)*all_theory[13]*h)
+
+        theory0 = ((norm**2*all_theory[15]
+                + norm**4*(all_theory[21])
+                + norm**1*b1*all_theory[16]
+                + norm**3*b1*(all_theory[22])
+                + norm**0*b1**2*all_theory[17]
+                + norm**2*b1**2*all_theory[23]
+                + 0.25*norm**2*b2**2*all_theory[1]
+                + b1*b2*norm**2*all_theory[30]
+                + b2*norm**3*all_theory[31]
+                + b1*bG2*norm**2*all_theory[32]
+                + bG2*norm**3*all_theory[33]
+                + b2*bG2*norm**2*all_theory[4]
+                + bG2**2*norm**2*all_theory[5]
+                + 2.*cs0*norm**2*all_theory[11]/h**2
+                + (2.*bG2+0.8*bGamma3*norm)*norm**2*(b1*all_theory[7]+norm*all_theory[8]))*h**3
+                + Pshot
+                + a0*(self.kbins3/0.45)**2.
+                + a2*(1./3.)*(self.kbins3/0.45)**2.
+                + fz**2*b4*self.kbins3**2*(norm**2*fz**2/9. + 2.*fz*b1*norm/7. + b1**2/5)*(35./8.)*all_theory[13]*h)
+
+        pk_g0 = InterpolatedUnivariateSpline(self.kbins3,theory0)(self.k)
+        pk_g2 = InterpolatedUnivariateSpline(self.kbins3,theory2)(self.k)
+        pk_g4 = InterpolatedUnivariateSpline(self.kbins3,theory4)(self.k)
 
         # This line is necesary to prevent memory leaks
         cosmo.struct_cleanup()

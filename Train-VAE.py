@@ -109,10 +109,10 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
             worse_epochs = 0
         else:
             worse_epochs+=1
-        if epoch > 15 and worse_epochs >= 12:
+        if epoch > 15 and worse_epochs >= 15:
             print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
             break
-
+    print("Best validation loss was {:0.3f}".format(best_loss))
     return
 
 def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
@@ -174,10 +174,10 @@ def main():
     print("Training VAE net: features net:        [" + str(do_VAE) + ", " + str(do_features) + "]")
 
     batch_size = 50
-    lr_VAE    = 0.003
+    lr_VAE    = 0.0025
     lr_latent = 0.008
 
-    num_epochs_VAE = 80
+    num_epochs_VAE = 85
     num_epochs_latent = 200
 
     N_train = int(N*0.8)

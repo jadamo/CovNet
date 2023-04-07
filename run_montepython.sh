@@ -8,7 +8,9 @@ conf_file="/home/joeadamo/Research/Software/Montepython/default.conf"
 param_file="/home/joeadamo/Research/lss_montepython/input/boss_ngc_z3.param"
 output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test/"
 
-covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
+#covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
+covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test.covmat"
+
 log_file=$output_folder"log.param"
 
 # can be "global", "sequential" or "fast"
