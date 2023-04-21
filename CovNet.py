@@ -3,14 +3,43 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 
+
+class CovNet():
+
+    def __init__(self, net_dir, N, train_cholesky=True, train_nuisance=False):
+
+        self.train_cholesky = train_cholesky
+        self.N = N
+
+        self.net_VAE = Network_VAE(train_cholesky).to(try_gpu())
+        self.decoder = Block_Decoder(train_cholesky).to(CovNet.try_gpu())
+        self.net_latent = Network_Latent().to(try_gpu())
+        self.net_VAE.eval()
+        self.decoder.eval()
+
+        self.net_VAE.load_state_dict(torch.load(net_dir+'network-VAE.params'))
+        self.decoder.load_state_dict(self.net_VAE.Decoder.state_dict())
+        self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params'))
+
+    def get_covariance_matrix(self, params):
+        params = torch.from_numpy(params).to(torch.float32)
+        z = self.net_latent(params)
+        matrix = self.decoder(z).view(1,self.N,self.N)
+
+        matrix = symmetric_exp(matrix).view(self.N,self.N)
+        if self.train_cholesky == True:
+            matrix = torch.matmul(matrix, torch.t(matrix))
+
+        return matrix.detach().numpy()
+
 #network to go from parameters to features
 class Network_Latent(nn.Module):
     def __init__(self, train_nuisance=False):
         super().__init__()
         if train_nuisance==False:
-            self.h1 = nn.Linear(6, 6)  # Hidden layer
-            self.h2 = nn.Linear(6, 8)
-            self.h3 = nn.Linear(8, 10)
+            self.h1 = nn.Linear(6, 10)  # Hidden layer
+            self.h2 = nn.Linear(10, 10)
+            self.h3 = nn.Linear(10, 10)
             self.out = nn.Linear(10, 10)  # Output layer
         else:
             self.h1 = nn.Linear(10, 10)  # Hidden layer
@@ -35,21 +64,14 @@ class Block_Encoder(nn.Module):
         super().__init__()
 
         self.h1 = nn.Linear(51*25, 1000)
-        #self.bn1 = nn.BatchNorm1d(2500)
+        self.bn1 = nn.BatchNorm1d(1000)
         self.h2 = nn.Linear(1000, 1000)
-        self.h3 = nn.Linear(1000, 750)
-        self.h4 = nn.Linear(750, 500)
-        self.h5 = nn.Linear(500, 250)
-        self.h6 = nn.Linear(250, 100)
+        self.h3 = nn.Linear(1000, 1000)
+        self.h4 = nn.Linear(1000, 500)
+        self.h5 = nn.Linear(500, 500)
+        self.h6 = nn.Linear(500, 100)
         self.h7 = nn.Linear(100, 50)
         self.bn2 = nn.BatchNorm1d(50)
-        # self.h1 = nn.Linear(101*50, 1000)
-        # self.h2 = nn.Linear(1000, 1000)
-        # self.h3 = nn.Linear(1000, 1000)
-        # self.h4 = nn.Linear(1000, 1000)
-        # self.h5 = nn.Linear(1000, 1000)
-        # self.h6 = nn.Linear(1000, 1000)
-        #self.bn = nn.BatchNorm1d(1000)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 10)
         self.fvar = nn.Linear(50, 10)
@@ -67,8 +89,8 @@ class Block_Encoder(nn.Module):
         X = X.view(-1, 51*25)
 
         X = F.leaky_relu(self.h1(X))
-        #X = F.leaky_relu(self.h2(self.bn1(X)))
-        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h2(self.bn1(X)))
+        #X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
@@ -76,8 +98,8 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.bn2(self.h7(X)))
 
         # using sigmoid here to keep log_var between 0 and 1
-        mu = F.relu(self.fmu(X))
-        log_var = F.relu(self.fvar(X))
+        mu = self.fmu(X)
+        log_var = self.fvar(X)
 
         # The encoder outputs parameters of some distribution, so we need to draw some random sample from
         # that distribution in order to go through the decoder
@@ -93,12 +115,12 @@ class Block_Decoder(nn.Module):
         self.h1 = nn.Linear(10, 50)
         self.bn1 = nn.BatchNorm1d(50)
         self.h2 = nn.Linear(50, 100)
-        self.h3 = nn.Linear(100, 250)
-        self.h4 = nn.Linear(250, 500)
-        self.h5 = nn.Linear(500, 750)
-        self.h6 = nn.Linear(750, 1000)
+        self.h3 = nn.Linear(100, 500)
+        self.h4 = nn.Linear(500, 500)
+        self.h5 = nn.Linear(500, 1000)
+        self.h6 = nn.Linear(1000, 1000)
         self.h7 = nn.Linear(1000, 1000)
-        #self.bn2 = nn.BatchNorm1d(2500)
+        self.bn2 = nn.BatchNorm1d(1000)
         self.out = nn.Linear(1000, 51*25)
 
     def forward(self, X):
@@ -109,7 +131,7 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
         X = F.leaky_relu(self.h6(X))
-        X = F.leaky_relu(self.h7(X))
+        X = F.leaky_relu(self.bn2(self.h7(X)))
         #X = self.out(self.bn2(X))
         X = self.out(X)
 

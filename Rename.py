@@ -19,6 +19,7 @@ def main():
             C = F_1["C_G"] + F_1["C_SSC"] + F_1["C_T0"]
             try:
                 L = np.linalg.cholesky(C)
+                L2 = np.linalg.cholesky(F_1["C_G"])
             except np.linalg.LinAlgError as err:
                 os.remove(filename)
                 remove += 1

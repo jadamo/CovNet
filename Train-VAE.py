@@ -7,7 +7,7 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 110000
+N = 111000
 #N = 20000
 
 # whether or not nuiscane parameters are varied in the training set
@@ -15,7 +15,7 @@ train_nuisance = False
 # wether or not to train with the Cholesky decomposition
 train_cholesky = True
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = False
+train_gaussian_only = True
 # wether or not to train on just the T0 term of the covariance (this is a test)
 train_T0_only = False
 # wether to train the VAE and features nets
@@ -23,16 +23,16 @@ do_VAE = True; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
-if train_gaussian_only == True:  folder = "gaussian/"
-elif train_gaussian_only == True:  folder = "T0/"
-elif train_nuisance == True:  folder = "full/"
-else: folder = "marg/"
+if train_gaussian_only == True:  folder = "gaussian"
+else: folder = "marg"
+if train_cholesky == True: folder+= "-cholesky/"
+else: folder+= "-full/"
 
 save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.005
+BETA = 0.01
 
 # Standard normal distribution
 def init_normal(m):
@@ -112,7 +112,7 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
         if epoch > 15 and worse_epochs >= 15:
             print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
             break
-    print("Best validation loss was {:0.3f}".format(best_loss))
+    print("Best validation loss was {:0.3f} after {:0.0f} epochs".format(best_loss, epoch - worse_epochs))
     return
 
 def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
@@ -162,6 +162,7 @@ def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
         if epoch > 30 and worse_epochs >= 20:
             print("Validation loss hasn't improved for", worse_epochs, "epochs. Stopping...")
             break
+    print("Best validation loss was {:0.3f} after {:0.0f} epochs".format(best_loss, epoch - worse_epochs))
 
 def main():
 
@@ -172,12 +173,13 @@ def main():
     print("Training with just gaussian term:       " + str(train_gaussian_only))
     print("Training with just T0 term:             " + str(train_T0_only))
     print("Training VAE net: features net:        [" + str(do_VAE) + ", " + str(do_features) + "]")
+    print("Saving to", save_dir)
 
     batch_size = 50
     lr_VAE    = 0.0025
     lr_latent = 0.008
 
-    num_epochs_VAE = 85
+    num_epochs_VAE = 90
     num_epochs_latent = 200
 
     N_train = int(N*0.8)

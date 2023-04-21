@@ -457,7 +457,7 @@ class Analytic_Covmat():
         covMat[:self.kbins,self.kbins:self.kbins*2]=np.transpose(covMat[self.kbins:self.kbins*2,:self.kbins])
         covMat=(covMat+np.transpose(covMat))/2.
 
-        if return_Pk==False: return covMat
+        if return_Pk == False: return covMat
         else: return covMat, Pk_galaxy
 
     #-------------------------------------------------------------------

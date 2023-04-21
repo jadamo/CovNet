@@ -37,7 +37,7 @@ N_PROC=4
 #-------------------------------------------------------------------
 
 #dire='/home/u12/jadamo/CovaPT/Example-Data/'
-#home_dir = "/home/u12/jadamo/CovA-NN-Emulator/Training-Set-HighZ-NGC/"
+#home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
@@ -61,9 +61,11 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf table 1 (the best fit column), 
     # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
+    # omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
+    # A_bounds     = [0.2, 1.75]    # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
     H0_bounds    = [50, 100]      # Hubble constant
-    omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
-    A_bounds     = [0.2, 1.75]    # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
+    omch2_bounds = [0.01, 0.3]    # Omega_cdm h^2
+    A_bounds     = [0.25, 1.65]   # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
     b1_bounds    = [1, 4]         # Linear bias
     b2_bounds    = [-4, 4]        # Quadratic bias?
     bG2_bounds   = [-4, 4]        # 
@@ -202,7 +204,8 @@ def main():
             if result == -2: fail_posdef_sub+=1
 
     print("Rank " + str(rank) + " is done!")
-
+    print("{:0.0f} matrices failed to compute power spectra".format(fail_compute_sub))
+    print("{:0.0f} matrices were not positive definite".format(fail_posdef_sub))
     comm.Barrier()
     t2 = time.time()
 

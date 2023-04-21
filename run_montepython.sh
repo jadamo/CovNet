@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=4
 
 conf_file="/home/joeadamo/Research/Software/Montepython/default.conf"
 param_file="/home/joeadamo/Research/lss_montepython/input/boss_ngc_z3.param"
-output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test/"
+output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test-gaussian-emulator/"
 
 #covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
 covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test.covmat"
