@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 
+#torch.set_default_dtype(torch.float64)
 
 class CovNet():
 
@@ -12,7 +13,7 @@ class CovNet():
         self.N = N
 
         self.net_VAE = Network_VAE(train_cholesky).to(try_gpu())
-        self.decoder = Block_Decoder(train_cholesky).to(CovNet.try_gpu())
+        self.decoder = Block_Decoder(train_cholesky).to(try_gpu())
         self.net_latent = Network_Latent().to(try_gpu())
         self.net_VAE.eval()
         self.decoder.eval()
@@ -23,36 +24,59 @@ class CovNet():
 
     def get_covariance_matrix(self, params):
         params = torch.from_numpy(params).to(torch.float32)
-        z = self.net_latent(params)
+        z = self.net_latent(params).view(1,6)
         matrix = self.decoder(z).view(1,self.N,self.N)
 
         matrix = symmetric_exp(matrix).view(self.N,self.N)
         if self.train_cholesky == True:
             matrix = torch.matmul(matrix, torch.t(matrix))
 
-        return matrix.detach().numpy()
+        return matrix.detach().numpy().astype(np.float64)
 
 #network to go from parameters to features
 class Network_Latent(nn.Module):
     def __init__(self, train_nuisance=False):
         super().__init__()
-        if train_nuisance==False:
-            self.h1 = nn.Linear(6, 10)  # Hidden layer
-            self.h2 = nn.Linear(10, 10)
-            self.h3 = nn.Linear(10, 10)
-            self.out = nn.Linear(10, 10)  # Output layer
-        else:
-            self.h1 = nn.Linear(10, 10)  # Hidden layer
-            self.h2 = nn.Linear(10, 10)
-            self.h3 = nn.Linear(10, 10)
-            self.out = nn.Linear(10, 10)  # Output layer
+        self.h1 = nn.Linear(6, 6)  # Hidden layer
+        #self.bn1 = nn.BatchNorm1d(6)
+        self.h2 = nn.Linear(6, 6)
+        self.h3 = nn.Linear(6, 6)
+        self.h4 = nn.Linear(6, 6)
+        self.h5 = nn.Linear(6, 6)
+        self.h6 = nn.Linear(6, 6)
+        self.h7 = nn.Linear(6, 6)
+        self.h8 = nn.Linear(6, 6)
+        self.h9 = nn.Linear(6, 6)
+        self.h10 = nn.Linear(6, 6)
+        self.out = nn.Linear(6, 6)  # Output layer
+
+        self.bounds = torch.tensor([[50, 100],
+                                    [0.01, 0.3],
+                                    [0.25, 1.65],
+                                    [1, 4],
+                                    [-4, 4],
+                                    [-4, 4]])
+
+    def normalize(self, params):
+
+        params_norm = params - self.bounds[:,0] / (self.bounds[:,1] - self.bounds[:,0])
+        return params_norm
 
     # Define the forward propagation of the model
     def forward(self, X):
 
-        w = F.relu(self.h1(X))
-        w = F.relu(self.h2(w))
-        w = F.relu(self.h3(w))
+        #X = self.normalize(X)
+
+        w = F.leaky_relu(self.h1(X))
+        w = F.leaky_relu(self.h2(w))
+        w = F.leaky_relu(self.h3(w))
+        w = F.leaky_relu(self.h4(w))
+        w = F.leaky_relu(self.h5(w))
+        w = F.leaky_relu(self.h6(w))
+        w = F.leaky_relu(self.h7(w))
+        w = F.leaky_relu(self.h8(w))
+        w = F.leaky_relu(self.h9(w))
+        w = F.leaky_relu(self.h10(w))
         return self.out(w)
 
 class Block_Encoder(nn.Module):
@@ -64,17 +88,19 @@ class Block_Encoder(nn.Module):
         super().__init__()
 
         self.h1 = nn.Linear(51*25, 1000)
-        self.bn1 = nn.BatchNorm1d(1000)
         self.h2 = nn.Linear(1000, 1000)
+        self.bn1 = nn.BatchNorm1d(1000)
         self.h3 = nn.Linear(1000, 1000)
         self.h4 = nn.Linear(1000, 500)
         self.h5 = nn.Linear(500, 500)
         self.h6 = nn.Linear(500, 100)
-        self.h7 = nn.Linear(100, 50)
+        self.h7 = nn.Linear(100, 100)
+        self.h8 = nn.Linear(100, 50)
         self.bn2 = nn.BatchNorm1d(50)
+        self.h9 = nn.Linear(50, 50)
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(50, 10)
-        self.fvar = nn.Linear(50, 10)
+        self.fmu = nn.Linear(50, 6)
+        self.fvar = nn.Linear(50, 6)
 
     def reparameterize(self, mu, log_var):
         #if self.training:
@@ -89,13 +115,15 @@ class Block_Encoder(nn.Module):
         X = X.view(-1, 51*25)
 
         X = F.leaky_relu(self.h1(X))
-        X = F.leaky_relu(self.h2(self.bn1(X)))
+        X = self.bn1(self.h2(X))
         #X = F.leaky_relu(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
         X = F.leaky_relu(self.h6(X))
-        X = F.leaky_relu(self.bn2(self.h7(X)))
+        X = F.leaky_relu(self.h7(X))
+        X = self.bn2(self.h8(X))
+        X = F.leaky_relu(self.h9(X))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = self.fmu(X)
@@ -112,26 +140,30 @@ class Block_Decoder(nn.Module):
         super().__init__()
         self.train_cholesky = train_cholesky
 
-        self.h1 = nn.Linear(10, 50)
+        self.h1 = nn.Linear(6, 50)
+        self.h2 = nn.Linear(50, 50)
         self.bn1 = nn.BatchNorm1d(50)
-        self.h2 = nn.Linear(50, 100)
-        self.h3 = nn.Linear(100, 500)
-        self.h4 = nn.Linear(500, 500)
-        self.h5 = nn.Linear(500, 1000)
-        self.h6 = nn.Linear(1000, 1000)
-        self.h7 = nn.Linear(1000, 1000)
+        self.h3 = nn.Linear(50, 100)
+        self.h4 = nn.Linear(100, 100)
+        self.h5 = nn.Linear(100, 500)
+        self.h6 = nn.Linear(500, 500)
+        self.h7 = nn.Linear(500, 1000)
+        self.h8 = nn.Linear(1000, 1000)
         self.bn2 = nn.BatchNorm1d(1000)
+        self.h9 = nn.Linear(1000, 1000)
         self.out = nn.Linear(1000, 51*25)
 
     def forward(self, X):
 
-        X = F.leaky_relu(self.bn1(self.h1(X)))
-        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h1(X))
+        X = self.bn1(self.h2(X))
         X = F.leaky_relu(self.h3(X))
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
         X = F.leaky_relu(self.h6(X))
-        X = F.leaky_relu(self.bn2(self.h7(X)))
+        X = F.leaky_relu(self.h7(X))
+        X = self.bn2(self.h8(X))
+        X = F.leaky_relu(self.h9(X))
         #X = self.out(self.bn2(X))
         X = self.out(X)
 
@@ -259,8 +291,10 @@ def features_loss(prediction, target):
     """
     Loss function for the parameters -> features network (currently MSE loss)
     """
-    l1 = torch.pow(prediction - target, 2)
-    return torch.mean(l1)
+    loss = F.l1_loss(prediction, target, reduction="sum")
+    #loss = F.mse_loss(prediction, target, reduction="sum")
+
+    return loss
 
 def rearange_to_half(C, N):
     """
