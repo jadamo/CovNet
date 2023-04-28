@@ -38,16 +38,24 @@ class Network_Latent(nn.Module):
     def __init__(self, train_nuisance=False):
         super().__init__()
         self.h1 = nn.Linear(6, 6)  # Hidden layer
-        #self.bn1 = nn.BatchNorm1d(6)
         self.h2 = nn.Linear(6, 6)
         self.h3 = nn.Linear(6, 6)
         self.h4 = nn.Linear(6, 6)
+        #self.skip1 = nn.Linear(6, 6)
+
         self.h5 = nn.Linear(6, 6)
         self.h6 = nn.Linear(6, 6)
         self.h7 = nn.Linear(6, 6)
         self.h8 = nn.Linear(6, 6)
+        #self.skip2 = nn.Linear(6, 6)
+
         self.h9 = nn.Linear(6, 6)
         self.h10 = nn.Linear(6, 6)
+        self.h11 = nn.Linear(6, 6)
+        #self.h12 = nn.Linear(6, 6)
+        #self.skip3 = nn.Linear(6, 6)
+
+        #self.h13 = nn.Linear(6, 6)
         self.out = nn.Linear(6, 6)  # Output layer
 
         self.bounds = torch.tensor([[50, 100],
@@ -59,24 +67,28 @@ class Network_Latent(nn.Module):
 
     def normalize(self, params):
 
-        params_norm = params - self.bounds[:,0] / (self.bounds[:,1] - self.bounds[:,0])
+        params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
         return params_norm
 
     # Define the forward propagation of the model
     def forward(self, X):
 
-        #X = self.normalize(X)
+        X = self.normalize(X)
+        residual = X
 
         w = F.leaky_relu(self.h1(X))
         w = F.leaky_relu(self.h2(w))
         w = F.leaky_relu(self.h3(w))
-        w = F.leaky_relu(self.h4(w))
+        w = self.h4(w) + residual
         w = F.leaky_relu(self.h5(w))
         w = F.leaky_relu(self.h6(w))
         w = F.leaky_relu(self.h7(w))
-        w = F.leaky_relu(self.h8(w))
+        w = self.h8(w) + residual
         w = F.leaky_relu(self.h9(w))
         w = F.leaky_relu(self.h10(w))
+        w = F.leaky_relu(self.h11(w))
+        #w = self.h12(w) + self.skip3(residual)
+        #w = F.leaky_relu(self.h13(w))
         return self.out(w)
 
 class Block_Encoder(nn.Module):
@@ -88,16 +100,19 @@ class Block_Encoder(nn.Module):
         super().__init__()
 
         self.h1 = nn.Linear(51*25, 1000)
-        self.h2 = nn.Linear(1000, 1000)
         self.bn1 = nn.BatchNorm1d(1000)
+        self.h2 = nn.Linear(1000, 1000)
         self.h3 = nn.Linear(1000, 1000)
+        self.skip1 = nn.Linear(51*25, 1000)
+
         self.h4 = nn.Linear(1000, 500)
         self.h5 = nn.Linear(500, 500)
         self.h6 = nn.Linear(500, 100)
+        self.skip2 = nn.Linear(51*25, 100) # residual layer
+
         self.h7 = nn.Linear(100, 100)
+        self.bn2 = nn.BatchNorm1d(100)
         self.h8 = nn.Linear(100, 50)
-        self.bn2 = nn.BatchNorm1d(50)
-        self.h9 = nn.Linear(50, 50)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 6)
         self.fvar = nn.Linear(50, 6)
@@ -113,17 +128,20 @@ class Block_Encoder(nn.Module):
     def forward(self, X):
         X = rearange_to_half(X, 50)
         X = X.view(-1, 51*25)
+        residual = X
 
         X = F.leaky_relu(self.h1(X))
-        X = self.bn1(self.h2(X))
-        #X = F.leaky_relu(self.h2(X))
-        X = F.leaky_relu(self.h3(X))
+        X = self.bn1(X)
+        X = F.leaky_relu(self.h2(X))
+        X = self.h3(X) + self.skip1(residual)
+
         X = F.leaky_relu(self.h4(X))
         X = F.leaky_relu(self.h5(X))
-        X = F.leaky_relu(self.h6(X))
+        X = self.h6(X) + self.skip2(residual)
+
         X = F.leaky_relu(self.h7(X))
-        X = self.bn2(self.h8(X))
-        X = F.leaky_relu(self.h9(X))
+        X = self.bn2(X)
+        X = F.leaky_relu(self.h8(X))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = self.fmu(X)
@@ -141,30 +159,29 @@ class Block_Decoder(nn.Module):
         self.train_cholesky = train_cholesky
 
         self.h1 = nn.Linear(6, 50)
-        self.h2 = nn.Linear(50, 50)
-        self.bn1 = nn.BatchNorm1d(50)
-        self.h3 = nn.Linear(50, 100)
-        self.h4 = nn.Linear(100, 100)
-        self.h5 = nn.Linear(100, 500)
-        self.h6 = nn.Linear(500, 500)
-        self.h7 = nn.Linear(500, 1000)
-        self.h8 = nn.Linear(1000, 1000)
+        self.h2 = nn.Linear(50, 100)
+        self.bn1 = nn.BatchNorm1d(100)
+        self.h3 = nn.Linear(100, 100)
+        self.h4 = nn.Linear(100, 500)
+        self.h5 = nn.Linear(500, 500)
+        self.skip = nn.Linear(6, 500)
+
+        self.h6 = nn.Linear(500, 1000)
         self.bn2 = nn.BatchNorm1d(1000)
-        self.h9 = nn.Linear(1000, 1000)
+        self.h7 = nn.Linear(1000, 1000)
         self.out = nn.Linear(1000, 51*25)
 
     def forward(self, X):
 
+        residual = X
         X = F.leaky_relu(self.h1(X))
-        X = self.bn1(self.h2(X))
-        X = F.leaky_relu(self.h3(X))
+        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h3(self.bn1(X)))
         X = F.leaky_relu(self.h4(X))
-        X = F.leaky_relu(self.h5(X))
+        X = self.h5(X) + self.skip(residual)
+
         X = F.leaky_relu(self.h6(X))
-        X = F.leaky_relu(self.h7(X))
-        X = self.bn2(self.h8(X))
-        X = F.leaky_relu(self.h9(X))
-        #X = self.out(self.bn2(X))
+        X = F.leaky_relu(self.h7(self.bn2(X)))
         X = self.out(X)
 
         X = X.view(-1, 51, 25)

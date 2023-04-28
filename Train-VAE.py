@@ -35,7 +35,7 @@ save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.005
+BETA = 0.01
 
 # Standard normal distribution
 def init_normal(m):
@@ -182,10 +182,11 @@ def main():
     print("Training with just T0 term:             " + str(train_T0_only))
     print("Training VAE net: features net:        [" + str(do_VAE) + ", " + str(do_features) + "]")
     print("Saving to", save_dir)
+    print("Using GPU:", torch.cuda.is_available())
 
     batch_size = 100
     lr_VAE    = 0.0025
-    lr_latent = 0.006
+    lr_latent = 0.003
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
     num_epochs_VAE = 100
