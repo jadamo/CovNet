@@ -12,8 +12,6 @@ from mpi4py import MPI
 sys.path.append("/home/joeadamo/Research")
 import CovaPT
 
-os.environ["OPENBLAS_NUM_THREADS"] = "2"
-
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
 #-------------------------------------------------------------------
@@ -26,8 +24,12 @@ ombh2_planck = 0.02237
 # NOTE: This doubles the dimensionality of the parameter space, so you should also increase the 
 # number of samples to compensate
 vary_nuisance = False
+# wether or not to sample from an external set of parameters instead
+# if this is true you should also specify the total number of params below
+load_external_params = True
 
 #N = 150400
+#N = 11280
 N = 16
 #N_PROC = 94
 N_PROC=4
@@ -38,6 +40,7 @@ N_PROC=4
 
 #dire='/home/u12/jadamo/CovaPT/Example-Data/'
 #home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+#home_dir = "/home/u12/jadamo/CovNet/Importance-Set/"
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
 
@@ -111,6 +114,14 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
 
     return samples
 
+def load_samples(N):
+    """
+    Loads in a set of parameters to generate covariance matrices from
+    """
+    samples = np.loadtxt(home_dir+"importance_params.txt", skiprows=1)
+    samples = samples[:N, :]
+    return samples
+
 def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
     Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
@@ -160,7 +171,8 @@ def main():
     t1 = time.time(); t2 = t1
 
     # generate samples (done on each rank for simplicity)
-    full_sample = Latin_Hypercube(N, vary_nuisance)
+    if load_external_params == True: full_sample = load_samples(N)
+    else:                            full_sample = Latin_Hypercube(N, vary_nuisance)
 
     # Split up samples to multiple MPI ranks
     # Aparently MPI scatter doesn't work on Puma, so this uses a different way
@@ -203,25 +215,25 @@ def main():
             if result == -1: fail_compute_sub+=1
             if result == -2: fail_posdef_sub+=1
 
-    print("Rank " + str(rank) + " is done!")
+    t2 = time.time()
+    print("Rank {:0.0f} is Done! Took {:0.0f} hours {:0.0f} minutes".format(rank, math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
     print("{:0.0f} matrices failed to compute power spectra".format(fail_compute_sub))
     print("{:0.0f} matrices were not positive definite".format(fail_posdef_sub))
-    comm.Barrier()
-    t2 = time.time()
+    #comm.Barrier()
 
     # gather reasons for failure
-    fail_compute = comm.reduce(fail_compute_sub, op=MPI.SUM, root=0)
-    fail_posdef = comm.reduce(fail_posdef_sub, op=MPI.SUM, root=0)
+    # fail_compute = comm.reduce(fail_compute_sub, op=MPI.SUM, root=0)
+    # fail_posdef = comm.reduce(fail_posdef_sub, op=MPI.SUM, root=0)
 
-    if rank == 0:
-        print("Done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
+    # if rank == 0:
+    #     print("Done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
 
-        # there (should be) no directories in the output directory, so no need to loop over the files
-        files = os.listdir(home_dir)
-        num_success = len(files)
-        print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
-        print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
-        print("{:0.0f} matrices were not positive definite".format(fail_posdef))
+    #     # there (should be) no directories in the output directory, so no need to loop over the files
+    #     files = os.listdir(home_dir)
+    #     num_success = len(files)
+    #     print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
+    #     print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
+    #     print("{:0.0f} matrices were not positive definite".format(fail_posdef))
 
 if __name__ == "__main__":
     main()

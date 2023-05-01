@@ -21,7 +21,7 @@ train_gaussian_only = True
 # wether or not to train on just the T0 term of the covariance (this is a test)
 train_T0_only = False
 # wether to train the VAE and features nets
-do_VAE = True; do_features = True
+do_VAE = False; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
@@ -186,7 +186,7 @@ def main():
 
     batch_size = 100
     lr_VAE    = 0.0025
-    lr_latent = 0.003
+    lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
     num_epochs_VAE = 100
