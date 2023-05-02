@@ -42,7 +42,7 @@ N_PROC=4
 #home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #home_dir = "/home/u12/jadamo/CovNet/Importance-Set/"
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-home_dir = "/home/joeadamo/Research/CovNet/Data/PCA-Set/"
+home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
 def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """

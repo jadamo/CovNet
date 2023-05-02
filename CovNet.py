@@ -61,6 +61,7 @@ class Network_Latent(nn.Module):
         self.h16 = nn.Linear(6, 6)
 
         self.h17 = nn.Linear(6, 6)
+        self.h18 = nn.Linear(6, 6)
         self.out = nn.Linear(6, 6)  # Output layer
 
         self.bounds = torch.tensor([[50, 100],
@@ -84,21 +85,47 @@ class Network_Latent(nn.Module):
         w = F.leaky_relu(self.h1(X))
         w = F.leaky_relu(self.h2(w))
         w = F.leaky_relu(self.h3(w))
-        w = self.h4(w) + residual
+        w = self.h4(w) + residual; residual = w
         w = F.leaky_relu(self.h5(w))
         w = F.leaky_relu(self.h6(w))
         w = F.leaky_relu(self.h7(w))
-        w = self.h8(w) + residual
+        w = self.h8(w) + residual; residual = w
         w = F.leaky_relu(self.h9(w))
         w = F.leaky_relu(self.h10(w))
         w = F.leaky_relu(self.h11(w))
-        w = self.h12(w) + residual
+        w = self.h12(w) + residual; residual = w
         w = F.leaky_relu(self.h13(w))
         w = F.leaky_relu(self.h14(w))
         w = F.leaky_relu(self.h15(w))
-        w = self.h16(w) + residual
+        w = self.h16(w) + residual; residual = w
         w = F.leaky_relu(self.h17(w))
+        w = F.leaky_relu(self.h18(w))
         return self.out(w)
+
+class Block_ResNet(nn.Module):
+
+    def __init__(self, dim_in, dim_out):
+        super().__init__()
+
+        self.h1 = nn.Linear(dim_in, dim_out)
+        self.bn = nn.BatchNorm1d(dim_out)
+        self.h2 = nn.Linear(dim_out, dim_out)
+        self.h3 = nn.Linear(dim_out, dim_out)
+        self.h4 = nn.Linear(dim_out, dim_out)
+
+        self.bn_skip = nn.BatchNorm1d(dim_out)
+        self.skip = nn.Linear(dim_in, dim_out)
+
+    def forward(self, X):
+        residual = X
+
+        X = F.leaky_relu(self.h1(X))
+        X = self.bn(X)
+        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.h3(X))
+        residual = self.bn_skip(self.skip(residual))
+        X = F.leaky_relu(self.h4(X) + residual)
+        return X
 
 class Block_Encoder(nn.Module):
     """
@@ -109,24 +136,10 @@ class Block_Encoder(nn.Module):
         super().__init__()
 
         self.h1 = nn.Linear(51*25, 1000)
-        self.bn1 = nn.BatchNorm1d(1000)
-        self.h2 = nn.Linear(1000, 1000)
-        self.h3 = nn.Linear(1000, 1000)
-        self.skip1 = nn.Linear(51*25, 1000)
+        self.resnet1 = Block_ResNet(1000, 500)
+        self.resnet2 = Block_ResNet(500, 100)
 
-        self.h4 = nn.Linear(1000, 500)
-        self.bn2 = nn.BatchNorm1d(500) #
-        self.h5 = nn.Linear(500, 500)
-        self.h6 = nn.Linear(500, 100)
-        self.skip2 = nn.Linear(51*25, 100) # residual layer
-
-        self.h7 = nn.Linear(100, 100)
-        self.bn3 = nn.BatchNorm1d(100)
-        self.h8 = nn.Linear(100, 100) #
-        self.h9 = nn.Linear(100, 100) #
-        self.skip3 = nn.Linear(51*25, 100) #
-
-        self.h10 = nn.Linear(100, 50)
+        self.h2 = nn.Linear(100, 50)
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(50, 6)
         self.fvar = nn.Linear(50, 6)
@@ -142,23 +155,12 @@ class Block_Encoder(nn.Module):
     def forward(self, X):
         X = rearange_to_half(X, 50)
         X = X.view(-1, 51*25)
-        residual = X
 
         X = F.leaky_relu(self.h1(X))
-        X = self.bn1(X)
+        X = self.resnet1(X)
+        X = self.resnet2(X)
+        #X = self.resnet3(X)
         X = F.leaky_relu(self.h2(X))
-        X = self.h3(X) + self.skip1(residual)
-
-        X = F.leaky_relu(self.h4(X))
-        X = self.bn2(X)
-        X = F.leaky_relu(self.h5(X))
-        X = self.h6(X) + self.skip2(residual)
-
-        X = F.leaky_relu(self.h7(X))
-        X = self.bn3(X)
-        X = F.leaky_relu(self.h8(X))
-        X = self.h9(X) + self.skip3(residual)
-        X = F.leaky_relu(self.h10(X))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = self.fmu(X)
@@ -177,43 +179,17 @@ class Block_Decoder(nn.Module):
 
         self.h1 = nn.Linear(6, 50)
         self.h2 = nn.Linear(50, 100)
-        self.bn1 = nn.BatchNorm1d(100)
-        self.h3 = nn.Linear(100, 100)
-        self.h4 = nn.Linear(100, 100)
-        self.skip1 = nn.Linear(6, 100)
-
-        self.h5 = nn.Linear(100, 500)
-        self.bn2 = nn.BatchNorm1d(500)
-        self.h6 = nn.Linear(500, 500)
-        self.h7 = nn.Linear(500, 500)
-        self.skip2 = nn.Linear(6, 500)
-
-        self.h8 = nn.Linear(500, 1000)
-        self.bn3 = nn.BatchNorm1d(1000)
-        self.h9 = nn.Linear(1000, 1000)
-        self.h10 = nn.Linear(1000, 1000)
-        self.skip3 = nn.Linear(6, 1000)
-
+        #self.resnet1 = Block_ResNet(50, 100)
+        self.resnet1 = Block_ResNet(100, 500)
+        self.resnet2 = Block_ResNet(500, 1000)
         self.out = nn.Linear(1000, 51*25)
 
     def forward(self, X):
 
-        residual = X
         X = F.leaky_relu(self.h1(X))
         X = F.leaky_relu(self.h2(X))
-        X = self.bn1(X)
-        X = F.leaky_relu(self.h3(X))
-        X = self.h4(X) + self.skip1(residual)
-
-        X = F.leaky_relu(self.h5(X))
-        X = self.bn2(X)
-        X = F.leaky_relu(self.h6(X))
-        X = self.h7(X) + self.skip2(residual)
-
-        X = F.leaky_relu(self.h8(X))
-        X = self.bn3(X)
-        X = F.leaky_relu(self.h9(X))
-        X = self.h10(X) + self.skip3(residual)
+        X = self.resnet1(X)
+        X = self.resnet2(X)
         X = self.out(X)
 
         X = X.view(-1, 51, 25)
@@ -234,7 +210,9 @@ class Network_VAE(nn.Module):
 
         # run through the decoder
         X = self.Decoder(z)
-        assert not True in torch.isnan(X)
+        if True in torch.isnan(X) or True in torch.isinf(X):
+            print("ERROR! nan or infinity found in decoder output! Fixing to some value...")
+            X = torch.nan_to_num(X, posinf=100, neginf=-100)
         return X, mu, log_var
 
 # Dataset class to handle making training / validation / test sets

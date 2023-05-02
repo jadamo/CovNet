@@ -8,6 +8,7 @@ import CovNet
 
 # Total number of matrices in the training + validation + test set
 N = 111000
+#N = 15000
 #N = 20000
 
 torch.set_default_dtype(torch.float64)
@@ -17,11 +18,11 @@ train_nuisance = False
 # wether or not to train with the Cholesky decomposition
 train_cholesky = True
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = True
+train_gaussian_only = False
 # wether or not to train on just the T0 term of the covariance (this is a test)
 train_T0_only = False
 # wether to train the VAE and features nets
-do_VAE = False; do_features = True
+do_VAE = True; do_features = True
 
 training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
@@ -244,11 +245,11 @@ def main():
         for n in range(N_train):
             matrix = train_data[n][1].view(1,50,50)
             z, mu, log_var = encoder(matrix)
-            train_z[n] = z.view(6)
+            train_z[n] = mu.view(6)
         for n in range(N_valid):
             matrix = valid_data[n][1].view(1,50,50)
             z, mu, log_var = encoder(matrix)
-            valid_z[n] = z.view(6)
+            valid_z[n] = mu.view(6)
 
         # add feature data to the training set and reinitialize the data loaders
         train_data.add_latent_space(train_z)
