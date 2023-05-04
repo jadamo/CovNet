@@ -104,27 +104,65 @@ class Network_Latent(nn.Module):
 
 class Block_ResNet(nn.Module):
 
-    def __init__(self, dim_in, dim_out):
+    def __init__(self, C_in, C_out, reverse=False):
         super().__init__()
 
-        self.h1 = nn.Linear(dim_in, dim_out)
-        self.bn = nn.BatchNorm1d(dim_out)
-        self.h2 = nn.Linear(dim_out, dim_out)
-        self.h3 = nn.Linear(dim_out, dim_out)
-        self.h4 = nn.Linear(dim_out, dim_out)
+        # self.h1 = nn.Linear(dim_in, dim_out)
+        # self.bn = nn.BatchNorm1d(dim_out)
+        # self.h2 = nn.Linear(dim_out, dim_out)
+        # self.h3 = nn.Linear(dim_out, dim_out)
 
-        self.bn_skip = nn.BatchNorm1d(dim_out)
-        self.skip = nn.Linear(dim_in, dim_out)
+        # self.bn_skip = nn.BatchNorm1d(dim_out)
+        # self.skip = nn.Linear(dim_in, dim_out)
+        if reverse==False:
+            self.c1 = nn.Conv2d(C_in, C_out, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(C_out)
+            self.c2 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c3 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c4 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c5 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c6 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c7 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c8 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            #self.bn_skip = nn.BatchNorm2d(C_out)
+            self.skip = nn.Conv2d(C_in, C_out, kernel_size=1, padding=0)
+            self.pool = nn.MaxPool2d(kernel_size=2,stride=2)
+        else:
+            self.c1 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(C_in)
+            self.c2 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c3 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c4 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c5 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c6 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c7 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c8 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            #self.bn_skip = nn.BatchNorm2d(C_in)
+            self.skip = nn.ConvTranspose2d(C_in, C_in, kernel_size=1, padding=0)
+            self.pool = nn.ConvTranspose2d(C_in, C_out, kernel_size=2,stride=2)
 
     def forward(self, X):
         residual = X
 
-        X = F.leaky_relu(self.h1(X))
-        X = self.bn(X)
-        X = F.leaky_relu(self.h2(X))
-        X = F.leaky_relu(self.h3(X))
-        residual = self.bn_skip(self.skip(residual))
-        X = F.leaky_relu(self.h4(X) + residual)
+        # X = F.leaky_relu(self.h1(X))
+        # X = self.bn(X)
+        # X = F.leaky_relu(self.h2(X))
+        # residual = self.bn_skip(self.skip(residual))
+        # X = F.leaky_relu(self.h3(X) + residual)
+
+        X = F.leaky_relu(self.c1(X))
+        X = self.bn1(X)
+        X = F.leaky_relu(self.c2(X))
+        X = F.leaky_relu(self.c3(X))
+        X = F.leaky_relu(self.c4(X))
+        X = F.leaky_relu(self.c5(X))
+        X = F.leaky_relu(self.c6(X))
+        X = F.leaky_relu(self.c7(X))
+        X = F.leaky_relu(self.c8(X))
+
+        residual = self.skip(residual)
+        X = F.leaky_relu(self.c8(X) + residual)
+        X = self.pool(X)
         return X
 
 class Block_Encoder(nn.Module):
@@ -135,14 +173,23 @@ class Block_Encoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.h1 = nn.Linear(51*25, 1000)
-        self.resnet1 = Block_ResNet(1000, 500)
-        self.resnet2 = Block_ResNet(500, 100)
+        # self.h1 = nn.Linear(51*25, 1000)
+        # self.resnet1 = Block_ResNet(1000, 500)
+        # self.resnet2 = Block_ResNet(500, 100)
+        # self.h2 = nn.Linear(100, 50)
 
-        self.h2 = nn.Linear(100, 50)
+        self.c1 = nn.Conv2d(1, 3, kernel_size=(4, 3), padding=1)
+        self.resnet1 = Block_ResNet(3, 5) #(1,50,25) -> (2,25,12)
+        self.resnet2 = Block_ResNet(5, 7) #(2,25,12) -> (3,12,6)
+        self.resnet3 = Block_ResNet(7, 9) #(3,12,6)  -> (4,6,3)
+
+        self.f1 = nn.Linear(162, 100)
+        self.f2 = nn.Linear(100, 50)
+        self.f3 = nn.Linear(50, 25)
+
         # 2 seperate layers - one for mu and one for log_var
-        self.fmu = nn.Linear(50, 6)
-        self.fvar = nn.Linear(50, 6)
+        self.fmu = nn.Linear(25, 6)
+        self.fvar = nn.Linear(25, 6)
 
     def reparameterize(self, mu, log_var):
         #if self.training:
@@ -154,13 +201,23 @@ class Block_Encoder(nn.Module):
 
     def forward(self, X):
         X = rearange_to_half(X, 50)
-        X = X.view(-1, 51*25)
+        X = X.view(-1, 1, 51, 25)
+        #X = X.view(-1, 51*25)
 
-        X = F.leaky_relu(self.h1(X))
+        # X = F.leaky_relu(self.h1(X))
+        # X = self.resnet1(X)
+        # X = self.resnet2(X)
+        # X = F.leaky_relu(self.h2(X))
+
+        X = F.leaky_relu(self.c1(X))
         X = self.resnet1(X)
         X = self.resnet2(X)
-        #X = self.resnet3(X)
-        X = F.leaky_relu(self.h2(X))
+        X = self.resnet3(X)
+        X = torch.flatten(X, 1, 3)
+
+        X = F.leaky_relu(self.f1(X))
+        X = F.leaky_relu(self.f2(X))
+        X = F.leaky_relu(self.f3(X))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = self.fmu(X)
@@ -177,19 +234,38 @@ class Block_Decoder(nn.Module):
         super().__init__()
         self.train_cholesky = train_cholesky
 
-        self.h1 = nn.Linear(6, 50)
-        self.h2 = nn.Linear(50, 100)
-        #self.resnet1 = Block_ResNet(50, 100)
-        self.resnet1 = Block_ResNet(100, 500)
-        self.resnet2 = Block_ResNet(500, 1000)
-        self.out = nn.Linear(1000, 51*25)
+        # self.h1 = nn.Linear(6, 50)
+        # self.h2 = nn.Linear(50, 100)
+        # self.resnet1 = Block_ResNet(100, 500)
+        # self.resnet2 = Block_ResNet(500, 1000)
+        # self.out = nn.Linear(1000, 51*25)
+        self.f1 = nn.Linear(6, 25)
+        self.f2 = nn.Linear(25, 50)
+        self.f3 = nn.Linear(50, 100)
+        self.f4 = nn.Linear(100, 162)
+
+        self.resnet1 = Block_ResNet(9, 7, True) #(4, 6, 3) -> (3, 12, 6)
+        self.resnet2 = Block_ResNet(7, 5, True) #(3, 12, 6) -> (2, 24, 12)
+        self.resnet3 = Block_ResNet(5, 3, True) #(2, 24, 12) -> (1, 48, 24)
+        self.out = nn.ConvTranspose2d(3, 1, kernel_size=(4, 2))
 
     def forward(self, X):
 
-        X = F.leaky_relu(self.h1(X))
-        X = F.leaky_relu(self.h2(X))
+        # X = F.leaky_relu(self.h1(X))
+        # X = F.leaky_relu(self.h2(X))
+        # X = self.resnet1(X)
+        # X = self.resnet2(X)
+        # X = self.out(X)
+        # X = X.view(-1, 51, 25)
+
+        X = F.leaky_relu(self.f1(X))
+        X = F.leaky_relu(self.f2(X))
+        X = F.leaky_relu(self.f3(X))
+        X = F.leaky_relu(self.f4(X))
+        X = X.reshape(-1, 9, 6, 3)
         X = self.resnet1(X)
         X = self.resnet2(X)
+        X = self.resnet3(X)
         X = self.out(X)
 
         X = X.view(-1, 51, 25)

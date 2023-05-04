@@ -7,11 +7,11 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 111000
-#N = 15000
+#N = 111000
+N = 25000
 #N = 20000
 
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 # whether or not nuiscane parameters are varied in the training set
 train_nuisance = False
@@ -30,7 +30,7 @@ if train_gaussian_only == True:  folder = "gaussian"
 else: folder = "marg"
 if train_cholesky == True: folder+= "-cholesky"
 else: folder+= "-full"
-folder+="-float/"
+folder+="-cnn/"
 
 save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
@@ -186,11 +186,11 @@ def main():
     print("Using GPU:", torch.cuda.is_available())
 
     batch_size = 100
-    lr_VAE    = 0.0025
+    lr_VAE    = 0.003
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs_VAE = 100
+    num_epochs_VAE = 110
     num_epochs_latent = 250
 
     N_train = int(N*0.8)
@@ -245,11 +245,11 @@ def main():
         for n in range(N_train):
             matrix = train_data[n][1].view(1,50,50)
             z, mu, log_var = encoder(matrix)
-            train_z[n] = mu.view(6)
+            train_z[n] = mu.view(6).detach()
         for n in range(N_valid):
             matrix = valid_data[n][1].view(1,50,50)
             z, mu, log_var = encoder(matrix)
-            valid_z[n] = mu.view(6)
+            valid_z[n] = mu.view(6).detach()
 
         # add feature data to the training set and reinitialize the data loaders
         train_data.add_latent_space(train_z)
