@@ -13,8 +13,8 @@ from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 #sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
@@ -28,8 +28,8 @@ class Analytic_Covmat():
         self.z = z
 
         # directory with window functions (I assumed these are calculated beforehand)
-        self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
-        #self.dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+        #self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
+        self.dire='/home/joeadamo/Research/CovaPT/Example-Data/Local/'
         #self.dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 
         #Using the window kernels calculated from the survey random catalog as input
