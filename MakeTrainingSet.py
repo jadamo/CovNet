@@ -28,23 +28,23 @@ vary_nuisance = False
 # if this is true you should also specify the total number of params below
 load_external_params = False
 
-N = 150400
+#N = 150400
 #N = 11280
-#N = 16
-N_PROC = 94
-#N_PROC=4
+N = 16
+#N_PROC = 94
+N_PROC=4
 
 #-------------------------------------------------------------------
 # FUNCTIONS
 #-------------------------------------------------------------------
 
-dire='/home/u12/jadamo/CovaPT/Example-Data/'
-home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+#dire='/home/u12/jadamo/CovaPT/Example-Data/'
+#home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #home_dir = "/home/u12/jadamo/CovNet/Importance-Set/"
-#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-#home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
+dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
-def Latin_Hypercube(N, rank, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
+def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """
     Generates a random latin hypercube sample of the parameters for generating the training set
     @param N {int} the number of samples to generate
@@ -110,10 +110,8 @@ def Latin_Hypercube(N, rank, vary_nuisance=False, vary_ombh2=False, vary_ns=Fals
         header_str = "H0, omch2, A, b1, b2, bG2"
         samples = np.vstack((H0, omch2, A, b1, b2, bG2)).T
 
-    if rank == 0:
-        np.savetxt("Sample-params.txt", samples, header=header_str)
-
-    return samples
+    np.savetxt("Sample-params.txt", samples, header=header_str)
+    #return samples
 
 def load_samples(N):
     """
@@ -130,10 +128,6 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
 
     params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
-
-    if load_external_params == False:
-        params_check = np.loadtxt("Sample-params.txt", skiprows=i, max_rows=1)
-        assert params[0] == params_check[0] and params[1] == params_check[1] and params[2] == params_check[3]
 
     Mat_Calc = CovaPT.Analytic_Covmat(z)
 
@@ -175,16 +169,20 @@ def main():
 
     t1 = time.time(); t2 = t1
 
+    if rank == 0:
+        # generate samples and sve them (only one rank does this!)
+        Latin_Hypercube(N, vary_nuisance)
+    comm.Barrier()
     # generate samples (done on each rank for simplicity)
-    if load_external_params == True: full_sample = load_samples(N)
-    else:                            full_sample = Latin_Hypercube(N, vary_nuisance)
+    if load_external_params == False: file = "Sample-params.txt"
+    else:                             file = home_dir+"importance_params.txt"
 
     # Split up samples to multiple MPI ranks
     # Aparently MPI scatter doesn't work on Puma, so this uses a different way
     assert N % size == 0
-    offset = int((N / size) * rank)
+    offset = int((N / size) * rank) + 1
     data_len = int(N / size)
-    sample = full_sample[offset:offset+data_len, :]
+    sample = np.loadtxt(file, skiprows=offset, max_rows=data_len)
 
     # ---Cosmology parameters---
     H0 = sample[:,0]
@@ -224,7 +222,7 @@ def main():
     print("Rank {:0.0f} is Done! Took {:0.0f} hours {:0.0f} minutes".format(rank, math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
     print("{:0.0f} matrices failed to compute power spectra".format(fail_compute_sub))
     print("{:0.0f} matrices were not positive definite".format(fail_posdef_sub))
-    #comm.Barrier()
+    comm.Barrier()
 
     # gather reasons for failure
     # fail_compute = comm.reduce(fail_compute_sub, op=MPI.SUM, root=0)
