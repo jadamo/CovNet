@@ -179,13 +179,14 @@ class Block_Encoder(nn.Module):
         # self.h2 = nn.Linear(100, 50)
 
         self.c1 = nn.Conv2d(1, 3, kernel_size=(4, 3), padding=1)
-        self.resnet1 = Block_ResNet(3, 5) #(1,50,25) -> (2,25,12)
-        self.resnet2 = Block_ResNet(5, 7) #(2,25,12) -> (3,12,6)
-        self.resnet3 = Block_ResNet(7, 9) #(3,12,6)  -> (4,6,3)
+        self.resnet1 = Block_ResNet(3, 5) #(3,50,25) -> (5,25,12)
+        self.resnet2 = Block_ResNet(5, 10) #(5,25,12) -> (7,12,6)
+        self.resnet3 = Block_ResNet(10, 15) #(7,12,6)  -> (9,6,3)
+        self.resnet4 = Block_ResNet(15, 20) #(9,6,3)   -> (9,3,1)
 
-        self.f1 = nn.Linear(162, 100)
-        self.f2 = nn.Linear(100, 50)
-        self.f3 = nn.Linear(50, 25)
+        self.f1 = nn.Linear(60, 50)
+        self.f2 = nn.Linear(50, 25)
+        #self.f3 = nn.Linear(50, 25)
 
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(25, 6)
@@ -213,6 +214,7 @@ class Block_Encoder(nn.Module):
         X = self.resnet1(X)
         X = self.resnet2(X)
         X = self.resnet3(X)
+        X = self.resnet4(X)
         X = torch.flatten(X, 1, 3)
 
         X = F.leaky_relu(self.f1(X))
@@ -241,12 +243,12 @@ class Block_Decoder(nn.Module):
         # self.out = nn.Linear(1000, 51*25)
         self.f1 = nn.Linear(6, 25)
         self.f2 = nn.Linear(25, 50)
-        self.f3 = nn.Linear(50, 100)
-        self.f4 = nn.Linear(100, 162)
+        self.f3 = nn.Linear(50, 60)
 
-        self.resnet1 = Block_ResNet(9, 7, True) #(4, 6, 3) -> (3, 12, 6)
-        self.resnet2 = Block_ResNet(7, 5, True) #(3, 12, 6) -> (2, 24, 12)
-        self.resnet3 = Block_ResNet(5, 3, True) #(2, 24, 12) -> (1, 48, 24)
+        self.resnet1 = Block_ResNet(20, 15, True) #(20,3,1) -> (15,6,3)
+        self.resnet1 = Block_ResNet(15, 10, True)   #(4, 6, 3) -> (3, 12, 6)
+        self.resnet2 = Block_ResNet(10, 5, True)   #(3, 12, 6) -> (2, 24, 12)
+        self.resnet3 = Block_ResNet(5, 3, True)   #(2, 24, 12) -> (1, 48, 24)
         self.out = nn.ConvTranspose2d(3, 1, kernel_size=(4, 2))
 
     def forward(self, X):
@@ -262,10 +264,11 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.f2(X))
         X = F.leaky_relu(self.f3(X))
         X = F.leaky_relu(self.f4(X))
-        X = X.reshape(-1, 9, 6, 3)
+        X = X.reshape(-1, 20, 3, 1)
         X = self.resnet1(X)
         X = self.resnet2(X)
         X = self.resnet3(X)
+        X = self.resnet4(X)
         X = self.out(X)
 
         X = X.view(-1, 51, 25)
@@ -327,15 +330,15 @@ class MatrixDataset(torch.utils.data.Dataset):
             # Load in the data from file
             idx = i + offset
             data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
-            self.params[i] = torch.from_numpy(data["params"])
+            self.params[i] = torch.from_numpy(data["params"]).to(try_gpu())
 
             # store specific terms of each matrix depending on the circumstances
             if self.gaussian_only:
-                self.matrices[i] = torch.from_numpy(data["C_G"])
+                self.matrices[i] = torch.from_numpy(data["C_G"]).to(try_gpu())
             elif self.T0_only:
-                self.matrices[i] = torch.from_numpy(data["C_T0"])
+                self.matrices[i] = torch.from_numpy(data["C_T0"]).to(try_gpu())
             else:
-                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"])
+                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"]).to(try_gpu())
 
             # if train_correlation:
             #     # the diagonal for correlation matrices is 1 everywhere, so let's store the diagonal there
@@ -494,6 +497,6 @@ def corr_to_cov(C):
 
 def try_gpu():
     """Return gpu() if exists, otherwise return cpu()."""
-    if torch.cuda.device_count() >= 1:
-        return torch.device('cuda')
+    if torch.cuda.is_available():
+        return torch.device('cuda:0')
     return torch.device('cpu')

@@ -8,8 +8,8 @@ from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
 
-#sys.path.append('/home/u12/jadamo/')
-sys.path.append("/home/joeadamo/Research")
+sys.path.append('/home/u12/jadamo/')
+#sys.path.append("/home/joeadamo/Research")
 import CovaPT
 
 #-------------------------------------------------------------------
@@ -28,21 +28,21 @@ vary_nuisance = False
 # if this is true you should also specify the total number of params below
 load_external_params = False
 
-#N = 150400
+N = 150400
 #N = 11280
-N = 16
-#N_PROC = 94
-N_PROC=4
+#N = 16
+N_PROC = 94
+#N_PROC=4
 
 #-------------------------------------------------------------------
 # FUNCTIONS
 #-------------------------------------------------------------------
 
-#dire='/home/u12/jadamo/CovaPT/Example-Data/'
-#home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+dire='/home/u12/jadamo/CovaPT/Example-Data/'
+home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #home_dir = "/home/u12/jadamo/CovNet/Importance-Set/"
-dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
+#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+#home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
 def Latin_Hypercube(N, rank, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """
@@ -70,7 +70,7 @@ def Latin_Hypercube(N, rank, vary_nuisance=False, vary_ombh2=False, vary_ns=Fals
     omch2_bounds = [0.01, 0.3]    # Omega_cdm h^2
     A_bounds     = [0.25, 1.65]   # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
     b1_bounds    = [1, 4]         # Linear bias
-    b2_bounds    = [-4, 4]        # Quadratic bias?
+    b2_bounds    = [-5, 3]        # Quadratic bias?
     bG2_bounds   = [-4, 4]        # 
 
     ombh2_bounds = [0.005, 0.08]  # Omega b h^2

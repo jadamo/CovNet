@@ -7,8 +7,8 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-#N = 111000
-N = 25000
+N = 111000
+#N = 25000
 #N = 20000
 
 torch.set_default_dtype(torch.float32)
@@ -24,7 +24,8 @@ train_T0_only = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
-training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
+training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC-old/"
+#training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
 if train_gaussian_only == True:  folder = "gaussian"
 else: folder = "marg"
@@ -32,7 +33,8 @@ if train_cholesky == True: folder+= "-cholesky"
 else: folder+= "-full"
 folder+="-cnn/"
 
-save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
+save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/cnn-full/"
+#save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
@@ -60,8 +62,10 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
     best_loss = 1e10
     worse_epochs = 0
 
-    train_loss = torch.zeros([num_epochs])
-    valid_loss = torch.zeros([num_epochs])
+    print(next(net.parameters()).device)
+
+    train_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
+    valid_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
     for epoch in range(num_epochs):
         # Run through the training set and update weights
         net.train()
@@ -129,8 +133,8 @@ def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
     best_loss = 1e10
     worse_epochs = 0
 
-    train_loss = torch.zeros([num_epochs])
-    valid_loss = torch.zeros([num_epochs])
+    train_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
+    valid_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
     for epoch in range(num_epochs):
         # Run through the training set and update weights
         net.train()
@@ -186,7 +190,7 @@ def main():
     print("Using GPU:", torch.cuda.is_available())
 
     batch_size = 100
-    lr_VAE    = 0.005
+    lr_VAE    = 0.004
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
