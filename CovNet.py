@@ -219,7 +219,6 @@ class Block_Encoder(nn.Module):
 
         X = F.leaky_relu(self.f1(X))
         X = F.leaky_relu(self.f2(X))
-        X = F.leaky_relu(self.f3(X))
 
         # using sigmoid here to keep log_var between 0 and 1
         mu = self.fmu(X)
@@ -246,9 +245,10 @@ class Block_Decoder(nn.Module):
         self.f3 = nn.Linear(50, 60)
 
         self.resnet1 = Block_ResNet(20, 15, True) #(20,3,1) -> (15,6,3)
-        self.resnet1 = Block_ResNet(15, 10, True)   #(4, 6, 3) -> (3, 12, 6)
-        self.resnet2 = Block_ResNet(10, 5, True)   #(3, 12, 6) -> (2, 24, 12)
-        self.resnet3 = Block_ResNet(5, 3, True)   #(2, 24, 12) -> (1, 48, 24)
+        self.c1 = nn.ConvTranspose2d(15, 15, kernel_size=(1,2), padding=0, stride=1)
+        self.resnet2 = Block_ResNet(15, 10, True)   #(4, 6, 3) -> (3, 12, 6)
+        self.resnet3 = Block_ResNet(10, 5, True)   #(3, 12, 6) -> (2, 24, 12)
+        self.resnet4 = Block_ResNet(5, 3, True)   #(2, 24, 12) -> (1, 48, 24)
         self.out = nn.ConvTranspose2d(3, 1, kernel_size=(4, 2))
 
     def forward(self, X):
@@ -263,9 +263,9 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.f1(X))
         X = F.leaky_relu(self.f2(X))
         X = F.leaky_relu(self.f3(X))
-        X = F.leaky_relu(self.f4(X))
         X = X.reshape(-1, 20, 3, 1)
         X = self.resnet1(X)
+        X = F.leaky_relu(self.c1(X))
         X = self.resnet2(X)
         X = self.resnet3(X)
         X = self.resnet4(X)
