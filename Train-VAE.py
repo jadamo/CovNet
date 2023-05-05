@@ -186,11 +186,11 @@ def main():
     print("Using GPU:", torch.cuda.is_available())
 
     batch_size = 100
-    lr_VAE    = 0.003
+    lr_VAE    = 0.005
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs_VAE = 110
+    num_epochs_VAE = 115
     num_epochs_latent = 250
 
     N_train = int(N*0.8)

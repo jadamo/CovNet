@@ -26,7 +26,7 @@ ombh2_planck = 0.02237
 vary_nuisance = False
 # wether or not to sample from an external set of parameters instead
 # if this is true you should also specify the total number of params below
-load_external_params = True
+load_external_params = False
 
 #N = 150400
 #N = 11280
@@ -44,7 +44,7 @@ N_PROC=4
 dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
-def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
+def Latin_Hypercube(N, rank, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """
     Generates a random latin hypercube sample of the parameters for generating the training set
     @param N {int} the number of samples to generate
@@ -82,11 +82,11 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     Pshot_bounds = [-20000, 20000]
 
     # sample the distribution of points using a Latin Hypercube
-    sampler = qmc.LatinHypercube(d=n_dim)
+    # specify a seed so that each rank generates the SAME latin hypercube
+    sampler = qmc.LatinHypercube(d=n_dim, seed=81341234)
     dist = sampler.random(n=N)
 
     # ---Cosmology parameters---
-    #Omega_m = dist[:,0]*(Omega_m_bounds[1] - Omega_m_bounds[0]) + Omega_m_bounds[0]
     H0 = dist[:,0]*(H0_bounds[1] - H0_bounds[0]) + H0_bounds[0]
     omch2 = dist[:,1]*(omch2_bounds[1] - omch2_bounds[0]) + omch2_bounds[0]
     A = dist[:,2]*(A_bounds[1] - A_bounds[0]) + A_bounds[0]
@@ -107,10 +107,11 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
         samples = np.vstack((H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
         header_str = "H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot"
     else:
-        header_str = "H0, omch2, A, ns, b1, b2, bG2"
+        header_str = "H0, omch2, A, b1, b2, bG2"
         samples = np.vstack((H0, omch2, A, b1, b2, bG2)).T
 
-    np.savetxt("Sample-params.txt", samples, header=header_str)
+    if rank == 0:
+        np.savetxt("Sample-params.txt", samples, header=header_str)
 
     return samples
 
@@ -130,6 +131,10 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
 
     params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
 
+    if load_external_params == False:
+        params_check = np.loadtxt("Sample-params.txt", skiprows=i, max_rows=1)
+        assert params[0] == params_check[0] and params[1] == params_check[1] and params[2] == params_check[3]
+
     Mat_Calc = CovaPT.Analytic_Covmat(z)
 
     # calculate the covariance matrix
@@ -146,7 +151,7 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
 
         # save results to a file for training
         idx = f'{i:05d}'
-        params = np.array([H0, omch2, A, b1, b2, bG2])
+        params_save = np.array([H0, omch2, A, b1, b2, bG2])
         np.savez(home_dir+"CovA-"+idx+".npz", params=params, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
         return 0
     except:
@@ -196,10 +201,10 @@ def main():
         cbar = sample[:8]
         Pshot = sample[:9]
     else:
-        cs0 = np.ones(data_len)*0.
-        cs2 = np.ones(data_len)*0.
+        cs0 = np.zeros(data_len)
+        cs2 = np.zeros(data_len)
         cbar = np.ones(data_len)*500.
-        Pshot = np.ones(data_len)*0.
+        Pshot = np.zeros(data_len)
 
     z = 0.61
     # split up workload to different nodes
