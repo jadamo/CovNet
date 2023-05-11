@@ -24,6 +24,11 @@ train_T0_only = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
+# flag to specify network structure
+# 0 = fully-connected ResNet
+# 1 = CNN ResNet
+structure_flag = 1
+
 training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
@@ -177,18 +182,16 @@ def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
 
 def main():
 
-    #print("Training with inverse matrices:       " + str(train_inverse))
-    #print("Training with correlation matrices:   " + str(train_correlation))
     print("Training set varies nuisance parameters " + str(train_nuisance))
     print("Training with cholesky decomposition:   " + str(train_cholesky))
     print("Training with just gaussian term:       " + str(train_gaussian_only))
-    print("Training with just T0 term:             " + str(train_T0_only))
     print("Training VAE net: features net:        [" + str(do_VAE) + ", " + str(do_features) + "]")
     print("Saving to", save_dir)
     print("Using GPU:", torch.cuda.is_available())
+    print("network structure flag =", structure_flag)
 
     batch_size = 200
-    lr_VAE    = 0.003
+    lr_VAE    = 0.005
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
@@ -199,7 +202,7 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize networks
-    net = CovNet.Network_VAE(train_cholesky).to(CovNet.try_gpu())
+    net = CovNet.Network_VAE(structure_flag, train_cholesky).to(CovNet.try_gpu())
     net_latent = CovNet.Network_Latent(train_nuisance)
 
     net.apply(He)
@@ -235,8 +238,8 @@ def main():
         # In case the network went thru early stopping, reload the net that was saved to file
         net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
         # separate encoder and decoders
-        encoder = CovNet.Block_Encoder().to(CovNet.try_gpu())
-        decoder = CovNet.Block_Decoder(train_cholesky).to(CovNet.try_gpu())
+        encoder = CovNet.Block_Encoder(structure_flag).to(CovNet.try_gpu())
+        decoder = CovNet.Block_Decoder(structure_flag, train_cholesky).to(CovNet.try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 

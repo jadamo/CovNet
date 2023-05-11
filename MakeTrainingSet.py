@@ -29,7 +29,7 @@ vary_nuisance = False
 load_external_params = True
 
 #N = 150400
-N = 10000
+N = 20000
 #N = 16
 N_PROC = 94
 #N_PROC=4
@@ -117,7 +117,7 @@ def load_samples(N):
     """
     Loads in a set of parameters to generate covariance matrices from
     """
-    samples = np.loadtxt(home_dir+"importance_params.txt", skiprows=1)
+    samples = np.loadtxt(home_dir+"importance-params.txt", skiprows=1)
     samples = samples[:N, :]
     return samples
 
@@ -176,7 +176,7 @@ def main():
     comm.Barrier()
     # generate samples (done on each rank for simplicity)
     if load_external_params == False: file = "Sample-params.txt"
-    else:                             file = home_dir+"inportance_params.txt"
+    else:                             file = home_dir+"inportance-params.txt"
 
     # Split up samples to multiple MPI ranks
     # Aparently MPI scatter doesn't work on Puma, so this uses a different way
