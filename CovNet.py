@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
+import time
 
 #torch.set_default_dtype(torch.float64)
 
@@ -124,6 +125,7 @@ class Block_ResNet(nn.Module):
             self.c6 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
             self.c7 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
             self.c8 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
+            self.c9 = nn.Conv2d(C_out, C_out, kernel_size=3, padding=1)
             #self.bn_skip = nn.BatchNorm2d(C_out)
             self.skip = nn.Conv2d(C_in, C_out, kernel_size=1, padding=0)
             self.pool = nn.MaxPool2d(kernel_size=2,stride=2)
@@ -137,6 +139,7 @@ class Block_ResNet(nn.Module):
             self.c6 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
             self.c7 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
             self.c8 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
+            self.c9 = nn.ConvTranspose2d(C_in, C_in, kernel_size=3, padding=1)
             #self.bn_skip = nn.BatchNorm2d(C_in)
             self.skip = nn.ConvTranspose2d(C_in, C_in, kernel_size=1, padding=0)
             self.pool = nn.ConvTranspose2d(C_in, C_out, kernel_size=2,stride=2)
@@ -161,7 +164,7 @@ class Block_ResNet(nn.Module):
         X = F.leaky_relu(self.c8(X))
 
         residual = self.skip(residual)
-        X = F.leaky_relu(self.c8(X) + residual)
+        X = F.leaky_relu(self.c9(X) + residual)
         X = self.pool(X)
         return X
 
@@ -178,13 +181,13 @@ class Block_Encoder(nn.Module):
         # self.resnet2 = Block_ResNet(500, 100)
         # self.h2 = nn.Linear(100, 50)
 
-        self.c1 = nn.Conv2d(1, 3, kernel_size=(4, 3), padding=1)
-        self.resnet1 = Block_ResNet(3, 5) #(3,50,25) -> (5,25,12)
-        self.resnet2 = Block_ResNet(5, 10) #(5,25,12) -> (7,12,6)
-        self.resnet3 = Block_ResNet(10, 15) #(7,12,6)  -> (9,6,3)
-        self.resnet4 = Block_ResNet(15, 20) #(9,6,3)   -> (9,3,1)
+        self.c1 = nn.Conv2d(1, 5, kernel_size=(4, 3), padding=1)
+        self.resnet1 = Block_ResNet(5, 10) #(5,50,25) -> (5,25,12)
+        self.resnet2 = Block_ResNet(10, 15) #(5,25,12) -> (7,12,6)
+        self.resnet3 = Block_ResNet(15, 20) #(7,12,6)  -> (9,6,3)
+        self.resnet4 = Block_ResNet(20, 30) #(9,6,3)   -> (9,3,1)
 
-        self.f1 = nn.Linear(60, 50)
+        self.f1 = nn.Linear(90, 50)
         self.f2 = nn.Linear(50, 25)
         #self.f3 = nn.Linear(50, 25)
 
@@ -220,9 +223,11 @@ class Block_Encoder(nn.Module):
         X = F.leaky_relu(self.f1(X))
         X = F.leaky_relu(self.f2(X))
 
-        # using sigmoid here to keep log_var between 0 and 1
         mu = self.fmu(X)
         log_var = self.fvar(X)
+
+        # we're taking the exponent of this, so clamp to "reasonable" values to prevent overflow
+        log_var = torch.clamp(log_var, min=-15, max=15)
 
         # The encoder outputs parameters of some distribution, so we need to draw some random sample from
         # that distribution in order to go through the decoder
@@ -242,14 +247,15 @@ class Block_Decoder(nn.Module):
         # self.out = nn.Linear(1000, 51*25)
         self.f1 = nn.Linear(6, 25)
         self.f2 = nn.Linear(25, 50)
-        self.f3 = nn.Linear(50, 60)
+        self.f3 = nn.Linear(50, 90)
 
-        self.resnet1 = Block_ResNet(20, 15, True) #(20,3,1) -> (15,6,3)
-        self.c1 = nn.ConvTranspose2d(15, 15, kernel_size=(1,2), padding=0, stride=1)
-        self.resnet2 = Block_ResNet(15, 10, True)   #(4, 6, 3) -> (3, 12, 6)
-        self.resnet3 = Block_ResNet(10, 5, True)   #(3, 12, 6) -> (2, 24, 12)
-        self.resnet4 = Block_ResNet(5, 3, True)   #(2, 24, 12) -> (1, 48, 24)
-        self.out = nn.ConvTranspose2d(3, 1, kernel_size=(4, 2))
+        self.resnet1 = Block_ResNet(30, 20, True) #(20,3,1) -> (15,6,2)
+        self.c1 = nn.ConvTranspose2d(20, 20, kernel_size=(1,2), padding=0, stride=1)
+        self.resnet2 = Block_ResNet(20, 15, True)   #(4, 6, 3) -> (3, 12, 6)
+        self.resnet3 = Block_ResNet(15, 10, True)   #(3, 12, 6) -> (2, 24, 12)
+        self.resnet4 = Block_ResNet(10, 5, True)   #(2, 24, 12) -> (1, 48, 24)
+        self.c2 = nn.ConvTranspose2d(5, 5, kernel_size=(4, 2))
+        self.out = nn.ConvTranspose2d(5, 1, kernel_size=3, padding=1)
 
     def forward(self, X):
 
@@ -263,12 +269,13 @@ class Block_Decoder(nn.Module):
         X = F.leaky_relu(self.f1(X))
         X = F.leaky_relu(self.f2(X))
         X = F.leaky_relu(self.f3(X))
-        X = X.reshape(-1, 20, 3, 1)
+        X = X.reshape(-1, 30, 3, 1)
         X = self.resnet1(X)
         X = F.leaky_relu(self.c1(X))
         X = self.resnet2(X)
         X = self.resnet3(X)
         X = self.resnet4(X)
+        X = F.leaky_relu(self.c2(X))
         X = self.out(X)
 
         X = X.view(-1, 51, 25)
@@ -289,14 +296,15 @@ class Network_VAE(nn.Module):
 
         # run through the decoder
         X = self.Decoder(z)
-        if True in torch.isnan(X) or True in torch.isinf(X):
-            print("ERROR! nan or infinity found in decoder output! Fixing to some value...")
-            X = torch.nan_to_num(X, posinf=100, neginf=-100)
+        X = torch.clamp(X, min=-12, max=12)
+        assert not True in torch.isnan(X) 
+        assert not True in torch.isinf(X)
+
         return X, mu, log_var
 
 # Dataset class to handle making training / validation / test sets
 class MatrixDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, N, offset, train_nuisance, train_cholesky=True, 
+    def __init__(self, data_dir, N, offset, batch_size, train_nuisance=False, train_cholesky=True, 
                  train_gaussian_only=False, train_T0_only=False):
         """
         Initialize and load in dataset for training
@@ -313,8 +321,8 @@ class MatrixDataset(torch.utils.data.Dataset):
         assert not (train_T0_only == True and train_nuisance == True)
 
         num_params=6 if train_nuisance==False else 10
-        self.params = torch.zeros([N, num_params], device=try_gpu())
-        self.matrices = torch.zeros([N, 50, 50], device=try_gpu())
+        self.params = np.zeros([N, num_params], dtype=np.float32)
+        self.matrices = np.zeros([N, 50, 50], dtype=np.float32)
         self.features = None
         self.offset = offset
         self.N = N
@@ -327,18 +335,18 @@ class MatrixDataset(torch.utils.data.Dataset):
 
         for i in range(N):
 
-            # Load in the data from file
+            #idx = (i*batch_size) + j + offset
             idx = i + offset
             data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
-            self.params[i] = torch.from_numpy(data["params"]).to(try_gpu())
+            self.params[i] = torch.from_numpy(data["params"][:6])
 
             # store specific terms of each matrix depending on the circumstances
             if self.gaussian_only:
-                self.matrices[i] = torch.from_numpy(data["C_G"]).to(try_gpu())
+                self.matrices[i] = data["C_G"]
             elif self.T0_only:
-                self.matrices[i] = torch.from_numpy(data["C_T0"]).to(try_gpu())
+                self.matrices[i] = data["C_T0"]
             else:
-                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"]).to(try_gpu())
+                self.matrices[i] = data["C_G"] + data["C_SSC"] + data["C_T0"]
 
             # if train_correlation:
             #     # the diagonal for correlation matrices is 1 everywhere, so let's store the diagonal there
@@ -348,13 +356,17 @@ class MatrixDataset(torch.utils.data.Dataset):
             #     self.matrices[i] = torch.matmul(torch.linalg.inv(D), torch.matmul(self.matrices[i], torch.linalg.inv(D)))
             #     self.matrices[i] = self.matrices[i] + (symmetric_log(D) - torch.eye(100).to(try_gpu()))
 
-            if train_cholesky:
-                self.matrices[i] = torch.linalg.cholesky(self.matrices[i])
+        self.params = torch.from_numpy(self.params).to(try_gpu())
+        self.matrices = torch.from_numpy(self.matrices).to(try_gpu())
 
-            self.matrices[i] = symmetric_log(self.matrices[i])
+        if train_cholesky:
+            self.matrices = torch.linalg.cholesky(self.matrices)
+
+        self.matrices = symmetric_log(self.matrices)
 
     def add_latent_space(self, z):
-        self.latent_space = z.detach()
+        self.latent_space = z.detach().to(torch.device("cpu"))
+        self.params = self.params.to(torch.device("cpu"))
         self.has_latent_space = True
 
     def __len__(self):
@@ -466,6 +478,7 @@ def symmetric_exp(m):
     pos_m[(pos_m == 1)] = 0
     # for negative numbers, treat log(x) = -log(-x)
     neg_m[neg_idx] = -10**(-1*neg_m[neg_idx]) + 1
+
     return pos_m + neg_m
 
 def predict_quad(decoder_q1, decoder_q2, decoder_q3, net_f1, net_f2, net_f3, params):

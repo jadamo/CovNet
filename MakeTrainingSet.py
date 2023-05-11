@@ -26,23 +26,23 @@ ombh2_planck = 0.02237
 vary_nuisance = False
 # wether or not to sample from an external set of parameters instead
 # if this is true you should also specify the total number of params below
-load_external_params = False
+load_external_params = True
 
 #N = 150400
-#N = 11280
-N = 16
-#N_PROC = 94
-N_PROC=4
+N = 10000
+#N = 16
+N_PROC = 94
+#N_PROC=4
 
 #-------------------------------------------------------------------
 # FUNCTIONS
 #-------------------------------------------------------------------
 
-#dire='/home/u12/jadamo/CovaPT/Example-Data/'
+dire='/home/u12/jadamo/CovaPT/Example-Data/'
 #home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-#home_dir = "/home/u12/jadamo/CovNet/Importance-Set/"
-dire='/home/joeadamo/Research/CovaPT/Example-Data/'
-home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
+home_dir = "/home/u12/jadamo/CovNet/Inportance-Set/"
+#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
+#home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
 def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     """
@@ -146,7 +146,7 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         # save results to a file for training
         idx = f'{i:05d}'
         params_save = np.array([H0, omch2, A, b1, b2, bG2])
-        np.savez(home_dir+"CovA-"+idx+".npz", params=params, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
+        np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
         return 0
     except:
         print("idx", i, "is not positive definite! skipping...")
@@ -163,6 +163,7 @@ def main():
 
     if rank == 0:
         print("Varying nuisance parameters:", vary_nuisance)
+        print("Loading external set of parameters:", load_external_params)
 
     # TEMP: ignore integration warnings to make output more clean
     warnings.filterwarnings("ignore")
@@ -175,7 +176,7 @@ def main():
     comm.Barrier()
     # generate samples (done on each rank for simplicity)
     if load_external_params == False: file = "Sample-params.txt"
-    else:                             file = home_dir+"importance_params.txt"
+    else:                             file = home_dir+"inportance_params.txt"
 
     # Split up samples to multiple MPI ranks
     # Aparently MPI scatter doesn't work on Puma, so this uses a different way
@@ -225,18 +226,19 @@ def main():
     comm.Barrier()
 
     # gather reasons for failure
-    # fail_compute = comm.reduce(fail_compute_sub, op=MPI.SUM, root=0)
-    # fail_posdef = comm.reduce(fail_posdef_sub, op=MPI.SUM, root=0)
+    fail_compute = comm.reduce(fail_compute_sub, op=MPI.SUM, root=0)
+    fail_posdef = comm.reduce(fail_posdef_sub, op=MPI.SUM, root=0)
 
-    # if rank == 0:
-    #     print("Done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
+    if rank == 0:
+        t2 = time.time()
+        print("\n All ranks done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
 
-    #     # there (should be) no directories in the output directory, so no need to loop over the files
-    #     files = os.listdir(home_dir)
-    #     num_success = len(files)
-    #     print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
-    #     print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
-    #     print("{:0.0f} matrices were not positive definite".format(fail_posdef))
+        # there (should be) no directories in the output directory, so no need to loop over the files
+        files = os.listdir(home_dir)
+        num_success = len(files)
+        print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
+        print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
+        print("{:0.0f} matrices were not positive definite".format(fail_posdef))
 
 if __name__ == "__main__":
     main()

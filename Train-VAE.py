@@ -7,8 +7,8 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-N = 111000
-#N = 25000
+N = 106000
+#N = 10000
 #N = 20000
 
 torch.set_default_dtype(torch.float32)
@@ -24,7 +24,7 @@ train_T0_only = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
-training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC-old/"
+training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
 if train_gaussian_only == True:  folder = "gaussian"
@@ -61,8 +61,6 @@ def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader
     # Keep track of the best validation loss for early stopping
     best_loss = 1e10
     worse_epochs = 0
-
-    print(next(net.parameters()).device)
 
     train_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
     valid_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
@@ -133,8 +131,8 @@ def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
     best_loss = 1e10
     worse_epochs = 0
 
-    train_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
-    valid_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
+    train_loss = torch.zeros([num_epochs])
+    valid_loss = torch.zeros([num_epochs])
     for epoch in range(num_epochs):
         # Run through the training set and update weights
         net.train()
@@ -189,20 +187,20 @@ def main():
     print("Saving to", save_dir)
     print("Using GPU:", torch.cuda.is_available())
 
-    batch_size = 100
-    lr_VAE    = 0.004
+    batch_size = 200
+    lr_VAE    = 0.003
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs_VAE = 115
+    num_epochs_VAE = 150
     num_epochs_latent = 250
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
 
-    # initialize network
+    # initialize networks
     net = CovNet.Network_VAE(train_cholesky).to(CovNet.try_gpu())
-    net_latent = CovNet.Network_Latent(train_nuisance).to(CovNet.try_gpu())
+    net_latent = CovNet.Network_Latent(train_nuisance)
 
     net.apply(He)
     net_latent.apply(xavier)
@@ -213,9 +211,9 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, train_nuisance, \
+    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, batch_size, train_nuisance, \
                                       train_cholesky, train_gaussian_only, train_T0_only)
-    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, train_nuisance, \
+    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, batch_size, train_nuisance, \
                                       train_cholesky, train_gaussian_only, train_T0_only)
     
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -246,14 +244,14 @@ def main():
         train_z = torch.zeros(N_train, 6, device=CovNet.try_gpu())
         valid_z = torch.zeros(N_valid, 6, device=CovNet.try_gpu())
         encoder.eval()
-        for n in range(N_train):
-            matrix = train_data[n][1].view(1,50,50)
+        for i in range(int(N_train / batch_size)):
+            matrix = train_data[i*batch_size:(i+1)*batch_size][1].view(-1, 50, 50)
             z, mu, log_var = encoder(matrix)
-            train_z[n] = mu.view(6).detach()
-        for n in range(N_valid):
-            matrix = valid_data[n][1].view(1,50,50)
+            train_z[i*batch_size:(i+1)*batch_size, :] = mu.view(-1, 6).detach()
+        for i in range(int(N_valid / batch_size)):
+            matrix = valid_data[i*batch_size:(i+1)*batch_size][1].view(-1, 50, 50)
             z, mu, log_var = encoder(matrix)
-            valid_z[n] = mu.view(6).detach()
+            valid_z[i*batch_size:(i+1)*batch_size, :] = mu.view(-1, 6).detach()
 
         # add feature data to the training set and reinitialize the data loaders
         train_data.add_latent_space(train_z)
@@ -261,7 +259,7 @@ def main():
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
         valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
         t2 = time.time()
-        print("Done preparing latent network training set!!, took {:0.2f} seconds".format(t2 - t1))
+        print("Done preparing latent network training set!, took {:0.2f} seconds".format(t2 - t1))
 
         # train the secondary network!
         t1 = time.time()

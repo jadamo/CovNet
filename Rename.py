@@ -7,7 +7,7 @@ import numpy as np
 
 def main():
 
-    path = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC-old/"
+    path = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
     N = 150400
     idx = 0
 
