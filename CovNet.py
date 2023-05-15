@@ -22,18 +22,16 @@ class CovNet():
         self.N = N
 
         self.net_VAE = Network_VAE(structure_flag, train_cholesky).to(try_gpu())
-        self.net_latent = Network_Latent().to(try_gpu())
         self.net_VAE.eval()
-        self.decoder.eval()
-
         self.net_VAE.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
-        self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
-
+        
         if structure_flag != 2:
             self.decoder = Block_Decoder(structure_flag, train_cholesky).to(try_gpu())
             self.decoder.eval()
             self.decoder.load_state_dict(self.net_VAE.Decoder.state_dict())
 
+            self.net_latent = Network_Latent().to(try_gpu())
+            self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
 
     def get_covariance_matrix(self, params):
@@ -48,7 +46,7 @@ class CovNet():
             z = self.net_latent(params).view(1,6)
             matrix = self.decoder(z).view(1,self.N,self.N)
         else:
-            matrix = self.net_VAE(params)
+            matrix = self.net_VAE(params.view(1,6))
 
         matrix = symmetric_exp(matrix).view(self.N,self.N)
         if self.train_cholesky == True:
@@ -139,6 +137,7 @@ class Block_Full_ResNet(nn.Module):
         self.bn3 = nn.BatchNorm1d(dim_out)
         self.h4 = nn.Linear(dim_out, dim_out)
 
+
         self.bn_skip = nn.BatchNorm1d(dim_out)
         self.skip = nn.Linear(dim_in, dim_out)
 
@@ -149,7 +148,7 @@ class Block_Full_ResNet(nn.Module):
         X = F.leaky_relu(self.bn3(self.h3(X)))
 
         residual = self.bn_skip(self.skip(residual))
-        X = F.leaky_relu(self.h3(X) + residual)
+        X = F.leaky_relu(self.h4(X) + residual)
         return X
 
 class Block_CNN_ResNet(nn.Module):
