@@ -6,10 +6,11 @@ export OMP_NUM_THREADS=4
 
 conf_file="/home/joeadamo/Research/Software/Montepython/default.conf"
 param_file="/home/joeadamo/Research/lss_montepython/input/boss_ngc_z3.param"
-output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/test-gaussian-emulator/"
+output_folder="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/vary-no-determinant-1/"
 
 #covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
-covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/vary-gaussian/test.covmat"
+#covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/vary-gaussian/test.covmat"
+covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/vary-no-determinant-1/vary-no-determinant.covmat"
 
 log_file=$output_folder"log.param"
 
@@ -22,7 +23,7 @@ N=15000
 
 # flag to restart a run using -r
 # need to specify the name of the lowest-number chain (so example date_N__1.txt)
-# restart=$output_folder"2023-02-18_15000__1.txt"
+restart=$output_folder"2023-04-04_15000__1.txt"
 
 # flag to restart from a best-fit location of a previous run
 # best_fit="/home/joeadamo/Research/CovNet/chains/MontePython/test-2/test-2.bestfit"

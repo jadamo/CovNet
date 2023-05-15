@@ -7,8 +7,10 @@ import numpy as np
 
 def main():
 
-    path = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-    N = 150400
+    #path = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+    path = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
+    #N = 150400
+    N = 20000
     idx = 0
 
     remove = 0

@@ -13,8 +13,8 @@ from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 #sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
@@ -28,8 +28,8 @@ class Analytic_Covmat():
         self.z = z
 
         # directory with window functions (I assumed these are calculated beforehand)
-        self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
-        #self.dire='/home/joeadamo/Research/CovaPT/Example-Data/Local/'
+        #self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
+        self.dire='/home/joeadamo/Research/CovaPT/Data/'
         #self.dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 
         #Using the window kernels calculated from the survey random catalog as input
@@ -71,6 +71,9 @@ class Analytic_Covmat():
         dkf = 0.001
         self.kbins3 = np.zeros(400)
         for i in range(400): self.kbins3[i] = dkf/2+i*dkf
+
+        self.wmat = np.array([])
+        self.mmat = np.array([])
 
         # common CLASS-PT settings
         self.common_settings = {'output':'mPk',         # what to output
@@ -196,7 +199,7 @@ class Analytic_Covmat():
         expr = self.i44*(Plin(k1)**2*Plin(k2)*T0.ez3(k1,k2) + Plin(k2)**2*Plin(k1)*T0.ez3(k2,k1))\
             +8*self.i34*Plin(k1)*Plin(k2)*T0.e34o44_1(k1,k2)
 
-        temp = (quad(self.trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=60)[0]/2. + expr)/self.i22**2
+        temp = (quad(self.trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=150)[0]/2. + expr)/self.i22**2
         return(temp)
 
     #-------------------------------------------------------------------
@@ -255,7 +258,7 @@ class Analytic_Covmat():
             for i in range(3):
                 for j in range(3):
                     covaLAterm[l]+=1/4.*sigma22x10[i,j]*self.vec_Z12Multipoles(2*i,2*l,be,b1,b2,g2,dlnPk)\
-                    *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]
+                    *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=80)[0]
         return covaLAterm
             
     #-------------------------------------------------------------------
@@ -270,7 +273,7 @@ class Analytic_Covmat():
             for j in range(3):
                 covaBC+=1/4.*sigma22Sq[i,j]*np.outer(Plin(self.k)*self.vec_Z12Multipoles(2*i,l1,be,b1,b2,g2,dlnPk),Plin(self.k)*self.vec_Z12Multipoles(2*j,l2,be,b1,b2,g2,dlnPk))
                 sigma10Sq[i,j]=1/4.*sigma10Sq[i,j]*quad(lambda mu: self.lp(2*i,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]\
-                *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]
+                *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=80)[0]
 
         covaLA=-rsd[l2]*np.outer(Plin(self.k)*(covaLAterm[int(l1/2)]+self.i32/self.i22/self.i10*rsd[l1]*Plin(self.k)*b2/b1**2+2/self.i10*rsd[l1]),Plin(self.k))\
             -rsd[l1]*np.outer(Plin(self.k),Plin(self.k)*(covaLAterm[int(l2/2)]+self.i32/self.i22/self.i10*rsd[l2]*Plin(self.k)*b2/b1**2+2/self.i10*rsd[l2]))\
@@ -283,7 +286,7 @@ class Analytic_Covmat():
     # ------------------------------------------------------------------
 
     #-------------------------------------------------------------------
-    def Pk_CLASS_PT(self, params):
+    def Pk_CLASS_PT(self, params, interpolate=True):
 
         cosmo = Class()
         # unpack / specify parameters
@@ -319,6 +322,8 @@ class Analytic_Covmat():
         fz = cosmo.scale_independent_growth_factor_f(self.z)
         all_theory = cosmo.get_pk_mult(self.kbins3*h,self.z, 400)
         kinloop1 = self.kbins3 * h
+        sigma8 = cosmo.sigma8()
+        Omega_m = cosmo.Omega_m()
 
         theory4 = ((norm**2*all_theory[20] + norm**4*all_theory[27]
                 + b1*norm**3*all_theory[28]
@@ -362,14 +367,18 @@ class Analytic_Covmat():
                 + a2*(1./3.)*(self.kbins3/0.45)**2.
                 + fz**2*b4*self.kbins3**2*(norm**2*fz**2/9. + 2.*fz*b1*norm/7. + b1**2/5)*(35./8.)*all_theory[13]*h)
 
-        pk_g0 = InterpolatedUnivariateSpline(self.kbins3,theory0)(self.k)
-        pk_g2 = InterpolatedUnivariateSpline(self.kbins3,theory2)(self.k)
-        pk_g4 = InterpolatedUnivariateSpline(self.kbins3,theory4)(self.k)
+        if interpolate == True:
+            pk_g0 = InterpolatedUnivariateSpline(self.kbins3,theory0)(self.k)
+            pk_g2 = InterpolatedUnivariateSpline(self.kbins3,theory2)(self.k)
+            pk_g4 = InterpolatedUnivariateSpline(self.kbins3,theory4)(self.k)
 
-        # This line is necesary to prevent memory leaks
-        cosmo.struct_cleanup()
+            cosmo.struct_cleanup()
+            return [pk_g0, 0, pk_g2, 0, pk_g4]
+        else:
+            fz = cosmo.scale_independent_growth_factor_f(self.z)
 
-        return [pk_g0, 0, pk_g2, 0, pk_g4]
+            cosmo.struct_cleanup()
+            return all_theory, theory0, theory2, theory4, fz, Omega_m, sigma8
 
 #-------------------------------------------------------------------
     def Pk_CLASS_PT_2(self, params, k, return_sigma8=False):
@@ -421,7 +430,7 @@ class Analytic_Covmat():
         cosmo.struct_cleanup()
 
         if return_sigma8 == False: return np.concatenate([pk_g0, pk_g2, pk_g4])
-        else: return np.concatenate([pk_g0, pk_g2, pk_g4]), sigma8
+        else: return np.concatenate([pk_g0, pk_g2, pk_g4]), Omega_m, sigma8
 
     #-------------------------------------------------------------------
     def get_k_bins(self):
@@ -556,3 +565,69 @@ class Analytic_Covmat():
         cov_G = self.get_gaussian_covariance(params, False, Pk_galaxy)
         cov_SSC, cov_T0 = self.get_non_gaussian_covariance(params)
         return cov_G, cov_SSC, cov_T0
+    
+    def get_marginalized_covariance(self, params, C):
+        """
+        Returns the marginalized covariance matrix as well as the convolved model vector
+        taken from Misha Ivanov's Montepython Likelihood: https://github.com/Michalychforever/lss_montepython
+        """
+        all_theory, theory0, theory2, theory4, fz, Omega_m, sigma8 = self.Pk_CLASS_PT(params, False)
+        norm = 1; Nmarg = 4
+        omit = 0; ksize = len(self.k)
+        if len(self.wmat) == 0:
+            self.wmat = np.loadtxt("/home/joeadamo/Research/Data/BOSS-DR12/Updated/W_ngc_z3.matrix", skiprows = 0)
+            self.mmat = np.loadtxt("/home/joeadamo/Research/Data/BOSS-DR12/Updated/M_ngc_z3.matrix", skiprows = 0)
+
+        h    = params[0] / 100.
+        b1   = params[3]
+        css0sig = 30.
+        css2sig = 30.
+        b4sig = 500.
+        Pshotsig = 5000.
+
+        dtheory4_dcss0 = np.zeros_like(self.kbins3)
+        dtheory4_dcss2 = np.zeros_like(self.kbins3)
+        dtheory4_db4 = fz**2*self.kbins3**2*(norm**2*fz**2*48./143. + 48.*fz*b1*norm/77.+8.*b1**2/35.)*(35./8.)*all_theory[13]*h
+        dtheory4_dPshot = np.zeros_like(self.kbins3)
+
+        dtheory2_dcss0 = np.zeros_like(self.kbins3)
+        dtheory2_dcss2 = (2.*norm**2.*all_theory[12]/h**2.)*h**3.
+        dtheory2_db4 = fz**2.*self.kbins3**2.*((norm**2.*fz**2.*70. + 165.*fz*b1*norm+99.*b1**2.)*4./693.)*(35./8.)*all_theory[13]*h
+        dtheory2_dPshot = np.zeros_like(self.kbins3)
+
+        dtheory0_dcss0 = (2.*norm**2.*all_theory[11]/h**2.)*h**3.
+        dtheory0_dcss2 = np.zeros_like(self.kbins3)
+        dtheory0_db4 = fz**2.*self.kbins3**2.*(norm**2.*fz**2./9. + 2.*fz*b1*norm/7. + b1**2./5)*(35./8.)*all_theory[13]*h
+        dtheory0_dPshot = np.ones_like(self.kbins3)
+
+        theory0vec = np.vstack([theory0,dtheory0_dcss0,dtheory0_dcss2,dtheory0_db4,dtheory0_dPshot])
+        theory2vec = np.vstack([theory2,dtheory2_dcss0,dtheory2_dcss2,dtheory2_db4,dtheory2_dPshot])
+        theory4vec = np.vstack([theory4,dtheory4_dcss0,dtheory4_dcss2,dtheory4_db4,dtheory4_dPshot])
+
+        #PW = np.zeros((5*self.ksize1,Nmarg+1))
+        P0int = np.zeros((ksize,Nmarg+1))
+        P2int = np.zeros((ksize,Nmarg+1))
+        P4int = np.zeros((ksize,Nmarg+1))
+
+        for i in range(Nmarg+1):
+                Pintvec = np.hstack([theory0vec[i,:],theory2vec[i,:],theory4vec[i,:]]) 
+                PW = np.matmul(self.wmat,np.matmul(self.mmat,Pintvec))
+                P0int[:,i] = np.asarray([PW[j] for j in range(omit,omit+ksize)]).T	
+                P2int[:,i] = np.asarray([PW[j] for j in range(80+omit,80+omit+ksize)]).T
+                #P4int[:,i] = np.asarray([PW[j] for j in range(160+omit,160+omit+self.ksize)]).T
+
+        dcss0_stack = np.hstack([P0int[:,1],P2int[:,1]])#,P4int[:,1]])
+        dcss2_stack = np.hstack([P0int[:,2],P2int[:,2]])#,P4int[:,2]])
+        db4_stack = np.hstack([P0int[:,3],P2int[:,3]])#,P4int[:,4]])
+        dPshot_stack = np.hstack([P0int[:,4],P2int[:,4]])#,P4int[:,5]])
+
+        # Do in two pieces; with and without Pshot part
+        C_marg = (C
+                + css0sig**2*np.outer(dcss0_stack,dcss0_stack)
+                + css2sig**2*np.outer(dcss2_stack,dcss2_stack)
+                + b4sig**2*np.outer(db4_stack, db4_stack)
+                + Pshotsig**2*np.outer(dPshot_stack,dPshot_stack)
+                )
+        
+        model_vector = np.hstack([P0int[:,0],P2int[:,0]])
+        return C_marg, model_vector, Omega_m, sigma8
