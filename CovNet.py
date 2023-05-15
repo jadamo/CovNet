@@ -124,18 +124,22 @@ class Block_Full_ResNet(nn.Module):
         super().__init__()
 
         self.h1 = nn.Linear(dim_in, dim_out)
-        self.bn = nn.BatchNorm1d(dim_out)
+        self.bn1 = nn.BatchNorm1d(dim_out)
         self.h2 = nn.Linear(dim_out, dim_out)
+        self.bn2 = nn.BatchNorm1d(dim_out)
         self.h3 = nn.Linear(dim_out, dim_out)
+        self.bn3 = nn.BatchNorm1d(dim_out)
+        self.h4 = nn.Linear(dim_out, dim_out)
 
         self.bn_skip = nn.BatchNorm1d(dim_out)
         self.skip = nn.Linear(dim_in, dim_out)
 
     def forward(self, X):
         residual = X
-        X = F.leaky_relu(self.h1(X))
-        X = self.bn(X)
-        X = F.leaky_relu(self.h2(X))
+        X = F.leaky_relu(self.bn1(self.h1(X)))
+        X = F.leaky_relu(self.bn2(self.h2(X)))
+        X = F.leaky_relu(self.bn3(self.h3(X)))
+
         residual = self.bn_skip(self.skip(residual))
         X = F.leaky_relu(self.h3(X) + residual)
         return X
@@ -217,6 +221,7 @@ class Block_Encoder(nn.Module):
             self.resnet1 = Block_Full_ResNet(1000, 500)
             self.resnet2 = Block_Full_ResNet(500, 100)
             self.h2 = nn.Linear(100, 50)
+            self.bn1 = nn.BatchNorm1d(50)
             self.h3 = nn.Linear(50, 25)
 
         elif self.structure_flag == 1:
@@ -250,7 +255,7 @@ class Block_Encoder(nn.Module):
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)
             X = self.resnet2(X)
-            X = F.leaky_relu(self.h2(X))
+            X = F.leaky_relu(self.bn1(self.h2(X)))
             X = F.leaky_relu(self.h3(X))
 
         elif self.structure_flag == 1:
@@ -285,7 +290,7 @@ class Block_Decoder(nn.Module):
 
         if self.structure_flag == 0:
             self.h1 = nn.Linear(6, 25)
-            self.h2 = nn.Linear(25, 100)
+            self.h2 = nn.Linear(25, 50)
             self.h3 = nn.Linear(50, 100)
             self.resnet1 = Block_Full_ResNet(100, 500)
             self.resnet2 = Block_Full_ResNet(500, 1000)
@@ -312,7 +317,7 @@ class Block_Decoder(nn.Module):
             X = F.leaky_relu(self.h3(X))
             X = self.resnet1(X)
             X = self.resnet2(X)
-            X = self.out(X)
+            X = torch.tanh(self.out(X))
 
         elif self.structure_flag == 1:
             X = F.leaky_relu(self.f1(X))
@@ -334,22 +339,59 @@ class Block_Decoder(nn.Module):
 class Network_VAE(nn.Module):
     def __init__(self, structure_flag, train_cholesky=True):
         super().__init__()
-        self.Encoder = Block_Encoder(structure_flag)
-        self.Decoder = Block_Decoder(structure_flag, train_cholesky)
+        self.structure_flag = structure_flag
+        self.train_cholesky = train_cholesky
+        if structure_flag < 0 or structure_flag >= 3:
+            print("ERROR! invalid value for structure flag! Currently can be [0, 1, 2]")
+        if structure_flag != 2:
+            self.Encoder = Block_Encoder(structure_flag)
+            self.Decoder = Block_Decoder(structure_flag, train_cholesky)
+        else:
+            self.h1 = nn.Linear(6, 25)
+            self.resnet1 = Block_Full_ResNet(25, 50)
+            self.resnet2 = Block_Full_ResNet(50, 100)
+            self.resnet3 = Block_Full_ResNet(100, 500)
+            self.resnet4 = Block_Full_ResNet(500, 1000)
+            self.out = nn.Linear(1000, 51*25)
+
+            self.bounds = torch.tensor([[50, 100],
+                                    [0.01, 0.3],
+                                    [0.25, 1.65],
+                                    [1, 4],
+                                    [-4, 4],
+                                    [-4, 4]]).to(try_gpu())
+
+    def normalize(self, params):
+
+        params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
+        return params_norm
 
     def forward(self, X):
-        # run through the encoder
-        # assumes that z has been reparamaterized in the forward pass
-        z, mu, log_var = self.Encoder(X)
-        assert not True in torch.isnan(z)
+        if self.structure_flag != 2:
+            # run through the encoder
+            # assumes that z has been reparamaterized in the forward pass
+            z, mu, log_var = self.Encoder(X)
+            assert not True in torch.isnan(z)
 
-        # run through the decoder
-        X = self.Decoder(z)
-        X = torch.clamp(X, min=-12, max=12)
-        assert not True in torch.isnan(X) 
-        assert not True in torch.isinf(X)
+            # run through the decoder
+            X = self.Decoder(z)
+            X = torch.clamp(X, min=-12, max=12)
+            assert not True in torch.isnan(X) 
+            assert not True in torch.isinf(X)
 
-        return X, mu, log_var
+            return X, mu, log_var
+        else:
+            X = self.normalize(X)
+            X = F.leaky_relu(self.h1(X))
+            X = self.resnet1(X)
+            X = self.resnet2(X)
+            X = self.resnet3(X)
+            X = self.resnet4(X)
+            X = torch.tanh(self.out(X))
+
+            X = X.view(-1, 51, 25)
+            X = rearange_to_full(X, 50, self.train_cholesky)
+            return X
 
 
 # ---------------------------------------------------------------------------

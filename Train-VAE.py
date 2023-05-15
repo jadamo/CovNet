@@ -8,7 +8,6 @@ import CovNet
 
 # Total number of matrices in the training + validation + test set
 N = 106000
-#N = 10000
 #N = 20000
 
 torch.set_default_dtype(torch.float32)
@@ -22,23 +21,24 @@ train_gaussian_only = False
 # wether or not to train on just the T0 term of the covariance (this is a test)
 train_T0_only = False
 # wether to train the VAE and features nets
-do_VAE = True; do_features = True
+do_VAE = True; do_features = False
 
 # flag to specify network structure
 # 0 = fully-connected ResNet
 # 1 = CNN ResNet
-structure_flag = 1
+# 2 = simple (no VAE, just a simple fully connected network)
+structure_flag = 2
 
 training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
-if train_gaussian_only == True:  folder = "gaussian"
-else: folder = "marg"
-if train_cholesky == True: folder+= "-cholesky"
-else: folder+= "-full"
-folder+="-cnn/"
+if structure_flag == 0: folder = "full"
+elif structure_flag == 1: folder = "cnn"
+elif structure_flag == 2: folder = "simple"
+if train_gaussian_only == True: folder += "-gaussian"
+folder+="/"
 
-save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/cnn-full/"
+save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
 #save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
@@ -58,6 +58,7 @@ def xavier(m):
 def He(m):
     if type(m) == nn.Linear:
         nn.init.kaiming_uniform_(m.weight)
+
 
 def train_VAE(net, num_epochs, batch_size, optimizer, train_loader, valid_loader):
     """
@@ -180,7 +181,74 @@ def train_latent(net, num_epochs, optimizer, train_loader, valid_loader):
             break
     print("Best validation loss was {:0.4f} after {:0.0f} epochs".format(best_loss, epoch - worse_epochs))
 
+def train_simple(net, num_epochs, batch_size, optimizer, train_loader, valid_loader):
+    """
+    Train the VAE network
+    """
+    # Keep track of the best validation loss for early stopping
+    best_loss = 1e10
+    worse_epochs = 0
+
+    train_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
+    valid_loss = torch.zeros([num_epochs], device=CovNet.try_gpu())
+    for epoch in range(num_epochs):
+        # Run through the training set and update weights
+        net.train()
+        train_loss_sub = 0.
+        train_KLD_sub = 0.
+        for (i, batch) in enumerate(train_loader):
+            params = batch[0]; matrix = batch[1]
+            prediction = net(params.view(batch_size, 6))
+
+            loss = F.l1_loss(prediction, matrix, reduction="sum")
+            assert torch.isnan(loss) == False 
+            assert torch.isinf(loss) == False
+
+            train_loss_sub += loss.item()
+            optimizer.zero_grad()
+            loss.backward()
+            # gradient clipping
+            torch.nn.utils.clip_grad_norm_(net.parameters(), 1e8)    
+            optimizer.step()
+
+        # run through the validation set
+        net.eval()
+        valid_loss_sub = 0.
+        valid_KLD_sub = 0.
+        for (i, batch) in enumerate(valid_loader):
+            params = batch[0]; matrix = batch[1]
+            prediction = net(params.view(batch_size, 6))
+            #prediction = prediction.view(batch_size, 100, 100)
+            loss = F.l1_loss(prediction, matrix, reduction="sum")
+            valid_loss_sub += loss.item()
+
+        # Aggregate loss information
+        train_loss[epoch] = train_loss_sub / len(train_loader.dataset)
+        valid_loss[epoch] = valid_loss_sub / len(valid_loader.dataset)
+
+        # save the network if the validation loss improved, else stop early if there hasn't been
+        # improvement for several epochs
+        if valid_loss[epoch] < best_loss:
+            best_loss = valid_loss[epoch]
+            torch.save(train_loss, save_dir+"train_loss.dat")
+            torch.save(valid_loss, save_dir+"valid_loss.dat")
+            torch.save(net.state_dict(), save_dir+'network-VAE.params')
+            worse_epochs = 0
+        else:
+            worse_epochs+=1
+
+        print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, train_loss[epoch], valid_loss[epoch], worse_epochs))
+
+        if epoch > 15 and worse_epochs >= 15:
+            print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
+            break
+    print("Best validation loss was {:0.3f} after {:0.0f} epochs".format(best_loss, epoch - worse_epochs))
+    return
+
+
 def main():
+
+    if structure_flag == 2: do_features = False
 
     print("Training set varies nuisance parameters " + str(train_nuisance))
     print("Training with cholesky decomposition:   " + str(train_cholesky))
@@ -191,7 +259,7 @@ def main():
     print("network structure flag =", structure_flag)
 
     batch_size = 200
-    lr_VAE    = 0.005
+    lr_VAE    = 0.0025
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
@@ -214,10 +282,10 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, batch_size, train_nuisance, \
-                                      train_cholesky, train_gaussian_only, train_T0_only)
-    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, batch_size, train_nuisance, \
-                                      train_cholesky, train_gaussian_only, train_T0_only)
+    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, train_nuisance, \
+                                      train_cholesky, train_gaussian_only)
+    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, train_nuisance, \
+                                      train_cholesky, train_gaussian_only)
     
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
@@ -227,9 +295,12 @@ def main():
     # Train the network! Progress is saved to file within the function
     if do_VAE:
         t1 = time.time()
-        train_VAE(net, num_epochs_VAE, batch_size, optimizer_VAE, train_loader, valid_loader)
+        if structure_flag != 2: train_VAE(net, num_epochs_VAE, batch_size, optimizer_VAE, train_loader, valid_loader)
+        else: train_simple(net, num_epochs_VAE, batch_size, optimizer_VAE, train_loader, valid_loader)
         t2 = time.time()
         print("Done training VAE!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
+
+
 
     # next, train the secondary network with the features from the VAE as the output
     if do_features:
