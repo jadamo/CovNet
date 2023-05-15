@@ -17,19 +17,24 @@ class CovNet():
         @param structure_flag {int} flag specifying the specific structure the network is (0 = fully connected ResNet, 1 = CNN ResNet)
         @param train_cholesky {bool} wether or not the emulator was trained on the cholesky decomposition
         """
-
+        self.structure_flag = structure_flag
         self.train_cholesky = train_cholesky
         self.N = N
 
         self.net_VAE = Network_VAE(structure_flag, train_cholesky).to(try_gpu())
-        self.decoder = Block_Decoder(structure_flag, train_cholesky).to(try_gpu())
         self.net_latent = Network_Latent().to(try_gpu())
         self.net_VAE.eval()
         self.decoder.eval()
 
-        self.net_VAE.load_state_dict(torch.load(net_dir+'network-VAE.params'))
-        self.decoder.load_state_dict(self.net_VAE.Decoder.state_dict())
-        self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params'))
+        self.net_VAE.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
+        self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
+
+        if structure_flag != 2:
+            self.decoder = Block_Decoder(structure_flag, train_cholesky).to(try_gpu())
+            self.decoder.eval()
+            self.decoder.load_state_dict(self.net_VAE.Decoder.state_dict())
+
+            self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
 
     def get_covariance_matrix(self, params):
         """
@@ -39,8 +44,11 @@ class CovNet():
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
-        z = self.net_latent(params).view(1,6)
-        matrix = self.decoder(z).view(1,self.N,self.N)
+        if self.structure_flag != 2:
+            z = self.net_latent(params).view(1,6)
+            matrix = self.decoder(z).view(1,self.N,self.N)
+        else:
+            matrix = self.net_VAE(params)
 
         matrix = symmetric_exp(matrix).view(self.N,self.N)
         if self.train_cholesky == True:
