@@ -18,8 +18,6 @@ train_nuisance = False
 train_cholesky = True
 # wether or not to train on just the gaussian covariance (this is a test)
 train_gaussian_only = False
-# wether or not to train on just the T0 term of the covariance (this is a test)
-train_T0_only = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = False
 
