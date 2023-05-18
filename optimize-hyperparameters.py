@@ -240,7 +240,7 @@ def main():
     print("network structure flag =", structure_flag)
 
     lr_VAE    = 0.0025
-    if vary_learning_rate == True: lr_VAE = torch.linspace(0.001, 0.02, 20).to(CovNet.try_gpu())
+    if vary_learning_rate == True: lr_VAE = torch.logspace(-4, -2, 20).to(CovNet.try_gpu())
     else: lr_VAE = 0.0025
 
     if vary_batch_size == True: batch_size = torch.Tensor([25, 50, 100, 200, 265, 424, 530])
@@ -253,13 +253,6 @@ def main():
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
-
-    # initialize networks
-    net = CovNet.Network_VAE(structure_flag, True).to(CovNet.try_gpu())
-    net_latent = CovNet.Network_Latent(False)
-
-    net.apply(He)
-    net_latent.apply(xavier)
 
     # get the training / test datasets
     t1 = time.time()
@@ -278,6 +271,13 @@ def main():
     t1 = time.time()
     for i in range(iterate):
 
+        # re-initialize networks
+        net = CovNet.Network_VAE(structure_flag, True).to(CovNet.try_gpu())
+        net_latent = CovNet.Network_Latent(False)
+
+        net.apply(He)
+        net_latent.apply(xavier)
+
         lr = lr_VAE[i] if vary_learning_rate == True else lr_VAE
         bsize = batch_size[i] if vary_batch_size == True else batch_size
 
@@ -289,7 +289,6 @@ def main():
         optimizer_latent = torch.optim.Adam(net_latent.parameters(), lr=lr_latent)
         
         # Train the network!
-        t1 = time.time()
         if structure_flag != 2: 
             lowest_loss[i], train_loss, valid_loss, net = train_VAE(net, lr, bsize, num_epochs_VAE, batch_size, optimizer_VAE, train_loader, valid_loader)
         else: 
@@ -336,14 +335,15 @@ def main():
                 torch.save(valid_loss_2, save_dir+"valid_loss-latent.dat")
                 torch.save(net_latent.state_dict(), save_dir+'network-latent.params')
 
+        # save after each iteration in case the job ends prematurely
+        save_data = torch.vstack((lowest_loss, lowest_loss_2))
+        if vary_learning_rate == True: save_str="optimized-lr.dat"
+        else: save_str = "optimized-bsize.dat"
+        torch.save(save_data, save_dir+save_str)
+
     t2 = time.time()
     print("Done training networks!, took {:0.0f} minutes {:0.2f} seconds".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
     print("Lowest loss achieved was {:0.3f}".format(best_loss))
-
-    save_data = torch.vstack((lowest_loss, lowest_loss_2))
-    if vary_learning_rate == True: save_str="optimized-lr.dat"
-    else: save_str = "optimized-bsize.dat"
-    torch.save(save_data, save_dir+save_str)
 
 if __name__ == "__main__":
     main()

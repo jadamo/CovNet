@@ -179,11 +179,18 @@ def main():
     else:                             file = home_dir+"inportance-params.txt"
 
     # Split up samples to multiple MPI ranks
-    # Aparently MPI scatter doesn't work on Puma, so this uses a different way
+    # but only read into one rank to prevent wierd race conditions
+    if rank == 0:
+        sample_full = np.loadtxt(file, skiprows=1)[:N]
+    else: sample_full = np.zeros((N, 6))
+    comm.Bcast(sample_full, root=0)
+
     assert N % size == 0
-    offset = int((N / size) * rank) + 1
+    offset = int((N / size) * rank)
     data_len = int(N / size)
-    sample = np.loadtxt(file, skiprows=offset, max_rows=data_len)
+    sample = sample_full[offset:offset+data_len,:]
+    # sample = np.loadtxt(file, skiprows=offset, max_rows=data_len)
+    assert sample.shape[0] == data_len
 
     # ---Cosmology parameters---
     H0 = sample[:,0]
