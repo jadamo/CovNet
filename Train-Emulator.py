@@ -21,15 +21,15 @@ train_nuisance = False
 # wether or not to train with the Cholesky decomposition
 train_cholesky = True
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = False
+train_gaussian_only = True
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
 # flag to specify network structure
 # 0 = fully-connected ResNet
 # 1 = CNN ResNet
-# 2 = simple (no VAE, just a simple fully connected network)
-structure_flag = 3
+# 2 = Pure MLP (no VAE, just a simple fully connected network)
+structure_flag = 2
 
 if structure_flag == 2: do_features = False
 
@@ -75,7 +75,7 @@ def main():
     print("network structure flag =", structure_flag)
 
     batch_size = 200
-    lr_VAE    = 0.0025
+    lr_VAE    = 1.438e-3
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping

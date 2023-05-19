@@ -7,8 +7,8 @@ import time, math
 import CovNet
 
 # Total number of matrices in the training + validation + test set
-#N = 106000
-N = 10000
+N = 106000
+#N = 10000
 
 torch.set_default_dtype(torch.float32)
 
@@ -136,14 +136,14 @@ def main():
             train_z = torch.zeros(N_train, 6, device=CovNet.try_gpu())
             valid_z = torch.zeros(N_valid, 6, device=CovNet.try_gpu())
             encoder.eval()
-            for i in range(int(N_train / batch_size)):
-                matrix = train_data[i*batch_size:(i+1)*batch_size][1].view(-1, 50, 50)
+            for j in range(int(N_train / batch_size)):
+                matrix = train_data[j*batch_size:(j+1)*batch_size][1].view(-1, 50, 50)
                 z, mu, log_var = encoder(matrix)
-                train_z[i*batch_size:(i+1)*batch_size, :] = mu.view(-1, 6).detach()
-            for i in range(int(N_valid / batch_size)):
-                matrix = valid_data[i*batch_size:(i+1)*batch_size][1].view(-1, 50, 50)
+                train_z[j*batch_size:(j+1)*batch_size, :] = mu.view(-1, 6).detach()
+            for j in range(int(N_valid / batch_size)):
+                matrix = valid_data[j*batch_size:(j+1)*batch_size][1].view(-1, 50, 50)
                 z, mu, log_var = encoder(matrix)
-                valid_z[i*batch_size:(i+1)*batch_size, :] = mu.view(-1, 6).detach()
+                valid_z[j*batch_size:(j+1)*batch_size, :] = mu.view(-1, 6).detach()
 
             # add feature data to the training set and reinitialize the data loaders
             train_data.add_latent_space(train_z)
