@@ -12,9 +12,8 @@ N = 106000
 
 torch.set_default_dtype(torch.float32)
 
-vary_learning_rate = True
-
-vary_batch_size = False
+vary_learning_rate = False
+vary_batch_size = True
 
 # flag to specify network structure
 # 0 = fully-connected ResNet
@@ -61,7 +60,7 @@ def main():
     print("network structure flag =", structure_flag)
 
     if vary_learning_rate == True: lr_VAE = torch.logspace(-4, -2, 20).to(CovNet.try_gpu())
-    else: lr_VAE = 1.438e-3
+    else: lr_VAE = 8.859e-4#1.438e-3
 
     if vary_batch_size == True: batch_size = torch.Tensor([25, 50, 100, 200, 265, 424, 530]).to(torch.int)
     else: batch_size = 200
@@ -87,7 +86,13 @@ def main():
     lowest_loss = torch.zeros(iterate)
     lowest_loss_2 = torch.zeros(iterate)
     lowest_loss_3 = torch.zeros(iterate)
-    best_loss = 1e5
+
+    try:
+        lr_loss_dat = torch.load(save_str="optimized-lr.dat",map_location=CovNet.try_gpu())
+        temp = lr_loss_dat[0,:][(lr_loss_dat[0,:]!= 0)]
+        best_loss = torch.min(temp).item()
+    except:
+        best_loss = 1e5
 
     t1 = time.time()
     for i in range(iterate):
@@ -112,13 +117,13 @@ def main():
         # Train the network!
         if structure_flag != 2: 
             net, train_loss, valid_loss = \
-                CovNet.train_VAE(net, num_epochs_VAE, batch_size, BETA, structure_flag, \
+                CovNet.train_VAE(net, num_epochs_VAE, bsize, BETA, structure_flag, \
                                  optimizer_VAE, train_loader, valid_loader, \
                                  False, lr=lr)
             lowest_loss_2[i] = torch.min(valid_loss[(valid_loss != 0)])
         else:
             net, train_loss, valid_loss = \
-                CovNet.train_MLP(net, num_epochs_VAE, batch_size, structure_flag, \
+                CovNet.train_MLP(net, num_epochs_VAE, bsize, structure_flag, \
                                  optimizer_VAE, train_loader, valid_loader, \
                                  False, lr=lr)
             lowest_loss[i] = torch.min(valid_loss[(valid_loss != 0)])
@@ -136,20 +141,20 @@ def main():
             train_z = torch.zeros(N_train, 6, device=CovNet.try_gpu())
             valid_z = torch.zeros(N_valid, 6, device=CovNet.try_gpu())
             encoder.eval()
-            for j in range(int(N_train / batch_size)):
-                matrix = train_data[j*batch_size:(j+1)*batch_size][1].view(-1, 50, 50)
+            for j in range(int(N_train / bsize)):
+                matrix = train_data[j*bsize:(j+1)*bsize][1].view(-1, 50, 50)
                 z, mu, log_var = encoder(matrix)
-                train_z[j*batch_size:(j+1)*batch_size, :] = mu.view(-1, 6).detach()
-            for j in range(int(N_valid / batch_size)):
-                matrix = valid_data[j*batch_size:(j+1)*batch_size][1].view(-1, 50, 50)
+                train_z[j*bsize:(j+1)*bsize, :] = mu.view(-1, 6).detach()
+            for j in range(int(N_valid / bsize)):
+                matrix = valid_data[j*bsize:(j+1)*bsize][1].view(-1, 50, 50)
                 z, mu, log_var = encoder(matrix)
-                valid_z[j*batch_size:(j+1)*batch_size, :] = mu.view(-1, 6).detach()
+                valid_z[j*bsize:(j+1)*bsize, :] = mu.view(-1, 6).detach()
 
             # add feature data to the training set and reinitialize the data loaders
             train_data.add_latent_space(train_z)
             valid_data.add_latent_space(valid_z)
-            train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
-            valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True)
+            train_loader = torch.utils.data.DataLoader(train_data, batch_size=bsize, shuffle=True)
+            valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=bsize, shuffle=True)
 
             # train the secondary network!
             net_latent, train_loss_2, valid_loss_2 = \
@@ -163,8 +168,8 @@ def main():
             loss_full = 0
             for (j, batch) in enumerate(valid_loader):
                 params = batch[0].to(torch.device("cpu")); matrix = batch[1]
-                z = net_latent(params.view(batch_size, 6)).to(CovNet.try_gpu())
-                prediction = decoder(z).view(batch_size, 50, 50)
+                z = net_latent(params.view(bsize, 6)).to(CovNet.try_gpu())
+                prediction = decoder(z).view(bsize, 50, 50)
                 loss_full += F.l1_loss(prediction, matrix, reduction="sum").item()
 
             # Aggregate loss information
