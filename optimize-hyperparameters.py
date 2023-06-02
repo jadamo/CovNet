@@ -12,21 +12,22 @@ N = 106000
 
 torch.set_default_dtype(torch.float32)
 
-vary_learning_rate = False
-vary_batch_size = True
+vary_learning_rate = True
+vary_batch_size = False
 
 # flag to specify network structure
-# 0 = fully-connected ResNet
-# 1 = CNN ResNet
-# 2 = simple (no VAE, just a simple fully connected network)
-structure_flag = 3
+# 0 = VAE fully-connected ResNet
+# 1 = VAE CNN ResNet
+# 2 = Pure MLP (no VAE, just a simple fully connected network)
+# 3 = AE fully-connected ResNet
+structure_flag = 0
 
 training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
-if structure_flag == 0: folder = "full"
-elif structure_flag == 1: folder = "cnn"
-elif structure_flag == 2: folder = "simple"
+if structure_flag == 0: folder = "VAE"
+elif structure_flag == 1: folder = "VAE-cnn"
+elif structure_flag == 2: folder = "MLP"
 elif structure_flag == 3: folder = "AE"
 folder+="/"
 
