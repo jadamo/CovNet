@@ -20,7 +20,7 @@ vary_batch_size = False
 # 1 = VAE CNN ResNet
 # 2 = Pure MLP (no VAE, just a simple fully connected network)
 # 3 = AE fully-connected ResNet
-structure_flag = 0
+structure_flag = 3
 
 training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
@@ -61,7 +61,7 @@ def main():
     print("network structure flag =", structure_flag)
 
     if vary_learning_rate == True: lr_VAE = torch.logspace(-4, -2, 20).to(CovNet.try_gpu())
-    else: lr_VAE = 8.859e-4#1.438e-3
+    else: lr_VAE = 1.438e-3#8.859e-4
 
     if vary_batch_size == True: batch_size = torch.Tensor([25, 50, 100, 200, 265, 424, 530]).to(torch.int)
     else: batch_size = 200
