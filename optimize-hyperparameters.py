@@ -12,8 +12,8 @@ N = 106000
 
 torch.set_default_dtype(torch.float32)
 
-vary_learning_rate = True
-vary_batch_size = False
+vary_learning_rate = False
+vary_batch_size = True
 
 # flag to specify network structure
 # 0 = VAE fully-connected ResNet
