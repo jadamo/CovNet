@@ -246,7 +246,7 @@ class Block_Encoder(nn.Module):
 
         # 2 seperate layers - one for mu and one for log_var
         self.fmu = nn.Linear(25, 6)
-        if structure_flag == 3: self.fvar = nn.Linear(25, 6)
+        if structure_flag != 3: self.fvar = nn.Linear(25, 6)
 
     def reparameterize(self, mu, log_var):
         #if self.training:
@@ -280,7 +280,7 @@ class Block_Encoder(nn.Module):
             X = F.leaky_relu(self.f1(X))
             X = F.leaky_relu(self.f2(X))
 
-        if self.structure_flag == 3:
+        if self.structure_flag != 3:
             mu = self.fmu(X)
             log_var = self.fvar(X)
 
