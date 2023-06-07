@@ -12,8 +12,8 @@ N = 106000
 
 torch.set_default_dtype(torch.float32)
 
-vary_learning_rate = False
-vary_batch_size = True
+vary_learning_rate = True
+vary_batch_size = False
 
 # flag to specify network structure
 # 0 = VAE fully-connected ResNet
@@ -145,11 +145,11 @@ def main():
             for j in range(int(N_train / bsize)):
                 matrix = train_data[j*bsize:(j+1)*bsize][1].view(-1, 50, 50)
                 z, mu, log_var = encoder(matrix)
-                train_z[j*bsize:(j+1)*bsize, :] = mu.view(-1, 6).detach()
+                train_z[j*bsize:(j+1)*bsize, :] = z.view(-1, 6).detach()
             for j in range(int(N_valid / bsize)):
                 matrix = valid_data[j*bsize:(j+1)*bsize][1].view(-1, 50, 50)
                 z, mu, log_var = encoder(matrix)
-                valid_z[j*bsize:(j+1)*bsize, :] = mu.view(-1, 6).detach()
+                valid_z[j*bsize:(j+1)*bsize, :] = z.view(-1, 6).detach()
 
             # add feature data to the training set and reinitialize the data loaders
             train_data.add_latent_space(train_z)
