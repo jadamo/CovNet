@@ -351,6 +351,63 @@ class Block_Decoder(nn.Module):
         X = rearange_to_full(X, 50, self.train_cholesky)
         return X
 
+class Block_Attention(nn.Module):
+
+    def __init__(self, hidden_dim, num_heads=2):
+        self.hidden_dim = hidden_dim
+        self.num_heads = num_heads
+
+    def forward(self, X):
+
+        return X
+
+class Block_Transformer_Encoder(nn.Module):
+
+    def __init__(self, N=[51, 25], patch_size=[3,5]):
+        super().__init__()
+        self.patch_size = torch.Tensor(patch_size).int()
+        self.N = torch.Tensor(N).int()
+        self.n_patches = (self.N / self.patch_size).int().tolist9)
+        self.patch_size = self.patch_size.tolist()
+
+        self.h1 = nn.Linear(self.patch_size**2, 10)
+        self.class_token = nn.Parameter(torch.rand(1, 10))
+
+        self.pos_embed = self.get_positional_embeddings(self.patch_size[0]*self.patch_size[1] + 1, 10)
+        self.pos_embed.requires_grad = False
+
+        # encoder block
+        norm_layer = nn.LayerNorm(10)
+
+
+    def patchify(self, X):
+        # TODO: optimize this
+        patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
+        patches = patches.reshape(-1, self.n_patches[0]*self.n_patches[1], self.patch_size[0] * self.patch_size[1])
+
+        return patches
+
+    def get_positional_embeddings(self, sequence_length, d):
+        result = torch.ones(sequence_length, d)
+        for i in range(sequence_length):
+            for j in range(d):
+                result[i][j] = np.sin(i / (10000 ** (j / d))) if j % 2 == 0 else np.cos(i / (10000 ** ((j - 1) / d)))
+        return result
+
+    def forward(self, X):
+
+        # break image up into patches
+        X = self.patchify(X)
+
+        # linear embedding
+        tokens = self.h1(X)
+        # add classification token
+        tokens = torch.stack([torch.vstack((self.class_token, tokens[i])) for i in range(len(tokens))])
+
+        # add positional information
+        pos_embed = self.pos_embed.repeat(X.shape[0], 1, 1)
+        out = tokens + pos_embed
+
 class Network_Emulator(nn.Module):
     def __init__(self, structure_flag, train_cholesky=True):
         super().__init__()
