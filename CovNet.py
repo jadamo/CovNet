@@ -351,87 +351,162 @@ class Block_Decoder(nn.Module):
         X = rearange_to_full(X, 50, self.train_cholesky)
         return X
 
-class Block_Attention(nn.Module):
+class Nulti_Headed_Attention(nn.Module):
 
     def __init__(self, hidden_dim, num_heads=2):
+        super().__init__()
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
 
-    def forward(self, X):
+        self.layer_q = nn.Linear(hidden_dim, hidden_dim)
+        self.layer_k = nn.Linear(hidden_dim, hidden_dim)
+        self.layer_v = nn.Linear(hidden_dim, hidden_dim)
+        self.out = nn.Linear(hidden_dim, hidden_dim)
+        #self.softmax = nn.Softmax(hidden_dim)
 
+    def transpose_qkv(self, X):
+        """Transposition for parallel computation of multiple attention heads."""
+        # Shape of input X: (batch_size, no. of queries or key-value pairs, num_hiddens). 
+        # Shape of output X: (batch_size, no. of queries or key-value pairs, num_heads, num_hiddens / num_heads)
+        X = X.reshape(X.shape[0], X.shape[1], self.num_heads, -1)
+
+        X = X.permute(0, 2, 1, 3)
+
+        return X.reshape(-1, X.shape[2], X.shape[3])
+
+    def transpose_output(self, X):
+        """Reverse the operation of transpose_qkv."""
+        X = X.reshape(-1, self.num_heads, X.shape[1], X.shape[2])
+        X = X.permute(0, 2, 1, 3)
+        return X.reshape(X.shape[0], X.shape[1], -1)
+
+    def dot_product_attention(self, q, k, v):
+        dim = q.shape[-1]
+        # Swap the last two dimensions of keys with keys.transpose(1, 2)
+        # calculate attention scores using the dot product
+        scores = torch.bmm(q, k.transpose(1, 2)) / np.sqrt(dim)
+        # normalize so that sum(scores) = 1 and all scores > 0
+        #self.attention_weights = masked_softmax(scores, valid_lens)
+        self.attention_weights = F.softmax(scores, dim=-1)
+        # 
+        return torch.bmm(self.attention_weights, v)
+
+    def forward(self, queries, keys, values):
+
+        queries = self.transpose_qkv(self.layer_q(queries))
+        keys    = self.transpose_qkv(self.layer_k(keys))
+        values  = self.transpose_qkv(self.layer_v(values))
+
+        X = self.dot_product_attention(queries, keys, values)
+        X = self.out(self.transpose_output(X))
         return X
 
-class Block_Transformer_Encoder(nn.Module):
+class Block_Transformer(nn.Module):
 
-    def __init__(self, N=[51, 25], patch_size=[3,5]):
+    def __init__(self, in_dim, sequence_length, n_heads):
         super().__init__()
-        self.patch_size = torch.Tensor(patch_size).int()
-        self.N = torch.Tensor(N).int()
-        self.n_patches = (self.N / self.patch_size).int().tolist9)
-        self.patch_size = self.patch_size.tolist()
+        self.in_dim = in_dim
+        self.sequence_length = sequence_length
+        self.hidden_dim = int(in_dim / sequence_length)
 
-        self.h1 = nn.Linear(self.patch_size**2, 10)
-        self.class_token = nn.Parameter(torch.rand(1, 10))
+        self.attention = Nulti_Headed_Attention(self.hidden_dim, n_heads)
+        self.ln1 = nn.LayerNorm(self.hidden_dim)
 
-        self.pos_embed = self.get_positional_embeddings(self.patch_size[0]*self.patch_size[1] + 1, 10)
-        self.pos_embed.requires_grad = False
-
-        # encoder block
-        norm_layer = nn.LayerNorm(10)
-
-
-    def patchify(self, X):
-        # TODO: optimize this
-        patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
-        patches = patches.reshape(-1, self.n_patches[0]*self.n_patches[1], self.patch_size[0] * self.patch_size[1])
-
-        return patches
-
-    def get_positional_embeddings(self, sequence_length, d):
-        result = torch.ones(sequence_length, d)
-        for i in range(sequence_length):
-            for j in range(d):
-                result[i][j] = np.sin(i / (10000 ** (j / d))) if j % 2 == 0 else np.cos(i / (10000 ** ((j - 1) / d)))
-        return result
+        self.h1 = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.h2 = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.ln2 = nn.LayerNorm(self.hidden_dim)
 
     def forward(self, X):
+        X = X.reshape(X.shape[0], self.sequence_length, self.hidden_dim)
 
-        # break image up into patches
-        X = self.patchify(X)
+        X = self.ln1(self.attention(X, X, X) + X)
+        Y = F.leaky_relu(self.h1(X))
+        X = self.ln2(self.h2(Y) + X)
 
-        # linear embedding
-        tokens = self.h1(X)
-        # add classification token
-        tokens = torch.stack([torch.vstack((self.class_token, tokens[i])) for i in range(len(tokens))])
+        X = X.reshape(X.shape[0], self.in_dim)
+        return X
 
-        # add positional information
-        pos_embed = self.pos_embed.repeat(X.shape[0], 1, 1)
-        out = tokens + pos_embed
+# class Transformer_Encoder(nn.Module):
+
+#     def __init__(self, N=[51, 25], patch_size=[3,5]):
+#         super().__init__()
+#         self.patch_size = torch.Tensor(patch_size).int()
+#         self.N = torch.Tensor(N).int()
+#         self.n_patches = (self.N / self.patch_size).int().tolist()
+#         self.patch_size = self.patch_size.tolist()
+
+#         self.h1 = nn.Linear(6, 6)
+#         #self.class_token = nn.Parameter(torch.rand(1, 10))
+
+#         self.pos_embed = self.get_positional_embeddings(self.n_patches[0]*self.n_patches[1], 6)
+#         self.pos_embed.requires_grad = False
+
+#         # encoder blocks
+#         self.encoder_block_1 = Block_Transformer(6, 10)
+#         self.encoder_block_2 = Block_Transformer(6, 10)
+
+#     def patchify(self, X):
+#         # TODO: optimize this
+#         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
+#         patches = patches.reshape(-1, self.n_patches[0]*self.n_patches[1], self.patch_size[0] * self.patch_size[1])
+
+#         return patches
+
+#     def get_positional_embeddings(self, sequence_length, d):
+#         result = torch.ones(sequence_length, d)
+#         for i in range(sequence_length):
+#             for j in range(d):
+#                 result[i][j] = np.sin(i / (10000 ** (j / d))) if j % 2 == 0 else np.cos(i / (10000 ** ((j - 1) / d)))
+#         return result
+
+#     def forward(self, X):
+
+#         #X = rearange_to_half(X, 50)
+#         #print(X.shape)
+#         # break image up into patches
+#         #X = self.patchify(X)
+#         X = X.view(-1, 1, 6)
+#         X = X.repeat(1, 85, 1)
+#         # linear embedding
+#         tokens = self.h1(X)
+#         # add classification token
+#         #tokens = torch.stack([torch.vstack((self.class_token, tokens[i])) for i in range(len(tokens))])
+
+#         # add positional information
+#         pos_embed = self.pos_embed.repeat(tokens.shape[0], 1, 1)
+#         X = tokens + pos_embed
+
+#         X = self.encoder_block_1(X)
+#         X = self.encoder_block_2(X)
+#         #print(X.shape)
+#         return X
 
 class Network_Emulator(nn.Module):
     def __init__(self, structure_flag, train_cholesky=True):
         super().__init__()
         self.structure_flag = structure_flag
         self.train_cholesky = train_cholesky
-        if structure_flag < 0 or structure_flag >= 4:
-            print("ERROR! invalid value for structure flag! Currently can be between 0 and 3")
-        if structure_flag != 2:
+        if structure_flag < 0 or structure_flag >= 5:
+            print("ERROR! invalid value for structure flag! Currently can be between 0 and 4")
+        elif structure_flag != 2 and structure_flag != 4:
             self.Encoder = Block_Encoder(structure_flag)
             self.Decoder = Block_Decoder(structure_flag, train_cholesky)
         else:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
             self.resnet2 = Block_Full_ResNet(50, 100)
+            if structure_flag == 4: self.transform1 = Block_Transformer(100, 5, 5)
             self.resnet3 = Block_Full_ResNet(100, 500)
+            if structure_flag == 4: self.transform2 = Block_Transformer(500, 25, 5)
             self.resnet4 = Block_Full_ResNet(500, 1000)
             self.out = nn.Linear(1000, 51*25)
 
-            self.bounds = torch.tensor([[50, 100],
-                                    [0.01, 0.3],
-                                    [0.25, 1.65],
-                                    [1, 4],
-                                    [-4, 4],
-                                    [-4, 4]]).to(try_gpu())
+        self.bounds = torch.tensor([[50, 100],
+                                [0.01, 0.3],
+                                [0.25, 1.65],
+                                [1, 4],
+                                [-4, 4],
+                                [-4, 4]]).to(try_gpu())
 
     def normalize(self, params):
 
@@ -439,7 +514,8 @@ class Network_Emulator(nn.Module):
         return params_norm
 
     def forward(self, X):
-        if self.structure_flag != 2:
+        
+        if self.structure_flag != 2 and self.structure_flag != 4:
             # run through the encoder
             # assumes that z has been reparamaterized in the forward pass
             z, mu, log_var = self.Encoder(X)
@@ -457,7 +533,9 @@ class Network_Emulator(nn.Module):
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)
             X = self.resnet2(X)
+            if self.structure_flag == 4: X = self.transform1(X)
             X = self.resnet3(X)
+            if self.structure_flag == 4: X = self.transform2(X)
             X = self.resnet4(X)
             X = torch.tanh(self.out(X))
 

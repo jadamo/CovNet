@@ -21,7 +21,7 @@ train_nuisance = False
 # wether or not to train with the Cholesky decomposition
 train_cholesky = True
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = True
+train_gaussian_only = False
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
@@ -29,22 +29,23 @@ do_VAE = True; do_features = True
 # 0 = fully-connected ResNet
 # 1 = CNN ResNet
 # 2 = Pure MLP (no VAE, just a simple fully connected network)
-structure_flag = 2
+structure_flag = 4
 
-if structure_flag == 2: do_features = False
+if structure_flag == 2 or structure_flag == 4: do_features = False
 
-training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-#training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
+#training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
-if structure_flag == 0: folder = "full"
-elif structure_flag == 1: folder = "cnn"
-elif structure_flag == 2: folder = "simple"
+if structure_flag == 0: folder = "VAE"
+elif structure_flag == 1: folder = "VAE-cnn"
+elif structure_flag == 2: folder = "MLP"
 elif structure_flag == 3: folder = "AE"
+elif structure_flag == 4: folder = "MLP-T"
 if train_gaussian_only == True: folder += "-gaussian"
 folder+="/"
 
-save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
-#save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
+#save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
+save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
@@ -75,11 +76,11 @@ def main():
     print("network structure flag =", structure_flag)
 
     batch_size = 200
-    lr_VAE    = 1.438e-3
+    lr_VAE    = 0.0005#1.438e-3#8.859e-04
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs_VAE = 150
+    num_epochs_VAE = 160
     num_epochs_latent = 250
 
     N_train = int(N*0.8)
@@ -111,7 +112,7 @@ def main():
     # Train the network! Progress is saved to file within the function
     if do_VAE:
         t1 = time.time()
-        if structure_flag != 2: 
+        if structure_flag != 2 and structure_flag != 4: 
             return_stuff = CovNet.train_VAE(net, num_epochs_VAE, batch_size, BETA, structure_flag, \
                                             optimizer_VAE, train_loader, valid_loader, \
                                             True, save_dir, lr=lr_VAE)
@@ -128,7 +129,7 @@ def main():
 
         t1 = time.time()
         # In case the network went thru early stopping, reload the net that was saved to file
-        net.load_state_dict(torch.load(save_dir+'network-VAE.params'))
+        net.load_state_dict(torch.load(save_dir+'network-VAE.params', map_location=CovNet.try_gpu()))
         # separate encoder and decoders
         encoder = CovNet.Block_Encoder(structure_flag).to(CovNet.try_gpu())
         decoder = CovNet.Block_Decoder(structure_flag, train_cholesky).to(CovNet.try_gpu())
@@ -142,10 +143,12 @@ def main():
         for i in range(int(N_train / batch_size)):
             matrix = train_data[i*batch_size:(i+1)*batch_size][1].view(-1, 50, 50)
             z, mu, log_var = encoder(matrix)
+            if structure_flag == 3: mu = z.detach()
             train_z[i*batch_size:(i+1)*batch_size, :] = mu.view(-1, 6).detach()
         for i in range(int(N_valid / batch_size)):
             matrix = valid_data[i*batch_size:(i+1)*batch_size][1].view(-1, 50, 50)
             z, mu, log_var = encoder(matrix)
+            if structure_flag == 3: mu = z.detach()
             valid_z[i*batch_size:(i+1)*batch_size, :] = mu.view(-1, 6).detach()
 
         # add feature data to the training set and reinitialize the data loaders
