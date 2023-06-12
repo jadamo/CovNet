@@ -20,7 +20,7 @@ vary_batch_size = False
 # 1 = VAE CNN ResNet
 # 2 = Pure MLP (no VAE, just a simple fully connected network)
 # 3 = AE fully-connected ResNet
-structure_flag = 3
+structure_flag = 4
 
 training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
@@ -29,6 +29,7 @@ if structure_flag == 0: folder = "VAE"
 elif structure_flag == 1: folder = "VAE-cnn"
 elif structure_flag == 2: folder = "MLP"
 elif structure_flag == 3: folder = "AE"
+elif structure_flag == 4: folder = "MLP-T"
 folder+="/"
 
 save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
@@ -116,7 +117,7 @@ def main():
         optimizer_latent = torch.optim.Adam(net_latent.parameters(), lr=lr_latent)
         
         # Train the network!
-        if structure_flag != 2: 
+        if structure_flag != 2 and structure_flag != 4: 
             net, train_loss, valid_loss = \
                 CovNet.train_VAE(net, num_epochs_VAE, bsize, BETA, structure_flag, \
                                  optimizer_VAE, train_loader, valid_loader, \
@@ -130,7 +131,7 @@ def main():
             lowest_loss[i] = torch.min(valid_loss[(valid_loss != 0)])
 
         # next, train the secondary network with the features from the VAE as the output
-        if structure_flag != 2:
+        if structure_flag != 2 and structure_flag != 4:
 
             # separate encoder and decoders
             encoder = CovNet.Block_Encoder(structure_flag).to(CovNet.try_gpu())
