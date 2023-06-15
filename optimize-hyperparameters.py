@@ -77,10 +77,8 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, False, \
-                                      True, False)
-    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, False, \
-                                      True, False)
+    train_data = CovNet.MatrixDataset(training_dir, N_train, 0, False)
+    valid_data = CovNet.MatrixDataset(training_dir, N_valid, N_train, False)
     t2 = time.time()
     print("Done loading in data, took {:0.2f} s".format(t2 - t1))
 
@@ -100,7 +98,7 @@ def main():
     for i in range(iterate):
 
         # re-initialize networks
-        net = CovNet.Network_Emulator(structure_flag, True, 0.25).to(CovNet.try_gpu())
+        net = CovNet.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
         net_latent = CovNet.Network_Latent(False)
 
         net.apply(He)
@@ -135,7 +133,7 @@ def main():
 
             # separate encoder and decoders
             encoder = CovNet.Block_Encoder(structure_flag).to(CovNet.try_gpu())
-            decoder = CovNet.Block_Decoder(structure_flag, True).to(CovNet.try_gpu())
+            decoder = CovNet.Block_Decoder(structure_flag).to(CovNet.try_gpu())
             encoder.load_state_dict(net.Encoder.state_dict())
             decoder.load_state_dict(net.Decoder.state_dict())
 

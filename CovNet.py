@@ -11,25 +11,29 @@ import time
 # ---------------------------------------------------------------------------
 class CovNet():
 
-    def __init__(self, net_dir, N, structure_flag=0, train_cholesky=True):
+    def __init__(self, net_dir, N, structure_flag=0,
+                 pos_norm=5.91572, neg_norm=4.62748):
         """
         Initializes the covariance emulator in a warpper class by loading in the trained
         neural networks based on the specified options
         @param net_dir {string} location of trained networks
         @param N {int} the matrix dimensionality
         @param structure_flag {int} flag specifying the specific structure the network is (0 = fully connected ResNet, 1 = CNN ResNet)
-        @param train_cholesky {bool} wether or not the emulator was trained on the cholesky decomposition
+        @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
+        @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
         """
         self.structure_flag = structure_flag
-        self.train_cholesky = train_cholesky
         self.N = N
 
-        self.net_VAE = Network_Emulator(structure_flag, train_cholesky).to(try_gpu())
+        self.norm_pos = pos_norm
+        self.norm_neg = neg_norm
+
+        self.net_VAE = Network_Emulator(structure_flag).to(try_gpu())
         self.net_VAE.eval()
         self.net_VAE.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
         
         if structure_flag != 2:
-            self.decoder = Block_Decoder(structure_flag, train_cholesky).to(try_gpu())
+            self.decoder = Block_Decoder(structure_flag).to(try_gpu())
             self.decoder.eval()
             self.decoder.load_state_dict(self.net_VAE.Decoder.state_dict())
 
@@ -51,9 +55,8 @@ class CovNet():
         else:
             matrix = self.net_VAE(params.view(1,6))
 
-        matrix = symmetric_exp(matrix).view(self.N,self.N)
-        if self.train_cholesky == True:
-            matrix = torch.matmul(matrix, torch.t(matrix))
+        matrix = symmetric_exp(matrix, self.norm_pos, self.norm_neg).view(self.N,self.N)
+        matrix = torch.matmul(matrix, torch.t(matrix))
 
         return matrix.detach().numpy().astype(np.float64)
 
@@ -298,9 +301,8 @@ class Block_Encoder(nn.Module):
 
 class Block_Decoder(nn.Module):
  
-    def __init__(self, structure_flag, train_cholesky=True):
+    def __init__(self, structure_flag):
         super().__init__()
-        self.train_cholesky = train_cholesky
         self.structure_flag = structure_flag
 
         if self.structure_flag == 0 or self.structure_flag == 3:
@@ -348,12 +350,12 @@ class Block_Decoder(nn.Module):
             X = self.out(X)
 
         X = X.view(-1, 51, 25)
-        X = rearange_to_full(X, 50, self.train_cholesky)
+        X = rearange_to_full(X, 50, True)
         return X
 
 class Nulti_Headed_Attention(nn.Module):
 
-    def __init__(self, hidden_dim, num_heads=2, dropout_p=0.):
+    def __init__(self, hidden_dim, num_heads=2, dropout_prob=0.):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
@@ -363,7 +365,7 @@ class Nulti_Headed_Attention(nn.Module):
         self.layer_v = nn.Linear(hidden_dim, hidden_dim)
         self.out = nn.Linear(hidden_dim, hidden_dim)
 
-        self.dropout = nn.Dropout(dropout_p)
+        self.dropout = nn.Dropout(dropout_prob)
         #self.softmax = nn.Softmax(hidden_dim)
 
     def transpose_qkv(self, X):
@@ -404,31 +406,34 @@ class Nulti_Headed_Attention(nn.Module):
         return X
 
 class Block_AddNorm(nn.Module):
-    def __init__(self, shape, dropout_p=0.):
+    def __init__(self, shape, dropout_prob=0.):
         super().__init__()
-        self.dropoiut = nn.Dropout(dropout_p)
+        self.dropoiut = nn.Dropout(dropout_prob)
         self.layerNorm = nn.LayerNorm(shape)
     def forward(self, X, Y):
         return self.layerNorm(self.dropoiut(Y) + X)
 
 class Block_Transformer_Encoder(nn.Module):
 
-    def __init__(self, in_dim, sequence_length, n_heads, dropout_p=0.):
+    def __init__(self, in_dim, sequence_length, n_heads, dropout_prob=0.):
         super().__init__()
         self.in_dim = in_dim
         self.sequence_length = sequence_length
         self.hidden_dim = int(in_dim / sequence_length)
 
-        self.attention = Nulti_Headed_Attention(self.hidden_dim, n_heads, dropout_p).to(try_gpu())
-        self.addnorm1 = Block_AddNorm(self.hidden_dim, dropout_p)
+        self.attention = Nulti_Headed_Attention(self.hidden_dim, n_heads, dropout_prob).to(try_gpu())
+        self.addnorm1 = Block_AddNorm(self.hidden_dim, dropout_prob)
 
         #feed-forward network
         self.h1 = nn.Linear(self.hidden_dim, self.hidden_dim)
         self.h2 = nn.Linear(self.hidden_dim, self.hidden_dim)
 
-        self.addnorm2 = Block_AddNorm(self.hidden_dim, dropout_p)
+        self.addnorm2 = Block_AddNorm(self.hidden_dim, dropout_prob)
 
     def forward(self, X):
+        # reshape input to
+        # (batch size, previous hidden layer dimension)
+        # (batch size, length of each "sequence", "Transformer hidden dimension")
         X = X.reshape(X.shape[0], self.sequence_length, self.hidden_dim)
 
         X = self.addnorm1(X, self.attention(X, X, X))
@@ -436,6 +441,7 @@ class Block_Transformer_Encoder(nn.Module):
         Y = self.h2(X)
         X = self.addnorm2(X, Y)
 
+        # reshape back to the shape of the input
         X = X.reshape(X.shape[0], self.in_dim)
         return X
 
@@ -459,7 +465,6 @@ class Block_Transformer_Encoder(nn.Module):
 #         self.encoder_block_2 = Block_Transformer(6, 10)
 
 #     def patchify(self, X):
-#         # TODO: optimize this
 #         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
 #         patches = patches.reshape(-1, self.n_patches[0]*self.n_patches[1], self.patch_size[0] * self.patch_size[1])
 
@@ -495,25 +500,24 @@ class Block_Transformer_Encoder(nn.Module):
 #         return X
 
 class Network_Emulator(nn.Module):
-    def __init__(self, structure_flag, train_cholesky=True, dropout_p=0.):
+    def __init__(self, structure_flag, dropout_prob=0.):
         super().__init__()
         self.structure_flag = structure_flag
-        self.train_cholesky = train_cholesky
         if structure_flag < 0 or structure_flag >= 5:
             print("ERROR! invalid value for structure flag! Currently can be between 0 and 4")
         elif structure_flag != 2 and structure_flag != 4:
             self.Encoder = Block_Encoder(structure_flag)
-            self.Decoder = Block_Decoder(structure_flag, train_cholesky)
+            self.Decoder = Block_Decoder(structure_flag)
         else:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
-            #if structure_flag == 4: self.transform1 = Block_Transformer(50, 2, 5, dropout_p)
+            #if structure_flag == 4: self.transform1 = Block_Transformer(50, 2, 5, dropout_prob)
             self.resnet2 = Block_Full_ResNet(50, 100)
-            #if structure_flag == 4: self.transform2 = Block_Transformer(100, 5, 5, dropout_p)
+            #if structure_flag == 4: self.transform2 = Block_Transformer(100, 5, 5, dropout_prob)
             self.resnet3 = Block_Full_ResNet(100, 500)
-            #if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(500, 25, 5, dropout_p)
+            #if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(500, 25, 5, dropout_prob)
             self.resnet4 = Block_Full_ResNet(500, 1000)
-            if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(1000, 25, 5, dropout_p)
+            if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(1000, 25, 5, dropout_prob)
             self.out = nn.Linear(1000, 51*25)
 
         self.bounds = torch.tensor([[50, 100],
@@ -557,7 +561,7 @@ class Network_Emulator(nn.Module):
             X = torch.tanh(self.out(X))
 
             X = X.view(-1, 51, 25)
-            X = rearange_to_full(X, 50, self.train_cholesky)
+            X = rearange_to_full(X, 50, True)
             return X
 
 
@@ -565,19 +569,19 @@ class Network_Emulator(nn.Module):
 # Dataset class to handle loading and pre-processing data
 # ---------------------------------------------------------------------------
 class MatrixDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, N, offset, 
-                 train_nuisance=False, train_cholesky=True, train_gaussian_only=False):
+    def __init__(self, data_dir, N, offset, train_gaussian_only=False,
+                 pos_norm=5.91572, neg_norm=4.62748):
         """
         Initialize and load in dataset for training
         @param data_dir {string} location of training set
         @param N {int} size of training set
         @param offset {int} index number to begin reading training set (used when splitting set into training / validation / test sets)
-        @param train_nuisance {bool} whether you will be varying nuisance parameters when training
-        @param train_cholesky {bool} whether to represent each matrix as its cholesky decomposition
-        @param train_gaussian {bool} whether to store only the gaussian term of the covariance matrix (for testing)
+        @param train_gaussian_only {bool} whether to store only the gaussian term of the covariance matrix (for testing)
+        @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
+        @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
         """
 
-        num_params=6 if train_nuisance==False else 10
+        num_params=6
         self.params = torch.zeros([N, num_params])
         self.matrices = torch.zeros([N, 50, 50])
         self.features = None
@@ -586,8 +590,11 @@ class MatrixDataset(torch.utils.data.Dataset):
 
         self.has_latent_space = False
 
-        self.cholesky = train_cholesky
+        self.cholesky = True
         self.gaussian_only = train_gaussian_only
+
+        self.norm_pos = pos_norm
+        self.norm_neg = neg_norm
 
         for i in range(N):
 
@@ -604,10 +611,7 @@ class MatrixDataset(torch.utils.data.Dataset):
         self.params = self.params.to(try_gpu())
         self.matrices = self.matrices.to(try_gpu())
 
-        if train_cholesky:
-            self.matrices = torch.linalg.cholesky(self.matrices)
-
-        self.matrices = symmetric_log(self.matrices)
+        self.pre_process()
 
     def add_latent_space(self, z):
         # training latent net seems to be faster on cpu, so move data there
@@ -624,12 +628,35 @@ class MatrixDataset(torch.utils.data.Dataset):
         else:
             return self.params[idx], self.matrices[idx]
         
+    def pre_process(self):
+        """
+        pre-processes the data to facilitate better training by
+        1: taking the Cholesky decomposition
+        2: Taking the symmetric log
+        3. Normalizing each element based on the sign
+        """
+        self.matrices = torch.linalg.cholesky(self.matrices)
+
+        if self.norm_pos == 0:
+            self.norm_pos = torch.log10(torch.max(self.matrices) + 1.)
+        if self.norm_neg == 0:
+            self.norm_neg = torch.log10(-1*torch.min(self.matrices) + 1.)
+
+        print(self.norm_pos, self.norm_neg)
+        self.matrices = symmetric_log(self.matrices, self.norm_pos, self.norm_neg)
+    
     def get_full_matrix(self, idx):
         """
         reverses all data pre-processing to return the full covariance matrix
         """
+
+        pos_idx = torch.where(self.matrices[idx] >= 0)
+        neg_idx = torch.where(self.matrices[idx] < 0)
+        self.matrices[pos_idx] /= self.norm_pos
+        self.matrices[neg_idx] /= self.norm_neg
+
         # reverse logarithm (always true)
-        mat = symmetric_exp(self.matrices[idx])
+        mat = symmetric_exp(self.matrices[idx], self.norm_pos, self.norm_neg)
 
         if self.cholesky == True:
             mat = torch.matmul(mat, torch.t(mat))
@@ -675,7 +702,7 @@ def rearange_to_half(C, N):
 
     return L1 + L2
 
-def rearange_to_full(C_half, N, train_cholesky=False):
+def rearange_to_full(C_half, N, return_cholesky=False):
     """
     Takes a batch of half matrices (B, N+1, N/2) and reverses the rearangment to return full,
     symmetric matrices (B, N, N). This is the reverse operation of rearange_to_half()
@@ -687,16 +714,16 @@ def rearange_to_full(C_half, N, train_cholesky=False):
     C_full[:,:,N_half:] = C_full[:,:,N_half:] + torch.flip(C_half[:,:-1,:], [1,2])
     L = torch.tril(C_full)
     U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
-    if train_cholesky: # <- if true we don't need to reflect over the diagonal, so just return L
+    if return_cholesky: # <- if true we don't need to reflect over the diagonal, so just return L
         return L
     else:
         return L + U
 
-def symmetric_log(m):
+def symmetric_log(m, pos_norm, neg_norm):
     """
-    Takes a a matrix and returns a piece-wise logarithm for post-processing
-    sym_log(x) =  log10(x+1),  x >= 0
-    sym_log(x) = -log10(-x+1), x < 0
+    Takes a a matrix and returns a normalized piece-wise logarithm for post-processing
+    sym_log(x) =  log10(x+1) / pos_norm,  x >= 0
+    sym_log(x) = -log10(-x+1) / neg_norm, x < 0
     """
     pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
     pos_idx = torch.where(m >= 0)
@@ -707,20 +734,20 @@ def symmetric_log(m):
     pos_m[pos_idx] = torch.log10(pos_m[pos_idx] + 1)
     # for negative numbers, treat log(x) = -log(-x)
     neg_m[neg_idx] = -torch.log10(-1*neg_m[neg_idx] + 1)
-    return (pos_m / 5.91572) + (neg_m / 4.62748)
+    return (pos_m / pos_norm) + (neg_m / neg_norm)
 
-def symmetric_exp(m):
+def symmetric_exp(m, pos_norm, neg_norm):
     """
     Takes a matrix and returns the piece-wise exponent
-    sym_exp(x) = 10^x - 1,   x > 0
-    sym_exp(x) = -10^-x + 1, x < 0
+    sym_exp(x) =  10^( x*pos_norm) - 1,   x > 0
+    sym_exp(x) = -10^-(x*neg_norm) + 1, x < 0
     This is the reverse operation of symmetric_log
     """
     pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
     pos_idx = torch.where(m >= 0)
     neg_idx = torch.where(m < 0)
-    pos_m[pos_idx] = m[pos_idx] * 5.91572
-    neg_m[neg_idx] = m[neg_idx] * 4.62748
+    pos_m[pos_idx] = m[pos_idx] * pos_norm
+    neg_m[neg_idx] = m[neg_idx] * neg_norm
 
     pos_m = 10**pos_m - 1
     pos_m[(pos_m == 1)] = 0
