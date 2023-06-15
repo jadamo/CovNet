@@ -353,7 +353,7 @@ class Block_Decoder(nn.Module):
 
 class Nulti_Headed_Attention(nn.Module):
 
-    def __init__(self, hidden_dim, num_heads=2):
+    def __init__(self, hidden_dim, num_heads=2, dropout_p=0.):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
@@ -362,6 +362,8 @@ class Nulti_Headed_Attention(nn.Module):
         self.layer_k = nn.Linear(hidden_dim, hidden_dim)
         self.layer_v = nn.Linear(hidden_dim, hidden_dim)
         self.out = nn.Linear(hidden_dim, hidden_dim)
+
+        self.dropout = nn.Dropout(dropout_p)
         #self.softmax = nn.Softmax(hidden_dim)
 
     def transpose_qkv(self, X):
@@ -388,8 +390,8 @@ class Nulti_Headed_Attention(nn.Module):
         # normalize so that sum(scores) = 1 and all scores > 0
         #self.attention_weights = masked_softmax(scores, valid_lens)
         self.attention_weights = F.softmax(scores, dim=-1)
-        # 
-        return torch.bmm(self.attention_weights, v)
+        # perform a batch matrix multiplaction to get the attention weights
+        return torch.bmm(self.dropout(self.attention_weights), v)
 
     def forward(self, queries, keys, values):
 
@@ -401,27 +403,38 @@ class Nulti_Headed_Attention(nn.Module):
         X = self.out(self.transpose_output(X))
         return X
 
-class Block_Transformer(nn.Module):
+class Block_AddNorm(nn.Module):
+    def __init__(self, shape, dropout_p=0.):
+        super().__init__()
+        self.dropoiut = nn.Dropout(dropout_p)
+        self.layerNorm = nn.LayerNorm(shape)
+    def forward(self, X, Y):
+        return self.layerNorm(self.dropoiut(Y) + X)
 
-    def __init__(self, in_dim, sequence_length, n_heads):
+class Block_Transformer_Encoder(nn.Module):
+
+    def __init__(self, in_dim, sequence_length, n_heads, dropout_p=0.):
         super().__init__()
         self.in_dim = in_dim
         self.sequence_length = sequence_length
         self.hidden_dim = int(in_dim / sequence_length)
 
-        self.attention = Nulti_Headed_Attention(self.hidden_dim, n_heads)
-        self.ln1 = nn.LayerNorm(self.hidden_dim)
+        self.attention = Nulti_Headed_Attention(self.hidden_dim, n_heads, dropout_p).to(try_gpu())
+        self.addnorm1 = Block_AddNorm(self.hidden_dim, dropout_p)
 
+        #feed-forward network
         self.h1 = nn.Linear(self.hidden_dim, self.hidden_dim)
         self.h2 = nn.Linear(self.hidden_dim, self.hidden_dim)
-        self.ln2 = nn.LayerNorm(self.hidden_dim)
+
+        self.addnorm2 = Block_AddNorm(self.hidden_dim, dropout_p)
 
     def forward(self, X):
         X = X.reshape(X.shape[0], self.sequence_length, self.hidden_dim)
 
-        X = self.ln1(self.attention(X, X, X) + X)
+        X = self.addnorm1(X, self.attention(X, X, X))
         Y = F.leaky_relu(self.h1(X))
-        X = self.ln2(self.h2(Y) + X)
+        Y = self.h2(X)
+        X = self.addnorm2(X, Y)
 
         X = X.reshape(X.shape[0], self.in_dim)
         return X
@@ -482,7 +495,7 @@ class Block_Transformer(nn.Module):
 #         return X
 
 class Network_Emulator(nn.Module):
-    def __init__(self, structure_flag, train_cholesky=True):
+    def __init__(self, structure_flag, train_cholesky=True, dropout_p=0.):
         super().__init__()
         self.structure_flag = structure_flag
         self.train_cholesky = train_cholesky
@@ -494,11 +507,13 @@ class Network_Emulator(nn.Module):
         else:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
+            #if structure_flag == 4: self.transform1 = Block_Transformer(50, 2, 5, dropout_p)
             self.resnet2 = Block_Full_ResNet(50, 100)
-            if structure_flag == 4: self.transform1 = Block_Transformer(100, 5, 5)
+            #if structure_flag == 4: self.transform2 = Block_Transformer(100, 5, 5, dropout_p)
             self.resnet3 = Block_Full_ResNet(100, 500)
-            if structure_flag == 4: self.transform2 = Block_Transformer(500, 25, 5)
+            #if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(500, 25, 5, dropout_p)
             self.resnet4 = Block_Full_ResNet(500, 1000)
+            if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(1000, 25, 5, dropout_p)
             self.out = nn.Linear(1000, 51*25)
 
         self.bounds = torch.tensor([[50, 100],
@@ -532,11 +547,13 @@ class Network_Emulator(nn.Module):
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)
+            #if self.structure_flag == 4: X = self.transform1(X)
             X = self.resnet2(X)
-            if self.structure_flag == 4: X = self.transform1(X)
+            #if self.structure_flag == 4: X = self.transform2(X)
             X = self.resnet3(X)
-            if self.structure_flag == 4: X = self.transform2(X)
+            #if self.structure_flag == 4: X = self.transform3(X)
             X = self.resnet4(X)
+            if self.structure_flag == 4: X = self.transform1(X)
             X = torch.tanh(self.out(X))
 
             X = X.view(-1, 51, 25)

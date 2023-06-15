@@ -69,7 +69,7 @@ def main():
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs_VAE = 150
+    num_epochs_VAE = 175
     num_epochs_latent = 250
 
     N_train = int(N*0.8)
@@ -100,7 +100,7 @@ def main():
     for i in range(iterate):
 
         # re-initialize networks
-        net = CovNet.Network_Emulator(structure_flag, True).to(CovNet.try_gpu())
+        net = CovNet.Network_Emulator(structure_flag, True, 0.25).to(CovNet.try_gpu())
         net_latent = CovNet.Network_Latent(False)
 
         net.apply(He)
@@ -183,7 +183,7 @@ def main():
             torch.save(train_loss, save_dir+"train_loss.dat")
             torch.save(valid_loss, save_dir+"valid_loss.dat")
             torch.save(net.state_dict(), save_dir+'network-VAE.params')
-            if structure_flag != 2:
+            if structure_flag != 2 and structure_flag != 4:
                 torch.save(train_loss_2, save_dir+"train_loss-latent.dat")
                 torch.save(valid_loss_2, save_dir+"valid_loss-latent.dat")
                 torch.save(net_latent.state_dict(), save_dir+'network-latent.params')
