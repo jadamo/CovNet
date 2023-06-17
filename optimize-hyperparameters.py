@@ -3,8 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 import time, math
 
-#sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
-import CovNet
+import src as CovNet
 
 # Total number of matrices in the training + validation + test set
 N = 106000

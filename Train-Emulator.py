@@ -7,8 +7,7 @@ import time, math
 # if you want to find the optimal value for your hyperparameters, you should run
 # optimize-hyperparameters.py
 
-#sys.path.insert(0, '/home/joeadamo/Research/CovA-NN-Emulator')
-import CovNet
+import src as CovNet
 
 # Total number of matrices in the training + validation + test set
 N = 106000
@@ -33,8 +32,8 @@ structure_flag = 4
 
 if structure_flag == 2 or structure_flag == 4: do_features = False
 
-#training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
+training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+#training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
 if structure_flag == 0: folder = "VAE"
 elif structure_flag == 1: folder = "VAE-cnn"
@@ -44,8 +43,8 @@ elif structure_flag == 4: folder = "MLP-T"
 if train_gaussian_only == True: folder += "-gaussian"
 folder+="/"
 
-#save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
-save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
+save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
+#save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
@@ -87,8 +86,8 @@ def main():
     N_valid = int(N*0.1)
 
     # initialize networks
-    net = CovNet.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
-    net_latent = CovNet.Network_Latent(train_nuisance)
+    net = CovNet.Networks.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
+    net_latent = CovNet.Networks.Network_Latent(train_nuisance)
 
     net.apply(He)
     net_latent.apply(xavier)

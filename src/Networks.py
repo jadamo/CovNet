@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
-import time
+
+from src.Dataset import try_gpu, symmetric_exp, rearange_to_half, rearange_to_full
 
 #torch.set_default_dtype(torch.float64)
 
@@ -445,80 +446,32 @@ class Block_Transformer_Encoder(nn.Module):
         X = X.reshape(X.shape[0], self.in_dim)
         return X
 
-# class Transformer_Encoder(nn.Module):
-
-#     def __init__(self, N=[51, 25], patch_size=[3,5]):
-#         super().__init__()
-#         self.patch_size = torch.Tensor(patch_size).int()
-#         self.N = torch.Tensor(N).int()
-#         self.n_patches = (self.N / self.patch_size).int().tolist()
-#         self.patch_size = self.patch_size.tolist()
-
-#         self.h1 = nn.Linear(6, 6)
-#         #self.class_token = nn.Parameter(torch.rand(1, 10))
-
-#         self.pos_embed = self.get_positional_embeddings(self.n_patches[0]*self.n_patches[1], 6)
-#         self.pos_embed.requires_grad = False
-
-#         # encoder blocks
-#         self.encoder_block_1 = Block_Transformer(6, 10)
-#         self.encoder_block_2 = Block_Transformer(6, 10)
-
-#     def patchify(self, X):
-#         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
-#         patches = patches.reshape(-1, self.n_patches[0]*self.n_patches[1], self.patch_size[0] * self.patch_size[1])
-
-#         return patches
-
-#     def get_positional_embeddings(self, sequence_length, d):
-#         result = torch.ones(sequence_length, d)
-#         for i in range(sequence_length):
-#             for j in range(d):
-#                 result[i][j] = np.sin(i / (10000 ** (j / d))) if j % 2 == 0 else np.cos(i / (10000 ** ((j - 1) / d)))
-#         return result
-
-#     def forward(self, X):
-
-#         #X = rearange_to_half(X, 50)
-#         #print(X.shape)
-#         # break image up into patches
-#         #X = self.patchify(X)
-#         X = X.view(-1, 1, 6)
-#         X = X.repeat(1, 85, 1)
-#         # linear embedding
-#         tokens = self.h1(X)
-#         # add classification token
-#         #tokens = torch.stack([torch.vstack((self.class_token, tokens[i])) for i in range(len(tokens))])
-
-#         # add positional information
-#         pos_embed = self.pos_embed.repeat(tokens.shape[0], 1, 1)
-#         X = tokens + pos_embed
-
-#         X = self.encoder_block_1(X)
-#         X = self.encoder_block_2(X)
-#         #print(X.shape)
-#         return X
-
 class Network_Emulator(nn.Module):
     def __init__(self, structure_flag, dropout_prob=0.):
         super().__init__()
         self.structure_flag = structure_flag
-        if structure_flag < 0 or structure_flag >= 5:
-            print("ERROR! invalid value for structure flag! Currently can be between 0 and 4")
-        elif structure_flag != 2 and structure_flag != 4:
+
+        assert structure_flag > 0 and structure_flag < 5, "Structure flag is invalid!"
+
+        if structure_flag >= 0 and structure_flag <= 2:
             self.Encoder = Block_Encoder(structure_flag)
             self.Decoder = Block_Decoder(structure_flag)
-        else:
+        elif structure_flag == 3:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
-            #if structure_flag == 4: self.transform1 = Block_Transformer(50, 2, 5, dropout_prob)
             self.resnet2 = Block_Full_ResNet(50, 100)
-            #if structure_flag == 4: self.transform2 = Block_Transformer(100, 5, 5, dropout_prob)
             self.resnet3 = Block_Full_ResNet(100, 500)
-            #if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(500, 25, 5, dropout_prob)
             self.resnet4 = Block_Full_ResNet(500, 1000)
-            if structure_flag == 4: self.transform1 = Block_Transformer_Encoder(1000, 25, 5, dropout_prob)
             self.out = nn.Linear(1000, 51*25)
+        elif structure_flag == 4:
+            self.h1 = nn.Linear(6, 25)
+            self.resnet1 = Block_Full_ResNet(25, 50)
+            self.resnet2 = Block_Full_ResNet(50, 100)
+            self.resnet3 = Block_Full_ResNet(100, 500)
+            self.resnet4 = Block_Full_ResNet(500, 51*25)
+            self.transform1 = Block_Transformer_Encoder(51*25, 25, 3)
+            self.transform2 = Block_Transformer_Encoder(51*25, 25, 3)
+            self.transform3 = Block_Transformer_Encoder(51*25, 25, 3)
 
         self.bounds = torch.tensor([[50, 100],
                                 [0.01, 0.3],
@@ -534,7 +487,7 @@ class Network_Emulator(nn.Module):
 
     def forward(self, X):
         
-        if self.structure_flag != 2 and self.structure_flag != 4:
+        if self.structure_flag >= 0 and self.structure_flag <= 2:
             # run through the encoder
             # assumes that z has been reparamaterized in the forward pass
             z, mu, log_var = self.Encoder(X)
@@ -547,419 +500,32 @@ class Network_Emulator(nn.Module):
             assert not True in torch.isinf(X)
 
             return X, mu, log_var
-        else:
+
+        elif self.structure_flag == 3:
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)
-            #if self.structure_flag == 4: X = self.transform1(X)
             X = self.resnet2(X)
-            #if self.structure_flag == 4: X = self.transform2(X)
             X = self.resnet3(X)
-            #if self.structure_flag == 4: X = self.transform3(X)
             X = self.resnet4(X)
-            if self.structure_flag == 4: X = self.transform1(X)
             X = torch.tanh(self.out(X))
 
             X = X.view(-1, 51, 25)
             X = rearange_to_full(X, 50, True)
             return X
 
+        elif self.structure_flag == 4:
+            X = self.normalize(X)
+            X = F.leaky_relu(self.h1(X))
+            X = self.resnet1(X)
+            X = self.resnet2(X)
+            X = self.resnet3(X)
+            X = self.resnet4(X)
+            X = self.transform1(X) + X
+            X = self.transform2(X) + X
+            X = torch.tanh(self.transform3(X) + X)
+            #X = torch.tanh(self.out(X))
 
-# ---------------------------------------------------------------------------
-# Dataset class to handle loading and pre-processing data
-# ---------------------------------------------------------------------------
-class MatrixDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, N, offset, train_gaussian_only=False,
-                 pos_norm=5.91572, neg_norm=4.62748):
-        """
-        Initialize and load in dataset for training
-        @param data_dir {string} location of training set
-        @param N {int} size of training set
-        @param offset {int} index number to begin reading training set (used when splitting set into training / validation / test sets)
-        @param train_gaussian_only {bool} whether to store only the gaussian term of the covariance matrix (for testing)
-        @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
-        @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
-        """
-
-        num_params=6
-        self.params = torch.zeros([N, num_params])
-        self.matrices = torch.zeros([N, 50, 50])
-        self.features = None
-        self.offset = offset
-        self.N = N
-
-        self.has_latent_space = False
-
-        self.cholesky = True
-        self.gaussian_only = train_gaussian_only
-
-        self.norm_pos = pos_norm
-        self.norm_neg = neg_norm
-
-        for i in range(N):
-
-            idx = i + offset
-            data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
-            self.params[i] = torch.from_numpy(data["params"][:6])
-
-            # store specific terms of each matrix depending on the circumstances
-            if self.gaussian_only:
-                self.matrices[i] = torch.from_numpy(data["C_G"])
-            else:
-                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"])
-
-        self.params = self.params.to(try_gpu())
-        self.matrices = self.matrices.to(try_gpu())
-
-        self.pre_process()
-
-    def add_latent_space(self, z):
-        # training latent net seems to be faster on cpu, so move data there
-        self.latent_space = z.detach().to(torch.device("cpu"))
-        self.params = self.params.to(torch.device("cpu"))
-        self.has_latent_space = True
-
-    def __len__(self):
-        return self.N
-
-    def __getitem__(self, idx):
-        if self.has_latent_space:
-            return self.params[idx], self.matrices[idx], self.latent_space[idx]
-        else:
-            return self.params[idx], self.matrices[idx]
-        
-    def pre_process(self):
-        """
-        pre-processes the data to facilitate better training by
-        1: taking the Cholesky decomposition
-        2: Taking the symmetric log
-        3. Normalizing each element based on the sign
-        """
-        self.matrices = torch.linalg.cholesky(self.matrices)
-
-        if self.norm_pos == 0:
-            self.norm_pos = torch.log10(torch.max(self.matrices) + 1.)
-        if self.norm_neg == 0:
-            self.norm_neg = torch.log10(-1*torch.min(self.matrices) + 1.)
-
-        print(self.norm_pos, self.norm_neg)
-        self.matrices = symmetric_log(self.matrices, self.norm_pos, self.norm_neg)
-    
-    def get_full_matrix(self, idx):
-        """
-        reverses all data pre-processing to return the full covariance matrix
-        """
-
-        pos_idx = torch.where(self.matrices[idx] >= 0)
-        neg_idx = torch.where(self.matrices[idx] < 0)
-        self.matrices[pos_idx] /= self.norm_pos
-        self.matrices[neg_idx] /= self.norm_neg
-
-        # reverse logarithm (always true)
-        mat = symmetric_exp(self.matrices[idx], self.norm_pos, self.norm_neg)
-
-        if self.cholesky == True:
-            mat = torch.matmul(mat, torch.t(mat))
-
-        return mat.detach().numpy()
-
-# ---------------------------------------------------------------------------
-# Other helper functions
-# ---------------------------------------------------------------------------
-def VAE_loss(prediction, target, mu, log_var, beta=1.0):
-    """
-    Calculates the KL Divergence and reconstruction terms and returns the full loss function
-    """
-    prediction = rearange_to_half(prediction, 50)
-    target = rearange_to_half(target, 50)
-
-    RLoss = F.l1_loss(prediction, target, reduction="sum")
-    #RLoss = torch.sqrt(((prediction - target)**2).sum())
-    #RLoss = F.mse_loss(prediction, target, reduction="sum")
-    KLD = 0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))
-    #print(RLoss, KLD, torch.amin(prediction), torch.amax(prediction))
-    return RLoss + (beta*KLD)
-
-def features_loss(prediction, target):
-    """
-    Loss function for the parameters -> features network (currently MSE loss)
-    """
-    loss = F.l1_loss(prediction, target, reduction="sum")
-    #loss = F.mse_loss(prediction, target, reduction="sum")
-
-    return loss
-
-def rearange_to_half(C, N):
-    """
-    Takes a batch of matrices (B, N, N) and rearanges the lower half of each matrix
-    to a rectangular (B, N+1, N/2) shape.
-    """
-    N_half = int(N/2)
-    B = C.shape[0]
-    L1 = torch.tril(C)[:,:,:N_half]; L2 = torch.tril(C)[:,:,N_half:]
-    L1 = torch.cat((torch.zeros((B,1, N_half), device=try_gpu()), L1), 1)
-    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, N_half), device=try_gpu())),1)
-
-    return L1 + L2
-
-def rearange_to_full(C_half, N, return_cholesky=False):
-    """
-    Takes a batch of half matrices (B, N+1, N/2) and reverses the rearangment to return full,
-    symmetric matrices (B, N, N). This is the reverse operation of rearange_to_half()
-    """
-    N_half = int(N/2)
-    B = C_half.shape[0]
-    C_full = torch.zeros((B, N,N), device=try_gpu())
-    C_full[:,:,:N_half] = C_full[:,:,:N_half] + C_half[:,1:,:]
-    C_full[:,:,N_half:] = C_full[:,:,N_half:] + torch.flip(C_half[:,:-1,:], [1,2])
-    L = torch.tril(C_full)
-    U = torch.transpose(torch.tril(C_full, diagonal=-1),1,2)
-    if return_cholesky: # <- if true we don't need to reflect over the diagonal, so just return L
-        return L
-    else:
-        return L + U
-
-def symmetric_log(m, pos_norm, neg_norm):
-    """
-    Takes a a matrix and returns a normalized piece-wise logarithm for post-processing
-    sym_log(x) =  log10(x+1) / pos_norm,  x >= 0
-    sym_log(x) = -log10(-x+1) / neg_norm, x < 0
-    """
-    pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
-    pos_idx = torch.where(m >= 0)
-    neg_idx = torch.where(m < 0)
-    pos_m[pos_idx] = m[pos_idx]
-    neg_m[neg_idx] = m[neg_idx]
-
-    pos_m[pos_idx] = torch.log10(pos_m[pos_idx] + 1)
-    # for negative numbers, treat log(x) = -log(-x)
-    neg_m[neg_idx] = -torch.log10(-1*neg_m[neg_idx] + 1)
-    return (pos_m / pos_norm) + (neg_m / neg_norm)
-
-def symmetric_exp(m, pos_norm, neg_norm):
-    """
-    Takes a matrix and returns the piece-wise exponent
-    sym_exp(x) =  10^( x*pos_norm) - 1,   x > 0
-    sym_exp(x) = -10^-(x*neg_norm) + 1, x < 0
-    This is the reverse operation of symmetric_log
-    """
-    pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
-    pos_idx = torch.where(m >= 0)
-    neg_idx = torch.where(m < 0)
-    pos_m[pos_idx] = m[pos_idx] * pos_norm
-    neg_m[neg_idx] = m[neg_idx] * neg_norm
-
-    pos_m = 10**pos_m - 1
-    pos_m[(pos_m == 1)] = 0
-    # for negative numbers, treat log(x) = -log(-x)
-    neg_m[neg_idx] = -10**(-1*neg_m[neg_idx]) + 1
-
-    return pos_m + neg_m
-
-def try_gpu():
-    """Return gpu() if exists, otherwise return cpu()."""
-    if torch.cuda.is_available():
-        return torch.device('cuda:0')
-    return torch.device('cpu')
-
-
-# ---------------------------------------------------------------------------
-# Training Loops
-# ---------------------------------------------------------------------------
-def train_VAE(net, num_epochs, batch_size, beta, structure_flag,
-              optimizer, train_loader, valid_loader, 
-              print_progress = True, save_dir="", lr=0):
-    """
-    Train the VAE network
-    """
-    # Keep track of the best validation loss for early stopping
-    best_loss = 1e10
-    worse_epochs = 0
-    net_save = Network_Emulator(structure_flag, True).to(try_gpu())
-
-    train_loss = torch.zeros([num_epochs], device=try_gpu())
-    valid_loss = torch.zeros([num_epochs], device=try_gpu())
-    for epoch in range(num_epochs):
-        # Run through the training set and update weights
-        net.train()
-        train_loss_sub = 0.
-        train_KLD_sub = 0.
-        for (i, batch) in enumerate(train_loader):
-            params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 50, 50))
-
-            loss = VAE_loss(prediction, matrix, mu, log_var, beta)
-            assert torch.isnan(loss) == False 
-            assert torch.isinf(loss) == False
-
-            train_loss_sub += loss.item()
-            train_KLD_sub += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-            optimizer.zero_grad()
-            loss.backward()
-            # gradient clipping
-            torch.nn.utils.clip_grad_norm_(net.parameters(), 1e8)    
-            optimizer.step()
-
-        # run through the validation set
-        net.eval()
-        valid_loss_sub = 0.
-        valid_KLD_sub = 0.
-        for (i, batch) in enumerate(valid_loader):
-            params = batch[0]; matrix = batch[1]
-            prediction, mu, log_var = net(matrix.view(batch_size, 50, 50))
-            #prediction = prediction.view(batch_size, 100, 100)
-            loss = VAE_loss(prediction, matrix, mu, log_var, beta)
-            valid_loss_sub += loss.item()
-            valid_KLD_sub  += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-
-        # Aggregate loss information
-        train_loss[epoch] = train_loss_sub / len(train_loader.dataset)
-        valid_loss[epoch] = valid_loss_sub / len(valid_loader.dataset)
-        if valid_KLD_sub < 1e-7 and beta != 0:
-            print("WARNING! KLD term is close to 0, indicating potential posterior collapse!")
-
-        # save the network if the validation loss improved, else stop early if there hasn't been
-        # improvement for several epochs
-        if valid_loss[epoch] < best_loss:
-            best_loss = valid_loss[epoch]
-            net_save.load_state_dict(net.state_dict())
-            if save_dir != "":
-                torch.save(train_loss, save_dir+"train_loss.dat")
-                torch.save(valid_loss, save_dir+"valid_loss.dat")
-                torch.save(net.state_dict(), save_dir+'network-VAE.params')
-            worse_epochs = 0
-        else:
-            worse_epochs+=1
-
-        if print_progress == True:
-            print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, train_loss[epoch], valid_loss[epoch], worse_epochs))
-            if beta != 0: print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(train_KLD_sub/len(train_loader.dataset), valid_KLD_sub/len(valid_loader.dataset)))
-
-        if epoch > 15 and worse_epochs >= 15:
-            if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
-            break
-    print("initial lr {:0.5f}, bsize {:0.0f}: Best reconstruction validation loss was {:0.3f} after {:0.0f} epochs".format(lr, batch_size, best_loss, epoch - worse_epochs))
-    return net_save, train_loss, valid_loss
-
-def train_latent(net, num_epochs, optimizer, train_loader, valid_loader,
-                 print_progress=True, save_dir=""):
-    """
-    Train the features network
-    """
-    best_loss = 1e10
-    worse_epochs = 0
-    net_save = Network_Latent()
-
-    train_loss = torch.zeros([num_epochs])
-    valid_loss = torch.zeros([num_epochs])
-    for epoch in range(num_epochs):
-        # Run through the training set and update weights
-        net.train()
-        avg_train_loss = 0.
-        for (i, batch) in enumerate(train_loader):
-            params = batch[0]; features = batch[2]
-            prediction = net(params)
-            loss = features_loss(prediction, features)
-            assert torch.isnan(loss) == False and torch.isinf(loss) == False
-
-            avg_train_loss += loss.item()
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-        # run through the validation set
-        net.eval()
-        avg_valid_loss = 0.
-        for params, matrix, features in valid_loader:
-            prediction = net(params)
-            loss = features_loss(prediction, features)
-            avg_valid_loss+= loss.item()
-
-        # Aggregate loss information
-        train_loss[epoch] = avg_train_loss / len(train_loader.dataset)
-        valid_loss[epoch] = avg_valid_loss / len(valid_loader.dataset)
-
-        if valid_loss[epoch] < best_loss:
-            best_loss = valid_loss[epoch]
-            net_save.load_state_dict(net.state_dict())
-            if save_dir != "":
-                torch.save(train_loss, save_dir+"train_loss-latent.dat")
-                torch.save(valid_loss, save_dir+"valid_loss-latent.dat")
-                torch.save(net.state_dict(), save_dir+'network-latent.params')
-            worse_epochs = 0
-        else:
-            worse_epochs+= 1
-        if epoch % 10 == 0 and print_progress == True:
-            print("Epoch : {:d}, avg train loss: {:0.3f}\t best validation loss: {:0.3f}".format(epoch, avg_train_loss / len(train_loader.dataset), best_loss))
-        if epoch > 30 and worse_epochs >= 20:
-            if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs. Stopping...")
-            break
-    print("Latent net: Best validation loss was {:0.4f} after {:0.0f} epochs".format(best_loss, epoch - worse_epochs))
-    return net_save, train_loss, valid_loss
-
-def train_MLP(net, num_epochs, batch_size, structure_flag,
-              optimizer, train_loader, valid_loader,
-              print_progress=True, save_dir="", lr=0):
-    """
-    Train the pure MLP network
-    """
-    # Keep track of the best validation loss for early stopping
-    best_loss = 1e10
-    worse_epochs = 0
-    net_save = Network_Emulator(structure_flag, True).to(try_gpu())
-
-    train_loss = torch.zeros([num_epochs], device=try_gpu())
-    valid_loss = torch.zeros([num_epochs], device=try_gpu())
-    for epoch in range(num_epochs):
-        # Run through the training set and update weights
-        net.train()
-        train_loss_sub = 0.
-        for (i, batch) in enumerate(train_loader):
-            params = batch[0]; matrix = batch[1]
-            prediction = net(params.view(batch_size, 6))
-
-            loss = F.l1_loss(prediction, matrix, reduction="sum")
-            assert torch.isnan(loss) == False 
-            assert torch.isinf(loss) == False
-
-            train_loss_sub += loss.item()
-            optimizer.zero_grad()
-            loss.backward()
-            # gradient clipping
-            torch.nn.utils.clip_grad_norm_(net.parameters(), 1e8)    
-            optimizer.step()
-
-        # run through the validation set
-        net.eval()
-        valid_loss_sub = 0.
-        for (i, batch) in enumerate(valid_loader):
-            params = batch[0]; matrix = batch[1]
-            prediction = net(params.view(batch_size, 6))
-            #prediction = prediction.view(batch_size, 100, 100)
-            loss = F.l1_loss(prediction, matrix, reduction="sum")
-            valid_loss_sub += loss.item()
-
-        # Aggregate loss information
-        train_loss[epoch] = train_loss_sub / len(train_loader.dataset)
-        valid_loss[epoch] = valid_loss_sub / len(valid_loader.dataset)
-
-        # save the network if the validation loss improved, else stop early if there hasn't been
-        # improvement for several epochs
-        if valid_loss[epoch] < best_loss:
-            best_loss = valid_loss[epoch]
-            net_save.load_state_dict(net.state_dict())
-            if save_dir != "":
-                torch.save(train_loss, save_dir+"train_loss.dat")
-                torch.save(valid_loss, save_dir+"valid_loss.dat")
-                torch.save(net.state_dict(), save_dir+'network-VAE.params')
-            worse_epochs = 0
-        else:
-            worse_epochs+=1
-
-        if print_progress == True: print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, train_loss[epoch], valid_loss[epoch], worse_epochs))
-
-        if epoch > 15 and worse_epochs >= 15:
-            if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
-            break
-    print("lr {:0.5f}, bsize {:0.0f}: Best validation loss was {:0.3f} after {:0.0f} epochs".format(lr, batch_size, best_loss, epoch - worse_epochs))
-    return net_save, train_loss, valid_loss
+            X = X.view(-1, 51, 25)
+            X = rearange_to_full(X, 50, True)
+            return X
