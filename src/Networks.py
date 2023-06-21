@@ -431,11 +431,12 @@ class Block_Transformer_Encoder(nn.Module):
 
         self.addnorm2 = Block_AddNorm(self.hidden_dim, dropout_prob)
 
+
     def forward(self, X):
         # reshape input to
         # (batch size, previous hidden layer dimension)
-        # (batch size, length of each "sequence", "Transformer hidden dimension")
-        X = X.reshape(X.shape[0], self.sequence_length, self.hidden_dim)
+        # (batch size, length of each "sequence", "number of sequences")
+        #X = X.reshape(X.shape[0], self.sequence_length, self.hidden_dim)
 
         X = self.addnorm1(X, self.attention(X, X, X))
         Y = F.leaky_relu(self.h1(X))
@@ -443,7 +444,7 @@ class Block_Transformer_Encoder(nn.Module):
         X = self.addnorm2(X, Y)
 
         # reshape back to the shape of the input
-        X = X.reshape(X.shape[0], self.in_dim)
+        #X = X.reshape(X.shape[0], self.in_dim)
         return X
 
 class Network_Emulator(nn.Module):
@@ -453,9 +454,16 @@ class Network_Emulator(nn.Module):
 
         assert structure_flag > 0 and structure_flag < 5, "Structure flag is invalid!"
 
+        self.patch_size = torch.tensor([3, 5]).int()
+        self.N = torch.Tensor([51, 25]).int()
+        self.n_patches = (self.N / self.patch_size).int().tolist()
+        self.patch_size = self.patch_size.tolist()
+
+        # VAE / AE structure
         if structure_flag >= 0 and structure_flag <= 2:
             self.Encoder = Block_Encoder(structure_flag)
             self.Decoder = Block_Decoder(structure_flag)
+        # MLP structure
         elif structure_flag == 3:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
@@ -463,15 +471,21 @@ class Network_Emulator(nn.Module):
             self.resnet3 = Block_Full_ResNet(100, 500)
             self.resnet4 = Block_Full_ResNet(500, 1000)
             self.out = nn.Linear(1000, 51*25)
+        # MLP + Transformer structure
         elif structure_flag == 4:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
             self.resnet2 = Block_Full_ResNet(50, 100)
             self.resnet3 = Block_Full_ResNet(100, 500)
-            self.resnet4 = Block_Full_ResNet(500, 51*25)
-            self.transform1 = Block_Transformer_Encoder(51*25, 25, 3)
-            self.transform2 = Block_Transformer_Encoder(51*25, 25, 3)
-            self.transform3 = Block_Transformer_Encoder(51*25, 25, 3)
+            self.resnet4 = Block_Full_ResNet(500, 1000)
+            self.out = nn.Linear(1000, 51*25)
+
+            self.transform1 = Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5)
+            self.transform2 = Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5)
+            self.transform3 = Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5)
+
+            self.pos_embed = self.get_positional_embedding(self.patch_size[0]*self.patch_size[1], int(51*25 / (self.patch_size[0]*self.patch_size[1]))).to(try_gpu())
+            self.pos_embed.requires_grad = False
 
         self.bounds = torch.tensor([[50, 100],
                                 [0.01, 0.3],
@@ -480,10 +494,54 @@ class Network_Emulator(nn.Module):
                                 [-4, 4],
                                 [-4, 4]]).to(try_gpu())
 
+
+    def load_pretrained(self, path):
+        """
+        loads the pre-trained layers into the current model
+        """
+        pre_trained_dict = torch.load(path, map_location=try_gpu())
+
+        for name, param in pre_trained_dict.items():
+            if name not in self.state_dict():
+                continue
+            self.state_dict()[name].copy_(param)
+            self.state_dict()[name].requires_grad = False
+
     def normalize(self, params):
 
         params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
         return params_norm
+
+    def get_positional_embedding(self, sequence_length, d):
+
+        embeddings = torch.ones(sequence_length, d)
+
+        for i in range(sequence_length):
+            for j in range(d):
+                embeddings[i][j] = np.sin(i / (10000 ** (j / d))) if j % 2 == 0 else np.cos(i / (10000 ** ((j- 1 ) / d)))
+        return embeddings
+
+    def patchify(self, X):
+        """
+        Takes an input tensor and splits it into 2D patches before flattening each patch to 1D again
+        """
+        X = X.reshape(-1, 51, 25)
+        patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
+        patches = patches.reshape(-1, self.n_patches[1]*self.n_patches[0], self.patch_size[0]*self.patch_size[1])
+        
+        patches = patches.permute(0, 2, 1)
+        return patches
+
+    def un_patchify(self, patches):
+        """
+        Combines images patches (stored as 1D tensors) into a full image
+        """
+
+        patches = patches.permute(0, 2, 1)
+        patches = patches.reshape(-1, self.n_patches[0], self.n_patches[1], self.patch_size[0], self.patch_size[1])
+        X = patches.permute(0, 1, 3, 2, 4).contiguous()
+        X = X.view(-1, self.N[0], self.N[1])
+        return X
 
     def forward(self, X):
         
@@ -521,10 +579,14 @@ class Network_Emulator(nn.Module):
             X = self.resnet2(X)
             X = self.resnet3(X)
             X = self.resnet4(X)
-            X = self.transform1(X) + X
-            X = self.transform2(X) + X
-            X = torch.tanh(self.transform3(X) + X)
-            #X = torch.tanh(self.out(X))
+            Y = torch.tanh(self.out(X))
+
+            pos_embed = self.pos_embed.repeat(Y.shape[0], 1, 1)
+            X = self.patchify(Y) + pos_embed
+            X = self.transform1(X)
+            X = self.transform2(X)
+            X = self.transform3(X)
+            X = self.un_patchify(X) + Y.view(-1, 51, 25)
 
             X = X.view(-1, 51, 25)
             X = rearange_to_full(X, 50, True)

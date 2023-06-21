@@ -11,14 +11,11 @@ import src as CovNet
 
 # Total number of matrices in the training + validation + test set
 N = 106000
-#N = 20000
+#N = 10000
 
 torch.set_default_dtype(torch.float32)
 
-# whether or not nuiscane parameters are varied in the training set
-train_nuisance = False
-# wether or not to train with the Cholesky decomposition
-train_cholesky = True
+fine_tuning = True
 # wether or not to train on just the gaussian covariance (this is a test)
 train_gaussian_only = False
 # wether to train the VAE and features nets
@@ -67,15 +64,18 @@ def He(m):
 def main():
 
     #print("Training set varies nuisance parameters " + str(train_nuisance))
-    print("Training with cholesky decomposition:   " + str(train_cholesky))
-    print("Training with just gaussian term:       " + str(train_gaussian_only))
-    print("Training VAE net: features net:        [" + str(do_VAE) + ", " + str(do_features) + "]")
+    print("Fine-tuning enabled:                " + str(fine_tuning))
+    print("Training with just gaussian term:   " + str(train_gaussian_only))
+    print("Training VAE net: features net:    [" + str(do_VAE) + ", " + str(do_features) + "]")
     print("Saving to", save_dir)
     print("Using GPU:", torch.cuda.is_available())
     print("network structure flag =", structure_flag)
 
+    if fine_tuning == True:
+        assert structure_flag == 4, "fine tuning only implimented for MLP with Transformer networks!"
+
     batch_size = 200
-    lr_VAE    = 0.0005#0.0005#1.438e-3#8.859e-04
+    lr_VAE    = 1.438e-4#0.0005#1.438e-3#8.859e-04
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
@@ -87,10 +87,13 @@ def main():
 
     # initialize networks
     net = CovNet.Networks.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
-    net_latent = CovNet.Networks.Network_Latent(train_nuisance)
+    net_latent = CovNet.Networks.Network_Latent(False)
 
     net.apply(He)
     net_latent.apply(xavier)
+
+    if fine_tuning == True: 
+        net.load_pretrained("./emulators/ngc_z3/MLP/network-VAE.params")
 
     # Define the optimizer
     optimizer_VAE = torch.optim.Adam(net.parameters(), lr=lr_VAE)
@@ -118,7 +121,7 @@ def main():
                                             optimizer_VAE, train_loader, valid_loader, \
                                             True, save_dir, lr=lr_VAE)
         t2 = time.time()
-        print("Done training VAE!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
+        print("Done training network!, took {:0.0f} minutes {:0.2f} seconds\n".format(math.floor((t2 - t1)/60), (t2 - t1)%60))
 
 
     # next, train the secondary network with the features from the VAE as the output
@@ -129,7 +132,7 @@ def main():
         net.load_state_dict(torch.load(save_dir+'network-VAE.params', map_location=CovNet.try_gpu()))
         # separate encoder and decoders
         encoder = CovNet.Block_Encoder(structure_flag).to(CovNet.try_gpu())
-        decoder = CovNet.Block_Decoder(structure_flag, train_cholesky).to(CovNet.try_gpu())
+        decoder = CovNet.Block_Decoder(structure_flag, True).to(CovNet.try_gpu())
         encoder.load_state_dict(net.Encoder.state_dict())
         decoder.load_state_dict(net.Decoder.state_dict())
 

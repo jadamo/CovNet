@@ -78,7 +78,7 @@ def train_VAE(net, num_epochs, batch_size, beta, structure_flag,
             print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, train_loss[epoch], valid_loss[epoch], worse_epochs))
             if beta != 0: print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(train_KLD_sub/len(train_loader.dataset), valid_KLD_sub/len(valid_loader.dataset)))
 
-        if epoch > 15 and worse_epochs >= 15:
+        if epoch > 15 and worse_epochs >= 15 and valid_loss[epoch > train_loss[epoch]]:
             if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
             break
     print("initial lr {:0.5f}, bsize {:0.0f}: Best reconstruction validation loss was {:0.3f} after {:0.0f} epochs".format(lr, batch_size, best_loss, epoch - worse_epochs))
@@ -201,7 +201,7 @@ def train_MLP(net, num_epochs, batch_size, structure_flag,
 
         if print_progress == True: print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, train_loss[epoch], valid_loss[epoch], worse_epochs))
 
-        if epoch > 15 and worse_epochs >= 15:
+        if epoch > 15 and worse_epochs >= 15 and valid_loss[epoch] > train_loss[epoch]:
             if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
             break
     print("lr {:0.5f}, bsize {:0.0f}: Best validation loss was {:0.3f} after {:0.0f} epochs".format(lr, batch_size, best_loss, epoch - worse_epochs))

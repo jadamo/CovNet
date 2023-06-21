@@ -97,8 +97,8 @@ def main():
     for i in range(iterate):
 
         # re-initialize networks
-        net = CovNet.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
-        net_latent = CovNet.Network_Latent(False)
+        net = CovNet.Networks.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
+        net_latent = CovNet.Networks.Network_Latent(False)
 
         net.apply(He)
         net_latent.apply(xavier)
