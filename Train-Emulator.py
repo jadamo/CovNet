@@ -72,7 +72,7 @@ def main():
     print("network structure flag =", structure_flag)
 
     if fine_tuning == True:
-        assert structure_flag == 4, "fine tuning only implimented for MLP with Transformer networks!"
+        assert structure_flag == 4 or structure_flag == 2, "fine tuning only implimented for MLP-based networks!"
 
     batch_size = 200
     lr_VAE    = 1.438e-4#0.0005#1.438e-3#8.859e-04

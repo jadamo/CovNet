@@ -460,11 +460,11 @@ class Network_Emulator(nn.Module):
         self.patch_size = self.patch_size.tolist()
 
         # VAE / AE structure
-        if structure_flag >= 0 and structure_flag <= 2:
+        if structure_flag == 0 and structure_flag == 3:
             self.Encoder = Block_Encoder(structure_flag)
             self.Decoder = Block_Decoder(structure_flag)
         # MLP structure
-        elif structure_flag == 3:
+        elif structure_flag == 2:
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Block_Full_ResNet(25, 50)
             self.resnet2 = Block_Full_ResNet(50, 100)
@@ -505,7 +505,9 @@ class Network_Emulator(nn.Module):
             if name not in self.state_dict():
                 continue
             self.state_dict()[name].copy_(param)
-            self.state_dict()[name].requires_grad = False
+            #self.state_dict()[name].requires_grad = False
+
+        print("Pre-trained layers loaded in succesfully")
 
     def normalize(self, params):
 
@@ -545,7 +547,7 @@ class Network_Emulator(nn.Module):
 
     def forward(self, X):
         
-        if self.structure_flag >= 0 and self.structure_flag <= 2:
+        if self.structure_flag == 0 and self.structure_flag == 3:
             # run through the encoder
             # assumes that z has been reparamaterized in the forward pass
             z, mu, log_var = self.Encoder(X)
@@ -559,7 +561,7 @@ class Network_Emulator(nn.Module):
 
             return X, mu, log_var
 
-        elif self.structure_flag == 3:
+        elif self.structure_flag == 2:
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)

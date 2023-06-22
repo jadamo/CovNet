@@ -13,6 +13,7 @@ torch.set_default_dtype(torch.float32)
 
 vary_learning_rate = True
 vary_batch_size = False
+fine_tuning = True
 
 # flag to specify network structure
 # 0 = VAE fully-connected ResNet
@@ -54,13 +55,14 @@ def He(m):
 
 def main():
 
+    print("Fine-tuning enabled:     " + str(fine_tuning))
     print("Optimizing learning rate:", vary_learning_rate)
-    print("Optimizing batch size:", vary_batch_size)
+    print("Optimizing batch size:   ", vary_batch_size)
     print("Saving to", save_dir)
     print("Using GPU:", torch.cuda.is_available())
     print("network structure flag =", structure_flag)
 
-    if vary_learning_rate == True: lr_VAE = torch.logspace(-4, -2, 20).to(CovNet.try_gpu())
+    if vary_learning_rate == True: lr_VAE = torch.logspace(-5, -3.5, 20).to(CovNet.try_gpu())
     else: lr_VAE = 1.438e-3#8.859e-4
 
     if vary_batch_size == True: batch_size = torch.Tensor([25, 50, 100, 200, 265, 424, 530]).to(torch.int)
@@ -68,7 +70,7 @@ def main():
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs_VAE = 175
+    num_epochs_VAE = 250
     num_epochs_latent = 250
 
     N_train = int(N*0.8)
@@ -102,6 +104,9 @@ def main():
 
         net.apply(He)
         net_latent.apply(xavier)
+
+        if fine_tuning == True:
+            net.load_pretrained("./emulators/ngc_z3/MLP/network-VAE.params")
 
         lr = lr_VAE[i] if vary_learning_rate == True else lr_VAE
         bsize = batch_size[i].item() if vary_batch_size == True else batch_size
