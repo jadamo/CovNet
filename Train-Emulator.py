@@ -17,7 +17,7 @@ torch.set_default_dtype(torch.float32)
 
 fine_tuning = True
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = False
+train_gaussian_only = True
 # wether to train the VAE and features nets
 do_VAE = True; do_features = True
 
@@ -25,12 +25,14 @@ do_VAE = True; do_features = True
 # 0 = fully-connected ResNet
 # 1 = CNN ResNet
 # 2 = Pure MLP (no VAE, just a simple fully connected network)
-structure_flag = 4
+structure_flag = 2
 
 if structure_flag == 2 or structure_flag == 4: do_features = False
 
-training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-#training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
+CovNet_dir = "/home/joeadamo/Research/CovNet/"
+
+#training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+training_dir = "./Data/Training-Set-HighZ-NGC/"
 
 if structure_flag == 0: folder = "VAE"
 elif structure_flag == 1: folder = "VAE-cnn"
@@ -40,8 +42,10 @@ elif structure_flag == 4: folder = "MLP-T"
 if train_gaussian_only == True: folder += "-gaussian"
 folder+="/"
 
-save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
+save_dir = "./emulators/ngc_z3/"+folder
 #save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
+
+tuning_dir = "./emulators/ngc_z3/MLP-gaussian-pretrained/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
@@ -93,7 +97,7 @@ def main():
     net_latent.apply(xavier)
 
     if fine_tuning == True: 
-        net.load_pretrained("./emulators/ngc_z3/MLP/network-VAE.params")
+        net.load_pretrained(tuning_dir+"network-VAE.params")
 
     # Define the optimizer
     optimizer_VAE = torch.optim.Adam(net.parameters(), lr=lr_VAE)

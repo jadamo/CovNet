@@ -1,4 +1,4 @@
-import src.CovaPT
+import src.CovaPT as CovaPT
 import src.Networks
 
 from src.Dataset import MatrixDataset, symmetric_exp, symmetric_log, try_gpu, \

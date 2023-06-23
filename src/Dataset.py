@@ -87,10 +87,10 @@ class MatrixDataset(torch.utils.data.Dataset):
         reverses all data pre-processing to return the full covariance matrix
         """
 
-        pos_idx = torch.where(self.matrices[idx] >= 0)
-        neg_idx = torch.where(self.matrices[idx] < 0)
-        self.matrices[pos_idx] /= self.norm_pos
-        self.matrices[neg_idx] /= self.norm_neg
+        # pos_idx = torch.where(self.matrices[idx] >= 0)
+        # neg_idx = torch.where(self.matrices[idx] < 0)
+        # self.matrices[pos_idx] *= self.norm_pos
+        # self.matrices[neg_idx] *= self.norm_neg
 
         # reverse logarithm (always true)
         mat = symmetric_exp(self.matrices[idx], self.norm_pos, self.norm_neg)

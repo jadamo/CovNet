@@ -29,20 +29,20 @@ class CovNet():
         self.norm_pos = pos_norm
         self.norm_neg = neg_norm
 
-        self.net_VAE = Network_Emulator(structure_flag).to(try_gpu())
-        self.net_VAE.eval()
-        self.net_VAE.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
+        self.net = Network_Emulator(structure_flag).to(try_gpu())
+        self.net.eval()
+        self.net.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
         
-        if structure_flag != 2:
+        if structure_flag == 0 or structure_flag == 3:
             self.decoder = Block_Decoder(structure_flag).to(try_gpu())
             self.decoder.eval()
-            self.decoder.load_state_dict(self.net_VAE.Decoder.state_dict())
+            self.decoder.load_state_dict(self.net.Decoder.state_dict())
 
             self.net_latent = Network_Latent().to(try_gpu())
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
 
-    def get_covariance_matrix(self, params):
+    def get_covariance_matrix(self, params, raw=False):
         """
         Uses the emulator to return a covariance matrix
         params -> secondary network -> decoder -> post-processing
@@ -50,16 +50,18 @@ class CovNet():
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
-        if self.structure_flag != 2:
+        if self.structure_flag == 0 or self.structure_flag == 3:
             z = self.net_latent(params).view(1,6)
             matrix = self.decoder(z).view(1,self.N,self.N)
         else:
-            matrix = self.net_VAE(params.view(1,6))
+            matrix = self.net(params.view(1,6)).view(1, self.N, self.N)
 
-        matrix = symmetric_exp(matrix, self.norm_pos, self.norm_neg).view(self.N,self.N)
-        matrix = torch.matmul(matrix, torch.t(matrix))
-
-        return matrix.detach().numpy().astype(np.float64)
+        if raw == False:
+            matrix = symmetric_exp(matrix, self.norm_pos, self.norm_neg).view(self.N,self.N)
+            matrix = torch.matmul(matrix, torch.t(matrix))
+            return matrix.detach().numpy().astype(np.float64)
+        else:
+            return matrix
 
 # ---------------------------------------------------------------------------
 # Secondary (parameters -> latent space) network
@@ -452,7 +454,7 @@ class Network_Emulator(nn.Module):
         super().__init__()
         self.structure_flag = structure_flag
 
-        assert structure_flag > 0 and structure_flag < 5, "Structure flag is invalid!"
+        assert structure_flag >= 0 and structure_flag < 5, "Structure flag is invalid!"
 
         self.patch_size = torch.tensor([3, 5]).int()
         self.N = torch.Tensor([51, 25]).int()
@@ -460,7 +462,7 @@ class Network_Emulator(nn.Module):
         self.patch_size = self.patch_size.tolist()
 
         # VAE / AE structure
-        if structure_flag == 0 and structure_flag == 3:
+        if structure_flag == 0 or structure_flag == 3:
             self.Encoder = Block_Encoder(structure_flag)
             self.Decoder = Block_Decoder(structure_flag)
         # MLP structure

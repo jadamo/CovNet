@@ -13,8 +13,8 @@ from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 #sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
@@ -22,13 +22,14 @@ import T0
 # what k range and binning we're using
 class Analytic_Covmat():
 
-    def __init__(self, z, k=np.linspace(0.005, 0.245, 25)):
+    def __init__(self, z, k=np.linspace(0.005, 0.245, 25), window_dir='/home/joeadamo/Research/CovaPT/Data/'):
         self.k = k
         self.kbins=len(k)
         self.z = z
 
+        self.dire = window_dir
         # directory with window functions (I assumed these are calculated beforehand)
-        self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
+        #self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
         #self.dire='/home/joeadamo/Research/CovaPT/Data/'
         #self.dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
 
