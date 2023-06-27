@@ -13,8 +13,8 @@ from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
+sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 #sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
