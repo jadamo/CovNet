@@ -2,12 +2,15 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
+import pickle as pkl
+import os
+from sklearn.decomposition import PCA
 
 # ---------------------------------------------------------------------------
 # Dataset class to handle loading and pre-processing data
 # ---------------------------------------------------------------------------
 class MatrixDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, N, offset, train_gaussian_only=False,
+    def __init__(self, data_dir, type, frac=1., train_gaussian_only=False,
                  pos_norm=5.91572, neg_norm=4.62748):
         """
         Initialize and load in dataset for training
@@ -19,14 +22,16 @@ class MatrixDataset(torch.utils.data.Dataset):
         @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
         """
 
-        num_params=6
-        self.params = torch.zeros([N, num_params])
-        self.matrices = torch.zeros([N, 50, 50])
-        self.features = None
-        self.offset = offset
-        self.N = N
+        if type=="training":
+            file = data_dir+"CovA-training.npz"
+        elif type=="validation":
+            file = data_dir+"CovA-validation.npz"
+        elif type=="testing":
+            file = data_dir+"CovA-validation.npz"
+        else: print("ERROR! Invalid dataset type! Must be [training, validation, testing]")
 
         self.has_latent_space = False
+        self.has_components = False
 
         self.cholesky = True
         self.gaussian_only = train_gaussian_only
@@ -34,20 +39,22 @@ class MatrixDataset(torch.utils.data.Dataset):
         self.norm_pos = pos_norm
         self.norm_neg = neg_norm
 
-        for i in range(N):
+        data = np.load(file)
+        self.params = torch.from_numpy(data["params"])
 
-            idx = i + offset
-            data = np.load(data_dir+"CovA-"+f'{idx:05d}'+".npz")
-            self.params[i] = torch.from_numpy(data["params"][:6])
+        # store specific terms of each matrix depending on the circumstances
+        if self.gaussian_only:
+            self.matrices = torch.from_numpy(data["C_G"])
+        else:
+            self.matrices = torch.from_numpy(data["C_G"] + data["C_NG"])
 
-            # store specific terms of each matrix depending on the circumstances
-            if self.gaussian_only:
-                self.matrices[i] = torch.from_numpy(data["C_G"])
-            else:
-                self.matrices[i] = torch.from_numpy(data["C_G"] + data["C_SSC"] + data["C_T0"])
+        if frac != 1.:
+            N_frac = int(len(self.matrices) * frac)
+            self.matrices = self.matrices[0:N_frac]
+            self.params = self.params[0:N_frac]
 
-        self.params = self.params.to(try_gpu())
-        self.matrices = self.matrices.to(try_gpu())
+        self.params = self.params.to(torch.float32).to(try_gpu())
+        self.matrices = self.matrices.to(torch.float32).to(try_gpu())
 
         self.pre_process()
 
@@ -58,14 +65,63 @@ class MatrixDataset(torch.utils.data.Dataset):
         self.has_latent_space = True
 
     def __len__(self):
-        return self.N
+        return self.matrices.shape[0]
 
     def __getitem__(self, idx):
         if self.has_latent_space:
             return self.params[idx], self.matrices[idx], self.latent_space[idx]
+        elif self.has_components:
+            return self.params[idx], self.matrices[idx], self.components[idx]
         else:
-            return self.params[idx], self.matrices[idx]
+            return self.params[idx], self.matrices[idx], idx
         
+    def get_quadrant(self, idx, quadrant):
+        if quadrant == "00":
+            return self.matrices[idx][:, :25, :25]
+        elif quadrant=="22":
+            return self.matrices[idx][:, 25:, 25:]
+        elif quadrant=="02":
+            return self.matrices[idx][:, 25:, :25]
+
+    def do_PCA(self, num_components, pca_dir="./"):
+        """
+        Converts the dataset to its principle components by either
+        - fitting the dataset if no previous fit exists
+        - loading a fit from a pickle file and using that
+        @param num_components {int} the number of principle components to keep OR the desired accuracy
+        @param pca_file {string} the location of pickle file with previous pca fit
+        """
+        flattened_data = rearange_to_half(self.matrices, 50).view(self.N, 51*25)
+        #flattened_data = (flattened_data + 1.) / 2
+
+        self.pca = PCA(num_components)
+        if not os.path.exists(pca_dir+"pca.pkl"):
+            print("generating pca fit...")
+            self.components = self.pca.fit_transform(flattened_data.cpu())
+            print("Done, explained variance is {:0.4f}".format(np.cumsum(self.pca.explained_variance_ratio_)[-1]))
+
+            self.components = torch.from_numpy(self.components).to(try_gpu())
+            min_values = torch.min(self.components, dim=0).values
+            max_values = torch.max(self.components, dim=0).values
+            self.components = (self.components - min_values) / (max_values - min_values)
+            print(torch.min(self.components), torch.max(self.components))
+
+            with open(pca_dir+"pca.pkl", "wb") as pickle_file:
+                pkl.dump([self.pca, min_values, max_values], pickle_file)
+        else:
+            with open(pca_dir+"pca.pkl", "rb") as pickle_file:
+                load_data = pkl.load(pickle_file)
+                self.pca = load_data[0]
+                min_values = load_data[1]
+                max_values = load_data[2]
+
+            self.components = self.pca.transform(flattened_data.cpu())
+            self.components = torch.from_numpy(self.components).to(try_gpu())
+            self.components = (self.components - min_values) / (max_values - min_values)
+
+        self.has_components = True
+        return min_values, max_values
+
     def pre_process(self):
         """
         pre-processes the data to facilitate better training by
@@ -81,7 +137,7 @@ class MatrixDataset(torch.utils.data.Dataset):
             self.norm_neg = torch.log10(-1*torch.min(self.matrices) + 1.)
 
         self.matrices = symmetric_log(self.matrices, self.norm_pos, self.norm_neg)
-    
+
     def get_full_matrix(self, idx):
         """
         reverses all data pre-processing to return the full covariance matrix
@@ -155,6 +211,20 @@ def rearange_to_full(C_half, N, return_cholesky=False):
         return L
     else:
         return L + U
+
+def reverse_pca(components, pca, min_values, max_values):
+    components = (components * (max_values - min_values)) + min_values
+    matrix = torch.from_numpy(pca.inverse_transform(components.cpu().detach())).to(try_gpu())
+    #return (matrix * 2) - 1.
+    return matrix
+
+def combine_quadrants(C00, C22, C02):
+
+    patches = torch.vstack([C00.to(try_gpu()), torch.zeros(1, 25, 25).to(try_gpu()), C02.to(try_gpu()), C22.to(try_gpu())])
+    patches = patches.reshape(-1, 2, 2, 25, 25)
+    C_full = patches.permute(0, 1, 3, 2, 4).contiguous()
+    C_full = C_full.view(-1, 50, 50)
+    return C_full
 
 def symmetric_log(m, pos_norm, neg_norm):
     """

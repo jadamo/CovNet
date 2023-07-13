@@ -363,34 +363,25 @@ class Block_AddNorm(nn.Module):
 
 class Block_Transformer_Encoder(nn.Module):
 
-    def __init__(self, in_dim, sequence_length, n_heads, dropout_prob=0.):
+    def __init__(self, hidden_dim, n_heads, dropout_prob=0.):
         super().__init__()
-        self.in_dim = in_dim
-        self.sequence_length = sequence_length
-        self.hidden_dim = int(in_dim / sequence_length)
+        self.hidden_dim = hidden_dim
 
+        #self.ln1 = nn.LayerNorm(self.hidden_dim)
         self.attention = Nulti_Headed_Attention(self.hidden_dim, n_heads, dropout_prob).to(try_gpu())
         self.addnorm1 = Block_AddNorm(self.hidden_dim, dropout_prob)
 
         #feed-forward network
-        self.h1 = nn.Linear(self.hidden_dim, self.hidden_dim)
-        self.h2 = nn.Linear(self.hidden_dim, self.hidden_dim)
-
+        #self.ln2 = nn.LayerNorm(self.hidden_dim)
+        self.h1 = nn.Linear(self.hidden_dim, 2*self.hidden_dim)
+        self.h2 = nn.Linear(2*self.hidden_dim, self.hidden_dim)
         self.addnorm2 = Block_AddNorm(self.hidden_dim, dropout_prob)
 
-
     def forward(self, X):
-        # reshape input to
-        # (batch size, previous hidden layer dimension)
-        # (batch size, length of each "sequence", "number of sequences")
-        #X = X.reshape(X.shape[0], self.sequence_length, self.hidden_dim)
-
         X = self.addnorm1(X, self.attention(X, X, X))
-        Y = F.leaky_relu(self.h1(X))
-        Y = self.h2(X)
-        X = self.addnorm2(X, Y)
 
-        # reshape back to the shape of the input
-        #X = X.reshape(X.shape[0], self.in_dim)
+        Y = F.leaky_relu(self.h1(X))
+        X = self.addnorm2(X, self.h2(Y))
+
         return X
 

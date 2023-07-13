@@ -12,29 +12,29 @@ from src.Dataset import try_gpu
 # ---------------------------------------------------------------------------
 class CovNet():
 
-    def __init__(self, net_dir, N, structure_flag=0,
+    def __init__(self, net_dir, N, architecture=0,
                  pos_norm=5.91572, neg_norm=4.62748):
         """
         Initializes the covariance emulator in a warpper class by loading in the trained
         neural networks based on the specified options
         @param net_dir {string} location of trained networks
         @param N {int} the matrix dimensionality
-        @param structure_flag {int} flag specifying the specific structure the network is (0 = fully connected ResNet, 1 = CNN ResNet)
+        @param architecture {int} flag specifying the specific structure the network is (0 = fully connected ResNet, 1 = CNN ResNet)
         @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
         @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
         """
-        self.structure_flag = structure_flag
+        self.architecture = architecture
         self.N = N
 
         self.norm_pos = pos_norm
         self.norm_neg = neg_norm
 
-        self.net = Network_Emulator(structure_flag).to(try_gpu())
+        self.net = Network_Emulator(architecture).to(try_gpu())
         self.net.eval()
         self.net.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
         
-        if structure_flag == 0 or structure_flag == 3:
-            self.decoder = Blocks.Block_Decoder(structure_flag).to(try_gpu())
+        if architecture == 0 or architecture == 3:
+            self.decoder = Blocks.Block_Decoder(architecture).to(try_gpu())
             self.decoder.eval()
             self.decoder.load_state_dict(self.net.Decoder.state_dict())
 
@@ -50,7 +50,7 @@ class CovNet():
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
-        if self.structure_flag == 0 or self.structure_flag == 3:
+        if self.architecture == 0 or self.architecture == 3:
             z = self.net_latent(params).view(1,6)
             matrix = self.decoder(z).view(1,self.N,self.N)
         else:
@@ -64,28 +64,32 @@ class CovNet():
             return matrix
 
 class Network_Emulator(nn.Module):
-    def __init__(self, structure_flag, dropout_prob=0.):
+    def __init__(self, architecture="MLP", dropout_prob=0.,
+                 num_blocks=3, patch_size=torch.Tensor([3, 5]), 
+                 num_heads=5, embedding=True, quadrant=""):
         super().__init__()
-        self.structure_flag = structure_flag
-
-        assert structure_flag >= 0 and structure_flag < 5, "Structure flag is invalid!"
+        self.architecture = architecture
+        self.embedding = embedding
 
         self.train_loss = []
         self.valid_loss = []
         self.num_epoch = []
         self.best_loss = 1e10
 
-        self.patch_size = torch.Tensor([3, 5]).int()
+        self.save_state = None
         self.N = torch.Tensor([51, 25]).int()
-        self.n_patches = (self.N / self.patch_size).int().tolist()
-        self.patch_size = self.patch_size.tolist()
+        self.n_patches = (self.N / patch_size).int().tolist()
+        self.patch_size = patch_size.tolist()
+        sequence_len = self.patch_size[0]*self.patch_size[1]
+        num_sequences = self.n_patches[0] * self.n_patches[1]
+        self.quadrant = quadrant
 
-        # VAE / AE structure
-        if structure_flag == 0 or structure_flag == 3:
-            self.Encoder = Blocks.Block_Encoder(structure_flag)
-            self.Decoder = Blocks.Block_Decoder(structure_flag)
+        # VAE structure
+        if architecture == "VAE" or architecture == "AE":
+            self.Encoder = Blocks.Block_Encoder(architecture)
+            self.Decoder = Blocks.Block_Decoder(architecture)
         # MLP structure
-        elif structure_flag == 2:
+        elif architecture == "MLP":
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Blocks.Block_Full_ResNet(25, 50)
             self.resnet2 = Blocks.Block_Full_ResNet(50, 100)
@@ -93,7 +97,7 @@ class Network_Emulator(nn.Module):
             self.resnet4 = Blocks.Block_Full_ResNet(500, 1000)
             self.out = nn.Linear(1000, 51*25)
         # MLP + Transformer structure
-        elif structure_flag == 4:
+        elif architecture == "MLP-T":
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Blocks.Block_Full_ResNet(25, 50)
             self.resnet2 = Blocks.Block_Full_ResNet(50, 100)
@@ -101,13 +105,44 @@ class Network_Emulator(nn.Module):
             self.resnet4 = Blocks.Block_Full_ResNet(500, 1000)
             self.out = nn.Linear(1000, 51*25)
 
-            self.transform1 = Blocks.Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5, dropout_prob)
-            self.transform2 = Blocks.Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5, dropout_prob)
-            self.transform3 = Blocks.Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5, dropout_prob)
-            self.transform4 = Blocks.Block_Transformer_Encoder(51*25, self.patch_size[0]*self.patch_size[1], 5, dropout_prob)
+            self.linear_map = nn.Linear(sequence_len, sequence_len)
+            self.transform_blocks = nn.Sequential()
+            for i in range(num_blocks):
+                #self.transform_blocks.add_module("linear"+str(i+1),
+                #nn.Sequential(nn.Linear(sequence_len, sequence_len),
+                #              nn.LeakyReLU(),
+                #              nn.Linear(sequence_len, sequence_len),
+                #              nn.LeakyReLU(),
+                #              nn.Linear(sequence_len, sequence_len),
+                #              nn.LeakyReLU(),
+                #              nn.Linear(sequence_len, sequence_len)))
+                self.transform_blocks.add_module("transform"+str(i+1), 
+                    nn.TransformerEncoderLayer(sequence_len, num_heads, 4*sequence_len,
+                                               dropout_prob, "gelu", batch_first=True))
+                   #Blocks.Block_Transformer_Encoder(sequence_len, num_heads, dropout_prob))
+            #self.out2 = nn.Linear(2*sequence_len, sequence_len)
 
-            self.pos_embed = self.get_positional_embedding(self.patch_size[0]*self.patch_size[1], int(51*25 / (self.patch_size[0]*self.patch_size[1]))).to(try_gpu())
-            self.pos_embed.requires_grad = False
+            if self.embedding == True:
+                self.pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
+                self.pos_embed.requires_grad = False
+        # MLP emulating quadrants
+        elif architecture == "MLP-Quadrants":
+            self.h1 = nn.Linear(6, 25)
+            self.resnet1 = Blocks.Block_Full_ResNet(25, 75)
+            self.resnet2 = Blocks.Block_Full_ResNet(75, 250)
+            self.resnet3 = Blocks.Block_Full_ResNet(250, 500)
+            self.resnet4 = Blocks.Block_Full_ResNet(500, 625)
+            self.out = nn.Linear(625, 625)
+        # MLP emulating PCs
+        elif architecture == "MLP-PCA":
+            self.h1 = nn.Linear(6, 25)
+            self.resnet1 = Blocks.Block_Full_ResNet(25, 75)
+            self.resnet2 = Blocks.Block_Full_ResNet(75, 200)
+            self.resnet3 = Blocks.Block_Full_ResNet(200, 200)
+            self.resnet4 = Blocks.Block_Full_ResNet(200, 200)
+            self.out = nn.Linear(200, 200)
+        else:
+            print("ERROR! Invalid architecture specified")
 
         self.bounds = torch.tensor([[50, 100],
                                 [0.01, 0.3],
@@ -116,8 +151,7 @@ class Network_Emulator(nn.Module):
                                 [-4, 4],
                                 [-4, 4]]).to(try_gpu())
 
-
-    def load_pretrained(self, path):
+    def load_pretrained(self, path, freeze=True):
         """
         loads the pre-trained layers into the current model
         """
@@ -127,9 +161,9 @@ class Network_Emulator(nn.Module):
             if name not in self.state_dict():
                 continue
             self.state_dict()[name].copy_(param)
-            self.state_dict()[name].requires_grad = False
+            if freeze==True: self.state_dict()[name].requires_grad = False
 
-        print("Pre-trained layers loaded in succesfully")
+        #print("Pre-trained layers loaded in succesfully")
 
     def normalize(self, params):
 
@@ -148,12 +182,16 @@ class Network_Emulator(nn.Module):
     def patchify(self, X):
         """
         Takes an input tensor and splits it into 2D patches before flattening each patch to 1D again
+        @param X {3D Tensor} Covariance Matrix with shape (batch size, 51, 25)
+        @return patches {3D Tensor} flattened patches of the input
+        with shape (batch size, number of patches, size of patch)
         """
         X = X.reshape(-1, 51, 25)
         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
         patches = patches.reshape(-1, self.n_patches[1]*self.n_patches[0], self.patch_size[0]*self.patch_size[1])
         
-        patches = patches.permute(0, 2, 1)
+        #patches = patches.permute(0, 2, 1)
+        #print(patches.shape)
         return patches
 
     def un_patchify(self, patches):
@@ -161,7 +199,7 @@ class Network_Emulator(nn.Module):
         Combines images patches (stored as 1D tensors) into a full image
         """
 
-        patches = patches.permute(0, 2, 1)
+        #patches = patches.permute(0, 2, 1)
         patches = patches.reshape(-1, self.n_patches[0], self.n_patches[1], self.patch_size[0], self.patch_size[1])
         X = patches.permute(0, 1, 3, 2, 4).contiguous()
         X = X.view(-1, self.N[0], self.N[1])
@@ -169,7 +207,7 @@ class Network_Emulator(nn.Module):
 
     def forward(self, X):
         
-        if self.structure_flag == 0 and self.structure_flag == 3:
+        if self.architecture == "VAE" and self.architecture == "AE":
             # run through the encoder
             # assumes that z has been reparamaterized in the forward pass
             z, mu, log_var = self.Encoder(X)
@@ -183,7 +221,7 @@ class Network_Emulator(nn.Module):
 
             return X, mu, log_var
 
-        elif self.structure_flag == 2:
+        elif self.architecture == "MLP":
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)
@@ -196,7 +234,7 @@ class Network_Emulator(nn.Module):
             X = Dataset.rearange_to_full(X, 50, True)
             return X
 
-        elif self.structure_flag == 4:
+        elif self.architecture == "MLP-T":
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
             X = self.resnet1(X)
@@ -205,119 +243,98 @@ class Network_Emulator(nn.Module):
             X = self.resnet4(X)
             Y = torch.tanh(self.out(X))
 
-            pos_embed = self.pos_embed.repeat(Y.shape[0], 1, 1)
-            X = self.patchify(Y) + pos_embed
-            X = self.transform1(X)
-            X = self.transform2(X)
-            X = self.transform3(X)
-            X = self.transform4(X)
-            X = self.un_patchify(X) + Y.view(-1, 51, 25)
+            # X = F.leaky_relu(self.extra1(Y))
+            # X = F.leaky_relu(self.extra2(X))
+            # X = F.leaky_relu(self.extra3(X))
+            # X = Y + torch.tanh(self.extra4(X))
+            X = self.linear_map(self.patchify(Y))
+            if self.embedding == True:
+                pos_embed = self.pos_embed.repeat(Y.shape[0], 1, 1)
+                X = X + pos_embed
+            for blk in self.transform_blocks:
+                X = blk(X)# + X
+            X = torch.tanh(self.un_patchify(X)) + Y.view(-1, 51, 25)
+            # for blk in self.MLP_block:
+            #     X = blk(X)
 
             X = X.view(-1, 51, 25)
             X = Dataset.rearange_to_full(X, 50, True)
+            return X
+
+        elif self.architecture == "MLP-Quadrants":
+            X = self.normalize(X)
+            X = F.leaky_relu(self.h1(X))
+            X = self.resnet1(X)
+            X = self.resnet2(X)
+            X = self.resnet3(X)
+            X = self.resnet4(X)
+            X = torch.tanh(self.out(X))
+
+            X = X.view(-1, 25, 25)
+            if self.quadrant == "00" or self.quadrant == "22":
+                X = torch.tril(X)
+            return X
+        elif self.architecture == "MLP-PCA":
+            X = self.normalize(X)
+            X = F.leaky_relu(self.h1(X))
+            X = self.resnet1(X)
+            X = self.resnet2(X)
+            X = self.resnet3(X)
+            X = self.resnet4(X)
+            X = F.leaky_relu(self.out(X))
             return X
 
     def save(self, save_dir):
         training_data = torch.vstack([torch.Tensor(self.num_epoch), 
                                       torch.Tensor(self.train_loss), 
                                       torch.Tensor(self.valid_loss)])
-        torch.save(training_data, save_dir+"train_data.dat")
-        torch.save(self.state_dict(), save_dir+'network.params')
+        torch.save(training_data, save_dir+"train_data"+self.quadrant+".dat")
+        if self.save_state is None: 
+            torch.save(self.state_dict(), save_dir+'network'+self.quadrant+'.params')
+        else:
+            torch.save(self.save_state, save_dir+'network'+self.quadrant+'.params')
 
     # ---------------------------------------------------------------------------
     # Training Loops
     # ---------------------------------------------------------------------------
-    def train_VAE(self, num_epochs, batch_size, beta,
-                optimizer, train_loader, valid_loader, 
-                print_progress = True, save_dir="", lr=0):
-        """
-        Train the VAE network
-        """
-        # Keep track of the best validation loss for early stopping
-        best_loss = 1e10
-        worse_epochs = 0
-
-        for epoch in range(num_epochs):
-            # Run through the training set and update weights
-            self.train()
-            train_loss_sub = 0.
-            train_KLD_sub = 0.
-            for (i, batch) in enumerate(train_loader):
-                params = batch[0]; matrix = batch[1]
-                prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
-
-                loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
-                assert torch.isnan(loss) == False 
-                assert torch.isinf(loss) == False
-
-                train_loss_sub += loss.item()
-                train_KLD_sub += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-                optimizer.zero_grad()
-                loss.backward()
-                # gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.parameters(), 1e8)    
-                optimizer.step()
-
-            # run through the validation set
-            self.eval()
-            valid_loss_sub = 0.
-            valid_KLD_sub = 0.
-            for (i, batch) in enumerate(valid_loader):
-                params = batch[0]; matrix = batch[1]
-                prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
-                #prediction = prediction.view(batch_size, 100, 100)
-                loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
-                valid_loss_sub += loss.item()
-                valid_KLD_sub  += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-
-            # Aggregate loss information
-            self.num_epoch.append(epoch)
-            self.train_loss.append(train_loss_sub / len(train_loader.dataset))
-            self.valid_loss.append(valid_loss_sub / len(valid_loader.dataset))
-            if valid_KLD_sub < 1e-7 and beta != 0:
-                print("WARNING! KLD term is close to 0, indicating potential posterior collapse!")
-
-            # save the network if the validation loss improved, else stop early if there hasn't been
-            # improvement for several epochs
-            if self.valid_loss[-1] < self.best_loss:
-                self.best_loss = self.valid_loss[-1]
-                if save_dir != "": self.save(save_dir)
-                worse_epochs = 0
-            else:
-                worse_epochs+=1
-
-            if print_progress == True:
-                print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, self.train_loss[-1], self.valid_loss[-1], worse_epochs))
-                if beta != 0: print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(train_KLD_sub/len(train_loader.dataset), valid_KLD_sub/len(valid_loader.dataset)))
-
-            if epoch > 15 and worse_epochs >= 15 and self.valid_loss[-1] > self.train_loss[-1]:
-                if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
-                break
-        print("initial lr {:0.5f}, bsize {:0.0f}: Best reconstruction validation loss was {:0.3f} after {:0.0f} epochs".format(lr, batch_size, self.best_loss, epoch - worse_epochs))
-
-
-    def train_MLP(self, num_epochs, batch_size,
-                optimizer, train_loader, valid_loader,
-                print_progress=True, save_dir="", lr=0):
+    def Train(self, num_epochs, batch_size,
+              optimizer, train_data, valid_data,
+              print_progress=True, save_dir="", lr=0, beta=0):
         """
         Train the pure MLP network
         """
         # Keep track of the best validation loss for early stopping
-        best_loss = 1e10
         worse_epochs = 0
+
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
+        valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
 
         for epoch in range(num_epochs):
             # Run through the training set and update weights
             self.train()
-            train_loss_sub = 0.
+            train_loss_sub, valid_loss_sub  = 0., 0.
+            if self.architecture == "VAE": train_KLD_sub, valid_KLD_sub = 0., 0.
+            
             for (i, batch) in enumerate(train_loader):
-                params = batch[0]; matrix = batch[1]
-                prediction = self.forward(params.view(batch_size, 6))
+                # load data
+                params = batch[0]
+                if self.architecture == "MLP-Quadrants": matrix = train_data.get_quadrant(batch[2], self.quadrant)
+                elif self.architecture == "MLP-PCA": matrix = batch[2]
+                else: matrix = batch[1]
 
-                loss = F.l1_loss(prediction, matrix, reduction="sum")
+                # use network to get prediction
+                if self.architecture == "VAE" or self.architecture == "AE":
+                    prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
+                    loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
+                    train_KLD_sub += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+                else:
+                    prediction = self.forward(params.view(batch_size, 6))
+                    loss = F.l1_loss(prediction, matrix, reduction="sum")
+
                 assert torch.isnan(loss) == False 
                 assert torch.isinf(loss) == False
 
+                # update model
                 train_loss_sub += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
@@ -327,12 +344,20 @@ class Network_Emulator(nn.Module):
 
             # run through the validation set
             self.eval()
-            valid_loss_sub = 0.
             for (i, batch) in enumerate(valid_loader):
-                params = batch[0]; matrix = batch[1]
-                prediction = self.forward(params.view(batch_size, 6))
-                #prediction = prediction.view(batch_size, 100, 100)
-                loss = F.l1_loss(prediction, matrix, reduction="sum")
+                params = batch[0]
+                if self.architecture == "MLP-Quadrants": matrix = valid_data.get_quadrant(batch[2], self.quadrant)
+                elif self.architecture == "MLP-PCA": matrix = batch[2]
+                else: matrix = batch[1]
+
+                if self.architecture == "VAE" or self.architecture == "AE":
+                    prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
+                    loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
+                    valid_KLD_sub  += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+                else:
+                    prediction = self.forward(params.view(batch_size, 6))
+                    loss = F.l1_loss(prediction, matrix, reduction="sum")
+
                 valid_loss_sub += loss.item()
 
             # Aggregate loss information
@@ -345,11 +370,14 @@ class Network_Emulator(nn.Module):
             if self.valid_loss[-1] < self.best_loss:
                 self.best_loss = self.valid_loss[-1]
                 if save_dir != "": self.save(save_dir)
+                else: self.save_state = self.state_dict().copy()
                 worse_epochs = 0
             else:
                 worse_epochs+=1
 
-            if print_progress == True: print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, self.train_loss[-1], self.valid_loss[-1], worse_epochs))
+            if print_progress == True: 
+                print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, self.train_loss[-1], self.valid_loss[-1], worse_epochs))
+                if beta != 0: print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(train_KLD_sub/len(train_loader.dataset), valid_KLD_sub/len(valid_loader.dataset)))
 
             if epoch > 15 and worse_epochs >= 15 and self.valid_loss[-1] > self.train_loss[-1]:
                 if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")

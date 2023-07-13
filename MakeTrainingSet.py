@@ -10,7 +10,7 @@ from mpi4py import MPI
 
 sys.path.append('/home/u12/jadamo/')
 #sys.path.append("/home/joeadamo/Research")
-import CovaPT
+import src.CovaPT as CovaPT
 
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
@@ -26,10 +26,11 @@ ombh2_planck = 0.02237
 vary_nuisance = False
 # wether or not to sample from an external set of parameters instead
 # if this is true you should also specify the total number of params below
-load_external_params = True
+load_external_params = False
 
 #N = 150400
-N = 20000
+N = 1052800
+#N = 20000
 #N = 16
 N_PROC = 94
 #N_PROC=4
@@ -39,8 +40,9 @@ N_PROC = 94
 #-------------------------------------------------------------------
 
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
-#home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-home_dir = "/home/u12/jadamo/CovNet/Inportance-Set/"
+home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+#home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
+#home_dir = "/home/u12/jadamo/CovNet/Inportance-Set/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
@@ -129,10 +131,10 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
 
     params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
 
-    Mat_Calc = CovaPT.Analytic_Covmat(z)
+    Mat_Calc = CovaPT.Analytic_Covmat(z, window_dir="/home/u12/jadamo/CovaPT/Example-Data/")
 
     # calculate the covariance matrix
-    C_G, Pk_galaxy = Mat_Calc.get_gaussian_covariance(params, return_Pk=True)
+    C_G = Mat_Calc.get_gaussian_covariance(params, return_Pk=False)
     if True in np.isnan(C_G):
         print("idx", i, "failed to compute power spectrum! skipping...")
         return -1
@@ -144,9 +146,9 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         L = np.linalg.cholesky(C_G + C_SSC + C_T0)
 
         # save results to a file for training
-        idx = f'{i:05d}'
+        idx = f'{i:06d}'
         params_save = np.array([H0, omch2, A, b1, b2, bG2])
-        np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, Pk=Pk_galaxy, C_G=C_G, C_SSC=C_SSC, C_T0 = C_T0)
+        np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
         return 0
     except:
         print("idx", i, "is not positive definite! skipping...")
