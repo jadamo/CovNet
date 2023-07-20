@@ -31,9 +31,9 @@ class CovNet():
 
         self.net = Network_Emulator(architecture).to(try_gpu())
         self.net.eval()
-        self.net.load_state_dict(torch.load(net_dir+'network-VAE.params', map_location=torch.device("cpu")))
+        self.net.load_state_dict(torch.load(net_dir+'network.params', map_location=torch.device("cpu")))
         
-        if architecture == 0 or architecture == 3:
+        if architecture == "VAE" or architecture == "AE":
             self.decoder = Blocks.Block_Decoder(architecture).to(try_gpu())
             self.decoder.eval()
             self.decoder.load_state_dict(self.net.Decoder.state_dict())
@@ -65,8 +65,8 @@ class CovNet():
 
 class Network_Emulator(nn.Module):
     def __init__(self, architecture="MLP", dropout_prob=0.,
-                 num_blocks=3, patch_size=torch.Tensor([3, 5]), 
-                 num_heads=5, embedding=True, quadrant=""):
+                 num_blocks=3, patch_size=torch.Tensor([3, 5]).int(), 
+                 num_heads=1, embedding=True, quadrant=""):
         super().__init__()
         self.architecture = architecture
         self.embedding = embedding
@@ -80,7 +80,7 @@ class Network_Emulator(nn.Module):
         self.N = torch.Tensor([51, 25]).int()
         self.n_patches = (self.N / patch_size).int().tolist()
         self.patch_size = patch_size.tolist()
-        sequence_len = self.patch_size[0]*self.patch_size[1]
+        sequence_len = int(self.patch_size[0]*self.patch_size[1])
         num_sequences = self.n_patches[0] * self.n_patches[1]
         self.quadrant = quadrant
 
