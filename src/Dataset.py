@@ -6,6 +6,8 @@ import pickle as pkl
 import os
 from sklearn.decomposition import PCA
 
+torch.set_default_dtype(torch.float32)
+
 # ---------------------------------------------------------------------------
 # Dataset class to handle loading and pre-processing data
 # ---------------------------------------------------------------------------
@@ -40,23 +42,23 @@ class MatrixDataset(torch.utils.data.Dataset):
         self.norm_neg = neg_norm
 
         data = np.load(file)
-        self.params = torch.from_numpy(data["params"])
+        self.params = torch.from_numpy(data["params"]).to(torch.float32)
 
         # store specific terms of each matrix depending on the circumstances
         if self.gaussian_only:
-            self.matrices = torch.from_numpy(data["C_G"])
+            self.matrices = torch.from_numpy(data["C_G"]).to(torch.float32)
         else:
-            self.matrices = torch.from_numpy(data["C_G"] + data["C_NG"])
+            self.matrices = torch.from_numpy(data["C_G"] + data["C_NG"]).to(torch.float32)
 
         if frac != 1.:
             N_frac = int(len(self.matrices) * frac)
             self.matrices = self.matrices[0:N_frac]
             self.params = self.params[0:N_frac]
 
-        self.params = self.params.to(torch.float32).to(try_gpu())
-        self.matrices = self.matrices.to(torch.float32).to(try_gpu())
-
         self.pre_process()
+
+        self.params = self.params.to(try_gpu())
+        self.matrices = self.matrices.to(try_gpu())
 
     def add_latent_space(self, z):
         # training latent net seems to be faster on cpu, so move data there
@@ -141,20 +143,17 @@ class MatrixDataset(torch.utils.data.Dataset):
     def get_full_matrix(self, idx):
         """
         reverses all data pre-processing to return the full covariance matrix
+        @ param idx {int} the index corresponding to the desired matrix
+        @ return mat {np array} the non-processed covariance matrix as a numpy array
         """
-
-        # pos_idx = torch.where(self.matrices[idx] >= 0)
-        # neg_idx = torch.where(self.matrices[idx] < 0)
-        # self.matrices[pos_idx] *= self.norm_pos
-        # self.matrices[neg_idx] *= self.norm_neg
-
-        # reverse logarithm (always true)
-        mat = symmetric_exp(self.matrices[idx], self.norm_pos, self.norm_neg)
+        # reverse logarithm and normalization (always true)
+        # converting to np array before matmul seems to be more numerically stable
+        mat = symmetric_exp(self.matrices[idx], self.norm_pos, self.norm_neg).detach().numpy()
 
         if self.cholesky == True:
-            mat = torch.matmul(mat, torch.t(mat))
+            mat = np.matmul(mat, mat.T)
 
-        return mat.detach().numpy()
+        return mat
 
 # ---------------------------------------------------------------------------
 # Other helper functions
@@ -232,7 +231,8 @@ def symmetric_log(m, pos_norm, neg_norm):
     sym_log(x) =  log10(x+1) / pos_norm,  x >= 0
     sym_log(x) = -log10(-x+1) / neg_norm, x < 0
     """
-    pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
+    device = m.device
+    pos_m, neg_m = torch.zeros(m.shape, device=device), torch.zeros(m.shape, device=device)
     pos_idx = torch.where(m >= 0)
     neg_idx = torch.where(m < 0)
     pos_m[pos_idx] = m[pos_idx]
@@ -250,7 +250,8 @@ def symmetric_exp(m, pos_norm, neg_norm):
     sym_exp(x) = -10^-(x*neg_norm) + 1, x < 0
     This is the reverse operation of symmetric_log
     """
-    pos_m, neg_m = torch.zeros(m.shape, device=try_gpu()), torch.zeros(m.shape, device=try_gpu())
+    device = m.device
+    pos_m, neg_m = torch.zeros(m.shape, device=device), torch.zeros(m.shape, device=device)
     pos_idx = torch.where(m >= 0)
     neg_idx = torch.where(m < 0)
     pos_m[pos_idx] = m[pos_idx] * pos_norm

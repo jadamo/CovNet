@@ -15,7 +15,7 @@ N = 106000
 
 torch.set_default_dtype(torch.float32)
 
-start_from_checkpoint = False
+start_from_checkpoint = True
 
 # wether or not to train on just the gaussian covariance (this is a test)
 train_gaussian_only = False
@@ -29,7 +29,7 @@ do_main = True; do_features = False
 # MLP-T         = MLP with Transformer Layers
 # MLP-Quadrants = MLP emulating quadrants seperately
 # MLP-PCA       = MLP emulating PCs
-architecture = "MLP"
+architecture = "MLP-T"
 
 if architecture != "VAE" and architecture != "AE": do_features = False
 
@@ -82,7 +82,8 @@ def main():
 
     batch_size = 250
     #lr        = [1e-2, 1e-3]
-    lr        = [1.438e-3, 1e-4, 1e-5]
+    #lr        = [1.438e-3, 1e-4, 1e-5]
+    lr        = [1e-3, 1e-4, 1e-5]
     #lr        = 1.438e-4#0.0005#1.438e-3#8.859e-04
     lr_latent = 0.0035
 
@@ -93,14 +94,14 @@ def main():
     freeze_mlp = False
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs = 250
+    num_epochs = 275
     num_epochs_latent = 250
 
     N_train = int(N*0.8)
     N_valid = int(N*0.1)
 
     # initialize networks
-    if architecture != 5:
+    if architecture != "MLP-Quadrants":
         net = CovNet.Network_Emulator(architecture, 0.25, 
                                   num_blocks, patch_size, num_heads, embedding).to(CovNet.try_gpu())
         net_latent = CovNet.Blocks.Network_Latent(False)
