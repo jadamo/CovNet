@@ -15,10 +15,10 @@ N = 106000
 
 torch.set_default_dtype(torch.float32)
 
-start_from_checkpoint = True
+start_from_checkpoint = False
 
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = False
+train_gaussian_only = True
 # wether to train the main and secondary nets
 do_main = True; do_features = False
 
@@ -29,7 +29,7 @@ do_main = True; do_features = False
 # MLP-T         = MLP with Transformer Layers
 # MLP-Quadrants = MLP emulating quadrants seperately
 # MLP-PCA       = MLP emulating PCs
-architecture = "MLP-T"
+architecture = "MLP"
 
 if architecture != "VAE" and architecture != "AE": do_features = False
 
