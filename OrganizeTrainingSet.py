@@ -66,8 +66,8 @@ def main():
         if os.path.exists(filename):
             F_1 = np.load(filename)
             try:
-                #L = np.linalg.cholesky(F_1["C_G"] + F_1["C_NG"])
-                #L2 = np.linalg.cholesky(F_1["C_G"])
+                L = np.linalg.cholesky(F_1["C_G"] + F_1["C_NG"])
+                L2 = np.linalg.cholesky(F_1["C_G"])
 
                 params[i] = F_1["params"]
                 C_G[i] = F_1["C_G"]
@@ -78,7 +78,7 @@ def main():
                 #os.remove(filename)
                 remove += 1
 
-    print("Removed", remove, "files for being non positive definite")
+    print("Removing", remove, "matrices for being non positive definite")
 
     #idx = np.where(params[:,0] != 0)
     C_G = C_G[(params[:,0] != 0)]

@@ -12,14 +12,15 @@ from src.Dataset import try_gpu
 # ---------------------------------------------------------------------------
 class CovNet():
 
-    def __init__(self, net_dir, N, architecture=0,
-                 pos_norm=5.91572, neg_norm=4.62748):
+    def __init__(self, net_dir, N, architecture="MLP",
+                 pos_norm=5.91572, neg_norm=4.62748,
+                 num_blocks=3, patch_size=torch.Tensor([3, 5]).int(), num_heads=1):
         """
         Initializes the covariance emulator in a warpper class by loading in the trained
         neural networks based on the specified options
         @param net_dir {string} location of trained networks
         @param N {int} the matrix dimensionality
-        @param architecture {int} flag specifying the specific structure the network is (0 = fully connected ResNet, 1 = CNN ResNet)
+        @param architecture {string} flag specifying the specific network structure
         @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
         @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
         """
@@ -29,7 +30,7 @@ class CovNet():
         self.norm_pos = pos_norm
         self.norm_neg = neg_norm
 
-        self.net = Network_Emulator(architecture).to(try_gpu())
+        self.net = Network_Emulator(architecture, 0., num_blocks, patch_size, num_heads).to(try_gpu())
         self.net.eval()
         self.net.load_state_dict(torch.load(net_dir+'network.params', map_location=torch.device("cpu")))
         
@@ -50,7 +51,7 @@ class CovNet():
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
-        if self.architecture == 0 or self.architecture == 3:
+        if self.architecture == "VAE" or self.architecture == "AE":
             z = self.net_latent(params).view(1,6)
             matrix = self.decoder(z).view(1,self.N,self.N)
         else:
@@ -58,8 +59,9 @@ class CovNet():
 
         if raw == False:
             matrix = Dataset.symmetric_exp(matrix, self.norm_pos, self.norm_neg).view(self.N,self.N)
-            matrix = torch.matmul(matrix, torch.t(matrix))
-            return matrix.detach().numpy().astype(np.float64)
+            matrix = matrix.detach().numpy().astype(np.float64)
+            matrix = np.matmul(matrix, matrix.T)
+            return matrix
         else:
             return matrix
 

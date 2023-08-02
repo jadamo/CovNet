@@ -2,16 +2,16 @@
 
 # this is a simple script that runs montepython for ease of access
 
-export OMP_NUM_THREADS=4
+export OMP_NUM_THREADS=3
 
-base_dir="/home/joeadamo/Research/"
+base_dir="/Users/JoeyA/Research/"
 conf_file=$base_dir"Software/Montepython/default.conf"
-param_file=$base_dir"lss_montepython/input/boss_ngc_z3.param"
-output_folder=$base_dir"CovNet/chains/MontePython/simulated-data/gaussian-emulator-MLP/"
+param_file=$base_dir"Software/Montepython/input/boss_ngc_z3.param"
+output_folder=$base_dir"CovNet/chains/MontePython/simulated-data/fixed-100/"
 
 #covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
-covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/vary-gaussian/test.covmat"
-#covmat="/home/joeadamo/Research/CovNet/chains/MontePython/simulated-data/vary-no-determinant-1/vary-no-determinant.covmat"
+#covmat=$base_dir"CovNet/chains/MontePython/simulated-data/vary-gaussian/test.covmat"
+covmat=$base_dir"CovNet/chains/MontePython/simulated-data/vary-no-determinant-1/vary-no-determinant.covmat"
 
 log_file=$output_folder"log.param"
 
@@ -48,6 +48,7 @@ else if [ -z ${restart+x} ]; then
         # with input covariance
         echo "starting with prior parameter covariance"
         mpirun -np 4 ./montepython/MontePython.py run --conf $conf_file -p $param_file -o $output_folder -j $jump_mode -c $covmat -N $N
+        #python ./montepython/MontePython.py run --conf $conf_file -p $param_file -o $output_folder -j $jump_mode -c $covmat -N $N
         #mpirun -np 4 ./montepython/MontePython.py run --conf $conf_file -p $param_file -o $output_folder -j $jump_mode -c $covmat -N $N -b $best_fit
     fi
 else

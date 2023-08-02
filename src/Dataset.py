@@ -29,7 +29,7 @@ class MatrixDataset(torch.utils.data.Dataset):
         elif type=="validation":
             file = data_dir+"CovA-validation.npz"
         elif type=="testing":
-            file = data_dir+"CovA-validation.npz"
+            file = data_dir+"CovA-testing.npz"
         else: print("ERROR! Invalid dataset type! Must be [training, validation, testing]")
 
         self.has_latent_space = False
@@ -93,7 +93,7 @@ class MatrixDataset(torch.utils.data.Dataset):
         @param num_components {int} the number of principle components to keep OR the desired accuracy
         @param pca_file {string} the location of pickle file with previous pca fit
         """
-        flattened_data = rearange_to_half(self.matrices, 50).view(self.N, 51*25)
+        flattened_data = rearange_to_half(self.matrices, 50).view(self.matrices.shape[0], 51*25)
         #flattened_data = (flattened_data + 1.) / 2
 
         self.pca = PCA(num_components)
@@ -106,7 +106,6 @@ class MatrixDataset(torch.utils.data.Dataset):
             min_values = torch.min(self.components, dim=0).values
             max_values = torch.max(self.components, dim=0).values
             self.components = (self.components - min_values) / (max_values - min_values)
-            print(torch.min(self.components), torch.max(self.components))
 
             with open(pca_dir+"pca.pkl", "wb") as pickle_file:
                 pkl.dump([self.pca, min_values, max_values], pickle_file)
