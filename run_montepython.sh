@@ -7,7 +7,7 @@ export OMP_NUM_THREADS=3
 base_dir="/Users/JoeyA/Research/"
 conf_file=$base_dir"Software/Montepython/default.conf"
 param_file=$base_dir"Software/Montepython/input/boss_ngc_z3.param"
-output_folder=$base_dir"CovNet/chains/MontePython/simulated-data/fixed-100/"
+output_folder=$base_dir"CovNet/chains/MontePython/simulated-data/fixed-400/"
 
 #covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
 #covmat=$base_dir"CovNet/chains/MontePython/simulated-data/vary-gaussian/test.covmat"

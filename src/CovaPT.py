@@ -13,7 +13,8 @@ from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
+sys.path.insert(0, "/Users/JoeyA/Research/CovaPT/detail")
 #sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
 #sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
@@ -36,7 +37,7 @@ class Analytic_Covmat():
         #Using the window kernels calculated from the survey random catalog as input
         #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
         try:
-            self.WijFile = np.load(self.dire+'/Wij_k'+str(self.kbins)+'_HighZ_NGC.npy')
+            self.WijFile = np.load(self.dire+'Wij_k'+str(self.kbins)+'_HighZ_NGC.npy')
         except IOError:
             print("ERROR! Incorrect window kernel size! Please double-check your path or recalculate with the correct binning using Survey_window_kernels.ipynb")
             return -1
