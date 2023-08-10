@@ -103,18 +103,18 @@ class MatrixDataset(torch.utils.data.Dataset):
             print("Done, explained variance is {:0.4f}".format(np.cumsum(self.pca.explained_variance_ratio_)[-1]))
 
             self.components = torch.from_numpy(self.components).to(try_gpu())
-            min_values = torch.min(self.components, dim=0).values
-            max_values = torch.max(self.components, dim=0).values
+            min_values = torch.min(self.components).detach()
+            max_values = torch.max(self.components).detach()
             self.components = (self.components - min_values) / (max_values - min_values)
 
             with open(pca_dir+"pca.pkl", "wb") as pickle_file:
-                pkl.dump([self.pca, min_values, max_values], pickle_file)
+                pkl.dump([self.pca, min_values.to("cpu"), max_values.to("cpu")], pickle_file)
         else:
             with open(pca_dir+"pca.pkl", "rb") as pickle_file:
                 load_data = pkl.load(pickle_file)
                 self.pca = load_data[0]
-                min_values = load_data[1]
-                max_values = load_data[2]
+                min_values = load_data[1].to(try_gpu())
+                max_values = load_data[2].to(try_gpu())
 
             self.components = self.pca.transform(flattened_data.cpu())
             self.components = torch.from_numpy(self.components).to(try_gpu())

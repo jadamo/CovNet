@@ -12,24 +12,19 @@ N = 106000
 torch.set_default_dtype(torch.float32)
 
 vary_learning_rate = True
-vary_batch_size = False
-fine_tuning = True
+vary_batch_size = True
 
 # flag to specify network structure
 # 0 = VAE fully-connected ResNet
 # 1 = VAE CNN ResNet
 # 2 = Pure MLP (no VAE, just a simple fully connected network)
 # 3 = AE fully-connected ResNet
-structure_flag = 4
+architecture = "MLP"
 
 training_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #training_dir = "/home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/"
 
-if structure_flag == 0: folder = "VAE"
-elif structure_flag == 1: folder = "VAE-cnn"
-elif structure_flag == 2: folder = "MLP"
-elif structure_flag == 3: folder = "AE"
-elif structure_flag == 4: folder = "MLP-T"
+folder = architecture
 folder+="/"
 
 save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
@@ -37,7 +32,6 @@ save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/"+folder
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
-BETA = 0.01 if structure_flag != 3 else 0
 
 # Standard normal distribution
 def init_normal(m):
@@ -55,18 +49,18 @@ def He(m):
 
 def main():
 
-    print("Fine-tuning enabled:     " + str(fine_tuning))
     print("Optimizing learning rate:", vary_learning_rate)
     print("Optimizing batch size:   ", vary_batch_size)
     print("Saving to", save_dir)
     print("Using GPU:", torch.cuda.is_available())
-    print("network structure flag =", structure_flag)
+    print("network structure flag =", architecture)
 
-    if vary_learning_rate == True: lr_VAE = torch.logspace(-5, -3.5, 20).to(CovNet.try_gpu())
-    else: lr_VAE = 1.438e-3#8.859e-4
+    if vary_learning_rate == True: lr_main = torch.logspace(-4, -2.5, 15).to(CovNet.try_gpu())
+    else: lr_main = 1.438e-3#8.859e-4
+    lr_second = [1e-4, 2e-5]
 
-    if vary_batch_size == True: batch_size = torch.Tensor([25, 50, 100, 200, 265, 424, 530]).to(torch.int)
-    else: batch_size = 200
+    if vary_batch_size == True: batch_size = torch.linspace([100, 600, 6]).to(torch.int)
+    else: batch_size = 250
     lr_latent = 0.0035
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
@@ -83,7 +77,7 @@ def main():
     t2 = time.time()
     print("Done loading in data, took {:0.2f} s".format(t2 - t1))
 
-    iterate = len(lr_VAE) if vary_learning_rate == True else len(batch_size)
+    iterate = len(lr_main) if vary_learning_rate == True else len(batch_size)
     lowest_loss = torch.zeros(iterate)
     lowest_loss_2 = torch.zeros(iterate)
     lowest_loss_3 = torch.zeros(iterate)
@@ -99,7 +93,7 @@ def main():
     for i in range(iterate):
 
         # re-initialize networks
-        net = CovNet.Networks.Network_Emulator(structure_flag, 0.25).to(CovNet.try_gpu())
+        net = CovNet.Networks.Network_Emulator(architecture, 0.25).to(CovNet.try_gpu())
         net_latent = CovNet.Networks.Network_Latent(False)
 
         net.apply(He)
@@ -108,7 +102,7 @@ def main():
         if fine_tuning == True:
             net.load_pretrained("./emulators/ngc_z3/MLP/network-VAE.params")
 
-        lr = lr_VAE[i] if vary_learning_rate == True else lr_VAE
+        lr = lr_main[i] if vary_learning_rate == True else lr_main
         bsize = batch_size[i].item() if vary_batch_size == True else batch_size
 
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=bsize, shuffle=True)
@@ -119,25 +113,25 @@ def main():
         optimizer_latent = torch.optim.Adam(net_latent.parameters(), lr=lr_latent)
         
         # Train the network!
-        if structure_flag != 2 and structure_flag != 4: 
+        if architecture != 2 and architecture != 4: 
             net, train_loss, valid_loss = \
-                CovNet.train_VAE(net, num_epochs_VAE, bsize, BETA, structure_flag, \
+                CovNet.train_VAE(net, num_epochs_VAE, bsize, BETA, architecture, \
                                  optimizer_VAE, train_loader, valid_loader, \
                                  False, lr=lr)
             lowest_loss_2[i] = torch.min(valid_loss[(valid_loss != 0)])
         else:
             net, train_loss, valid_loss = \
-                CovNet.train_MLP(net, num_epochs_VAE, bsize, structure_flag, \
+                CovNet.train_MLP(net, num_epochs_VAE, bsize, architecture, \
                                  optimizer_VAE, train_loader, valid_loader, \
                                  False, lr=lr)
             lowest_loss[i] = torch.min(valid_loss[(valid_loss != 0)])
 
         # next, train the secondary network with the features from the VAE as the output
-        if structure_flag != 2 and structure_flag != 4:
+        if architecture != 2 and architecture != 4:
 
             # separate encoder and decoders
-            encoder = CovNet.Block_Encoder(structure_flag).to(CovNet.try_gpu())
-            decoder = CovNet.Block_Decoder(structure_flag).to(CovNet.try_gpu())
+            encoder = CovNet.Block_Encoder(architecture).to(CovNet.try_gpu())
+            decoder = CovNet.Block_Decoder(architecture).to(CovNet.try_gpu())
             encoder.load_state_dict(net.Encoder.state_dict())
             decoder.load_state_dict(net.Decoder.state_dict())
 
@@ -185,7 +179,7 @@ def main():
             torch.save(train_loss, save_dir+"train_loss.dat")
             torch.save(valid_loss, save_dir+"valid_loss.dat")
             torch.save(net.state_dict(), save_dir+'network-VAE.params')
-            if structure_flag != 2 and structure_flag != 4:
+            if architecture != 2 and architecture != 4:
                 torch.save(train_loss_2, save_dir+"train_loss-latent.dat")
                 torch.save(valid_loss_2, save_dir+"valid_loss-latent.dat")
                 torch.save(net_latent.state_dict(), save_dir+'network-latent.params')

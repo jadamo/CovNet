@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import time, math
+import time, math, os
 
 # This script trains the emulator for one value of each hyperparameter
 # if you want to find the optimal value for your hyperparameters, you should run
@@ -9,16 +9,12 @@ import time, math
 
 import src as CovNet
 
-# Total number of matrices in the training + validation + test set
-N = 106000
-#N = 20000
-
 torch.set_default_dtype(torch.float32)
 
 start_from_checkpoint = False
 
 # wether or not to train on just the gaussian covariance (this is a test)
-train_gaussian_only = True
+train_gaussian_only = False
 # wether to train the main and secondary nets
 do_main = True; do_features = False
 
@@ -30,6 +26,7 @@ do_main = True; do_features = False
 # MLP-Quadrants = MLP emulating quadrants seperately
 # MLP-PCA       = MLP emulating PCs
 architecture = "MLP"
+num_pcs = 250
 
 if architecture != "VAE" and architecture != "AE": do_features = False
 
@@ -80,10 +77,10 @@ def main():
     if start_from_checkpoint == True:
         assert architecture == "MLP" or architecture == "MLP-T", "checkpointing only implimented for MLP-based networks!"
 
-    batch_size = 250
+    batch_size = 400
     #lr        = [1e-2, 1e-3]
-    #lr        = [1.438e-3, 1e-4, 1e-5]
-    lr        = [1e-3, 1e-4, 1e-5]
+    lr        = [1.438e-3, 1e-4, 2e-5]
+    #lr        = [1e-3, 1e-4, 1e-5]
     #lr        = 1.438e-4#0.0005#1.438e-3#8.859e-04
     lr_latent = 0.0035
 
@@ -96,9 +93,6 @@ def main():
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
     num_epochs = 275
     num_epochs_latent = 250
-
-    N_train = int(N*0.8)
-    N_valid = int(N*0.1)
 
     # initialize networks
     if architecture != "MLP-Quadrants":
@@ -126,9 +120,14 @@ def main():
     t2 = time.time()
     print("Done loading in data, took {:0.2f} s".format(t2 - t1))
 
-    if architecture == 6:
-        min_values, max_values = train_data.do_PCA(200, training_dir)
-        valid_data.do_PCA(200, training_dir)
+    N_train = train_data.matrices.shape[0]
+    N_valid = valid_data.matrices.shape[0]
+
+    if architecture == "MLP-PCA":
+        if os.path.exists(training_dir+"pca.pkl"):
+            os.remove(training_dir+"pca.pkl")
+        min_values, max_values = train_data.do_PCA(num_pcs, training_dir)
+        valid_data.do_PCA(num_pcs, training_dir)
 
     for round in range(len(lr)):
 
@@ -221,16 +220,25 @@ def main():
     elif architecture == "MLP-PCA":
         net.load_state_dict(torch.load(save_dir+"network.params", map_location=CovNet.try_gpu()))
         combined_loss = 0.
+        reconstruct_loss = 0.
         for i in range(N_valid):
             params = valid_data[i][0].view(1, 6)
             matrix = valid_data[i][1].view(1, 50, 50).to(CovNet.try_gpu())
-            components = net(params).view(200)
+            components = net(params).view(num_pcs)
+            components_true = valid_data.components[i]
             predict = CovNet.reverse_pca(components, valid_data.pca, min_values, max_values)
             predict = predict.view(1, 51, 25)
             predict = CovNet.rearange_to_full(predict, 50, True)
 
+            reconstruct = CovNet.reverse_pca(components_true, valid_data.pca, min_values, max_values)
+            reconstruct = reconstruct.view(1, 51, 25)
+            reconstruct = CovNet.rearange_to_full(reconstruct, 50, True)
+
             combined_loss += F.l1_loss(predict, matrix, reduction="sum").item()
+            reconstruct_loss += F.l1_loss(reconstruct, matrix, reduction="sum").item()
+
         print("Comparison PCA validation loss is {:0.3f}".format(combined_loss / N_valid))
+        print("Loss from  PCA reconstruction is {:0.3f}".format(reconstruct_loss / N_valid))
 
 if __name__ == "__main__":
     main()

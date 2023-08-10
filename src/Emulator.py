@@ -139,10 +139,10 @@ class Network_Emulator(nn.Module):
         elif architecture == "MLP-PCA":
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Blocks.Block_Full_ResNet(25, 75)
-            self.resnet2 = Blocks.Block_Full_ResNet(75, 200)
-            self.resnet3 = Blocks.Block_Full_ResNet(200, 200)
-            self.resnet4 = Blocks.Block_Full_ResNet(200, 200)
-            self.out = nn.Linear(200, 200)
+            self.resnet2 = Blocks.Block_Full_ResNet(75, 150)
+            self.resnet3 = Blocks.Block_Full_ResNet(150, 250)
+            self.resnet4 = Blocks.Block_Full_ResNet(250, 250)
+            self.out = nn.Linear(250, 250)
         else:
             print("ERROR! Invalid architecture specified")
 
@@ -283,7 +283,7 @@ class Network_Emulator(nn.Module):
             X = self.resnet2(X)
             X = self.resnet3(X)
             X = self.resnet4(X)
-            X = F.leaky_relu(self.out(X))
+            X = torch.tanh(self.out(X))
             return X
 
     def save(self, save_dir):
@@ -308,6 +308,9 @@ class Network_Emulator(nn.Module):
         # Keep track of the best validation loss for early stopping
         worse_epochs = 0
 
+        weights = ((torch.arange(0, 250) / 250.) + 1.).to(try_gpu())
+        weights = torch.flip(weights, (0,))
+
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
         valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
 
@@ -329,12 +332,17 @@ class Network_Emulator(nn.Module):
                     prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
                     loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
                     train_KLD_sub += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+                elif self.architecture == "MLP-PCA":
+                    prediction = self.forward(params.view(batch_size, 6))
+                    diff = abs(prediction - matrix)
+                    loss = torch.sum(diff * weights)
                 else:
                     prediction = self.forward(params.view(batch_size, 6))
                     loss = F.l1_loss(prediction, matrix, reduction="sum")
 
                 assert torch.isnan(loss) == False 
                 assert torch.isinf(loss) == False
+                assert loss > 0
 
                 # update model
                 train_loss_sub += loss.item()
@@ -356,6 +364,10 @@ class Network_Emulator(nn.Module):
                     prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
                     loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
                     valid_KLD_sub  += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
+                elif self.architecture == "MLP-PCA":
+                    prediction = self.forward(params.view(batch_size, 6))
+                    diff = abs(prediction - matrix)
+                    loss = torch.sum(diff * weights)
                 else:
                     prediction = self.forward(params.view(batch_size, 6))
                     loss = F.l1_loss(prediction, matrix, reduction="sum")
