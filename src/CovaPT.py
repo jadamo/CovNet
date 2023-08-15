@@ -13,10 +13,10 @@ from camb import model
 from classy import Class
 #sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-#sys.path.insert(0, '/home/u12/jadamo/CovaPT/detail')
-sys.path.insert(0, "/Users/JoeyA/Research/CovaPT/detail")
-#sys.path.insert(0, '/home/joeadamo/Research/CovaPT/detail')
-#sys.path.insert(0, '/home/jadamo/UArizona/Research/CovaPT/detail')
+sys.path.append("/Users/JoeyA/Research/CovaPT/detail")
+sys.path.append('/home/u12/jadamo/CovaPT/detail')
+sys.path.append('/home/joeadamo/Research/CovaPT/detail')
+#sys.path.append('/home/jadamo/UArizona/Research/CovaPT/detail')
 import T0
 
 # Organize everything into a class to more clearly specify things like
@@ -432,7 +432,7 @@ class Analytic_Covmat():
         cosmo.struct_cleanup()
 
         if return_sigma8 == False: return np.concatenate([pk_g0, pk_g2, pk_g4])
-        else: return np.concatenate([pk_g0, pk_g2, pk_g4]), Omega_m, sigma8
+        else: return np.concatenate([pk_g0, pk_g2, pk_g4]), sigma8
 
     #-------------------------------------------------------------------
     def get_k_bins(self):

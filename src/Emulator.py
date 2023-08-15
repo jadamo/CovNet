@@ -308,8 +308,8 @@ class Network_Emulator(nn.Module):
         # Keep track of the best validation loss for early stopping
         worse_epochs = 0
 
-        weights = ((torch.arange(0, 250) / 250.) + 1.).to(try_gpu())
-        weights = torch.flip(weights, (0,))
+        #weights = ((torch.arange(0, 250) / 250.) + 1.).to(try_gpu())
+        #weights = torch.flip(weights, (0,))
 
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
         valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
@@ -335,7 +335,7 @@ class Network_Emulator(nn.Module):
                 elif self.architecture == "MLP-PCA":
                     prediction = self.forward(params.view(batch_size, 6))
                     diff = abs(prediction - matrix)
-                    loss = torch.sum(diff * weights)
+                    loss = torch.sum(diff)
                 else:
                     prediction = self.forward(params.view(batch_size, 6))
                     loss = F.l1_loss(prediction, matrix, reduction="sum")
@@ -367,7 +367,7 @@ class Network_Emulator(nn.Module):
                 elif self.architecture == "MLP-PCA":
                     prediction = self.forward(params.view(batch_size, 6))
                     diff = abs(prediction - matrix)
-                    loss = torch.sum(diff * weights)
+                    loss = torch.sum(diff)
                 else:
                     prediction = self.forward(params.view(batch_size, 6))
                     loss = F.l1_loss(prediction, matrix, reduction="sum")

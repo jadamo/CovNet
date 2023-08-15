@@ -77,7 +77,7 @@ def main():
     if start_from_checkpoint == True:
         assert architecture == "MLP" or architecture == "MLP-T", "checkpointing only implimented for MLP-based networks!"
 
-    batch_size = 400
+    batch_size = 500
     #lr        = [1e-2, 1e-3]
     lr        = [1.438e-3, 1e-4, 2e-5]
     #lr        = [1e-3, 1e-4, 1e-5]
@@ -91,7 +91,7 @@ def main():
     freeze_mlp = False
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
-    num_epochs = 275
+    num_epochs = 300
     num_epochs_latent = 250
 
     # initialize networks
