@@ -25,7 +25,7 @@ do_main = True
 # 2 = Pure MLP
 # 3 = AE
 # 4 = MLP with Transformer Layers
-architecture = "MLP"
+architecture = "MLP-T"
 
 #CovNet_dir = "/home/joeadamo/Research/CovNet/"
 CovNet_dir = "/home/u12/jadamo/CovNet/"
@@ -67,15 +67,19 @@ def main():
     if start_from_checkpoint == True:
         assert architecture == "MLP" or architecture == "MLP-T", "checkpointing only implimented for MLP-based networks!"
 
-    batch_size = 250
     lr        = [1.438e-3, 1e-4, 2e-5]
     #lr        = 1.438e-4#0.0005#1.438e-3#8.859e-04
 
     data_sizes = torch.Tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.])
+    batch_size = torch.Tensor([250, 250, 250, 250, 250, 450, 500, 500, 500, 500])
+
+    patch_size = torch.Tensor([17, 5]).int()
+    num_blocks = 5
+    num_heads = 5
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
     num_epochs = 300
-    num_attempts = 3
+    num_attempts = 2
 
     # get the training / test datasets
     t1 = time.time()
@@ -93,9 +97,10 @@ def main():
         train_data = CovNet.MatrixDataset(training_dir, "training", data_sizes[size], train_gaussian_only)
         print(train_data.matrices.shape[0])
 
+        temp_best_loss = 100000
         for attempt in range(num_attempts):
             # initialize networks
-            net = CovNet.Network_Emulator(architecture).to(CovNet.try_gpu())
+            net = CovNet.Network_Emulator("MLP").to(CovNet.try_gpu())
             net.apply(He)
 
             t1 = time.time()
@@ -105,7 +110,7 @@ def main():
                 optimizer = torch.optim.Adam(net.parameters(), lr=lr[round])
 
                 # Train the network! Progress is saved to file within the function
-                net.Train(num_epochs, batch_size, \
+                net.Train(num_epochs, batch_size[size], \
                                 optimizer, train_data, valid_data, \
                                 False, "", lr=lr[round])
 
@@ -115,10 +120,14 @@ def main():
             result_str="data fraction = "+f'{data_sizes[size]:0.2f}' + \
                     ", total matrixes = "+f'{train_data.matrices.shape[0]:0.0f}' + \
                     ", best loss = " + f'{net.best_loss:0.3f}'
-            print(result_str)
+            if architecture == "MLP": print(result_str)
             save_str += result_str+"\n"
 
-            if net.best_loss < best_loss:
+            if architecture == "MLP-T" and net.best_loss < temp_best_loss:
+                print("best loss was " + f"{net.best_loss:0.3f}")
+                temp_best_loss = net.best_loss
+                net.save(checkpoint_dir)
+            elif architecture == "MLP" and net.best_loss < best_loss:
                 best_loss = net.best_loss
                 net.save(save_dir)
                 
@@ -128,6 +137,38 @@ def main():
             # write results to file in case the run doesn't finish fully
             with open(save_dir+"output_data.log", "w") as file:
                 file.write(save_str)
+
+        # if we're testing the transofmer network, reload based off of the above loop result
+        if architecture == "MLP-T":
+            print("Best MLP loss was " + f"{temp_best_loss:0.3f}")
+            for attempt in range(num_attempts):
+                # initialize networks
+                net = CovNet.Network_Emulator(architecture, 0.2, num_blocks,
+                                              patch_size, num_heads).to(CovNet.try_gpu())
+                net.apply(He)
+                net.load_pretrained(checkpoint_dir+"network.params", True)
+
+                t1 = time.time()
+                for round in range(num_rounds):
+
+                    # Define the optimizer
+                    optimizer = torch.optim.Adam(net.parameters(), lr=lr[round])
+
+                    # Train the network! Progress is saved to file within the function
+                    net.Train(num_epochs, batch_size[size], \
+                                    optimizer, train_data, valid_data, \
+                                    False, "", lr=lr[round])
+
+                if net.best_loss < best_loss:
+                    best_loss = net.best_loss
+                    net.save(save_dir)
+
+                loss_data[size, attempt] = net.best_loss
+                time_data[size, attempt] = t2 - t1
+                result_str="data fraction = "+f'{data_sizes[size]:0.2f}' + \
+                    ", total matrixes = "+f'{train_data.matrices.shape[0]:0.0f}' + \
+                    ", best loss = " + f'{net.best_loss:0.3f}'
+                print(result_str)
 
     print("Best loss was {:0.3f}".format(best_loss))
 

@@ -77,7 +77,7 @@ def main():
     if start_from_checkpoint == True:
         assert architecture == "MLP" or architecture == "MLP-T", "checkpointing only implimented for MLP-based networks!"
 
-    batch_size = 500
+    batch_size = 600
     #lr        = [1e-2, 1e-3]
     lr        = [1.438e-3, 1e-4, 2e-5]
     #lr        = [1e-3, 1e-4, 1e-5]
@@ -122,6 +122,7 @@ def main():
 
     N_train = train_data.matrices.shape[0]
     N_valid = valid_data.matrices.shape[0]
+    print(N_train)
 
     if architecture == "MLP-PCA":
         if os.path.exists(training_dir+"pca.pkl"):
