@@ -41,6 +41,8 @@ save_dir = "./emulators/ngc_z3/"+folder
 
 checkpoint_dir = "./emulators/ngc_z3/MLP/"
 
+save_dir_2 = "./emulators/ngc_z3/MLP-small/"
+save_dir_3 = "./emulators/ngc_z3/MLP-T-small/"
 # Standard normal distribution
 def init_normal(m):
     if type(m) == nn.Linear:
@@ -71,7 +73,7 @@ def main():
     #lr        = 1.438e-4#0.0005#1.438e-3#8.859e-04
 
     data_sizes = torch.Tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.])
-    batch_size = torch.Tensor([250, 250, 250, 250, 250, 450, 500, 500, 500, 500])
+    batch_size = torch.Tensor([250, 250, 250, 250, 250, 250, 400, 500, 500, 600]).int()
 
     patch_size = torch.Tensor([17, 5]).int()
     num_blocks = 5
@@ -89,8 +91,8 @@ def main():
     
 
     best_loss = 1e10
-    loss_data = torch.zeros((data_sizes.shape[0], num_attempts))
-    time_data = torch.zeros((data_sizes.shape[0], num_attempts))
+    loss_data = torch.zeros((data_sizes.shape[0], num_attempts, 2))
+    time_data = torch.zeros((data_sizes.shape[0], num_attempts, 2))
     save_str = ""
     for size in range(data_sizes.shape[0]):
 
@@ -110,29 +112,29 @@ def main():
                 optimizer = torch.optim.Adam(net.parameters(), lr=lr[round])
 
                 # Train the network! Progress is saved to file within the function
-                net.Train(num_epochs, batch_size[size], \
+                net.Train(num_epochs, int(batch_size[size]), \
                                 optimizer, train_data, valid_data, \
                                 False, "", lr=lr[round])
 
             t2 = time.time()
-            loss_data[size, attempt] = net.best_loss
-            time_data[size, attempt] = t2 - t1
-            result_str="data fraction = "+f'{data_sizes[size]:0.2f}' + \
-                    ", total matrixes = "+f'{train_data.matrices.shape[0]:0.0f}' + \
-                    ", best loss = " + f'{net.best_loss:0.3f}'
-            if architecture == "MLP": print(result_str)
-            save_str += result_str+"\n"
+            loss_data[size, attempt, 0] = net.best_loss
+            time_data[size, attempt, 0] = t2 - t1
+            if architecture == "MLP":
+                result_str="data fraction = "+f'{data_sizes[size]:0.2f}' + \
+                        ", total matrixes = "+f'{train_data.matrices.shape[0]:0.0f}' + \
+                        ", best loss = " + f'{net.best_loss:0.3f}'
+                if architecture == "MLP": print(result_str)
+                save_str += result_str+"\n"
+                save_data = torch.vstack([loss_data, time_data])
+                torch.save(save_data, save_dir+"output_data.dat")
 
             if architecture == "MLP-T" and net.best_loss < temp_best_loss:
-                print("best loss was " + f"{net.best_loss:0.3f}")
                 temp_best_loss = net.best_loss
                 net.save(checkpoint_dir)
+                if size == 0: net.save(save_dir_2)
             elif architecture == "MLP" and net.best_loss < best_loss:
                 best_loss = net.best_loss
                 net.save(save_dir)
-                
-            save_data = torch.vstack([loss_data, time_data])
-            torch.save(save_data, save_dir+"output_data.dat")
 
             # write results to file in case the run doesn't finish fully
             with open(save_dir+"output_data.log", "w") as file:
@@ -140,7 +142,9 @@ def main():
 
         # if we're testing the transofmer network, reload based off of the above loop result
         if architecture == "MLP-T":
-            print("Best MLP loss was " + f"{temp_best_loss:0.3f}")
+            mlp_str = "Best MLP loss was " + f"{temp_best_loss:0.3f}"
+            print(mlp_str)
+            save_str += mlp_str+"\n"
             for attempt in range(num_attempts):
                 # initialize networks
                 net = CovNet.Network_Emulator(architecture, 0.2, num_blocks,
@@ -155,20 +159,27 @@ def main():
                     optimizer = torch.optim.Adam(net.parameters(), lr=lr[round])
 
                     # Train the network! Progress is saved to file within the function
-                    net.Train(num_epochs, batch_size[size], \
+                    net.Train(num_epochs, int(batch_size[size]), \
                                     optimizer, train_data, valid_data, \
                                     False, "", lr=lr[round])
 
                 if net.best_loss < best_loss:
                     best_loss = net.best_loss
                     net.save(save_dir)
+                    if size == 0: net.save(save_dir_3)
 
-                loss_data[size, attempt] = net.best_loss
-                time_data[size, attempt] = t2 - t1
+                loss_data[size, attempt, 1] = net.best_loss
+                time_data[size, attempt, 1] = t2 - t1
                 result_str="data fraction = "+f'{data_sizes[size]:0.2f}' + \
                     ", total matrixes = "+f'{train_data.matrices.shape[0]:0.0f}' + \
                     ", best loss = " + f'{net.best_loss:0.3f}'
                 print(result_str)
+                save_str += result_str+"\n"
+                with open(save_dir+"output_data.log", "w") as file:
+                    file.write(save_str)
+
+                save_data = torch.vstack([loss_data, time_data])
+                torch.save(save_data, save_dir+"output_data.dat")
 
     print("Best loss was {:0.3f}".format(best_loss))
 
