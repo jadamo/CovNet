@@ -212,8 +212,8 @@ def rearange_to_full(C_half, N, return_cholesky=False):
 
 def reverse_pca(components, pca, min_values, max_values):
     components = (components * (max_values - min_values)) + min_values
-    matrix = torch.from_numpy(pca.inverse_transform(components.cpu().detach())).to(try_gpu())
-    #return (matrix * 2) - 1.
+    matrix = torch.from_numpy(pca.inverse_transform(components.cpu().detach())).to(try_gpu()).view(-1, 51, 25)
+    matrix = rearange_to_full(matrix, 50, True)
     return matrix
 
 def combine_quadrants(C00, C22, C02):

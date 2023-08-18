@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
+import pickle as pkl
 
 import src.Blocks as Blocks
 import src.Dataset as Dataset
@@ -14,7 +15,7 @@ class CovNet():
 
     def __init__(self, net_dir, N, architecture="MLP",
                  pos_norm=5.91572, neg_norm=4.62748,
-                 num_blocks=3, patch_size=torch.Tensor([3, 5]).int(), num_heads=1):
+                 num_blocks=5, patch_size=torch.Tensor([17, 5]).int(), num_heads=5):
         """
         Initializes the covariance emulator in a warpper class by loading in the trained
         neural networks based on the specified options
@@ -42,6 +43,13 @@ class CovNet():
             self.net_latent = Blocks.Network_Latent().to(try_gpu())
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
+        elif architecture == "MLP-PCA":
+            with open(net_dir+"pca.pkl", "rb") as pickle_file:
+                load_data = pkl.load(pickle_file)
+                self.pca = load_data[0]
+                self.pca_min_values = load_data[1].to(try_gpu())
+                self.pca_max_values = load_data[2].to(try_gpu())
+                self.num_pcs=250
 
     def get_covariance_matrix(self, params, raw=False):
         """
@@ -54,6 +62,9 @@ class CovNet():
         if self.architecture == "VAE" or self.architecture == "AE":
             z = self.net_latent(params).view(1,6)
             matrix = self.decoder(z).view(1,self.N,self.N)
+        elif self.architecture == "MLP-PCA":
+            components = self.net(params.view(1,6)).view(self.num_pcs)
+            matrix = Dataset.reverse_pca(components, self.pca, self.pca_min_values, self.pca_max_values)
         else:
             matrix = self.net(params.view(1,6)).view(1, self.N, self.N)
 

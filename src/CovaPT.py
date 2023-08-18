@@ -383,7 +383,7 @@ class Analytic_Covmat():
             return all_theory, theory0, theory2, theory4, fz, Omega_m, sigma8
 
 #-------------------------------------------------------------------
-    def Pk_CLASS_PT_2(self, params, k, return_sigma8=False):
+    def Pk_CLASS_PT_2(self, params, k, return_sigma8=False, return_OmegaM=False):
         """
         Same function as above, except with user-specified k-bins
         """
@@ -428,11 +428,17 @@ class Analytic_Covmat():
         pk_g4 = cosmo.pk_gg_l4(b1, b2, bG2, bGamma3, cs4, cbar)
 
         sigma8 = cosmo.sigma8()
+        Omega_m = cosmo.Omega_m()
         # This line is necesary to prevent memory leaks
         cosmo.struct_cleanup()
 
-        if return_sigma8 == False: return np.concatenate([pk_g0, pk_g2, pk_g4])
-        else: return np.concatenate([pk_g0, pk_g2, pk_g4]), sigma8
+        if return_sigma8 == True and return_OmegaM == True:
+            return np.concatenate([pk_g0, pk_g2, pk_g4]), sigma8, Omega_m
+        elif return_sigma8 == True:
+            return np.concatenate([pk_g0, pk_g2, pk_g4]), sigma8
+        elif return_OmegaM == True:
+            return np.concatenate([pk_g0, pk_g2, pk_g4]), Omega_m
+        else: return np.concatenate([pk_g0, pk_g2, pk_g4])
 
     #-------------------------------------------------------------------
     def get_k_bins(self):
