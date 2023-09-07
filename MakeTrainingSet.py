@@ -40,9 +40,9 @@ N_PROC = 94
 #-------------------------------------------------------------------
 
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
-home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+#home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
-#home_dir = "/home/u12/jadamo/CovNet/Inportance-Set/"
+home_dir = "/home/u12/jadamo/CovNet/Inportance-Set-1/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 

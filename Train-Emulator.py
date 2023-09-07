@@ -25,7 +25,7 @@ do_main = True; do_features = False
 # MLP-T         = MLP with Transformer Layers
 # MLP-Quadrants = MLP emulating quadrants seperately
 # MLP-PCA       = MLP emulating PCs
-architecture = "MLP"
+architecture = "T"
 num_pcs = 250
 
 if architecture != "VAE" and architecture != "AE": do_features = False
@@ -44,7 +44,7 @@ folder+="/"
 save_dir = "./emulators/ngc_z3/"+folder
 #save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/"+folder
 
-checkpoint_dir = "./emulators/ngc_z3/MLP/"
+checkpoint_dir = "./emulators/ngc_z3/MLP-gaussian-backup/"
 
 # parameter to control the importance of the KL divergence loss term
 # A large value might result in posterior collapse
@@ -84,11 +84,11 @@ def main():
     #lr        = 1.438e-4#0.0005#1.438e-3#8.859e-04
     lr_latent = 0.0035
 
-    patch_size = torch.Tensor([3, 5]).int()
+    patch_size = torch.Tensor([1, 25]).int()
     embedding = True
-    num_blocks = 3
+    num_blocks = 10
     num_heads = 1
-    freeze_mlp = False
+    freeze_mlp = True
 
     # the maximum # of epochs doesn't matter so much due to the implimentation of early stopping
     num_epochs = 300
@@ -115,7 +115,7 @@ def main():
 
     # get the training / test datasets
     t1 = time.time()
-    train_data = CovNet.MatrixDataset(training_dir, "training", 1., train_gaussian_only)
+    train_data = CovNet.MatrixDataset(training_dir, "training", 0.1, train_gaussian_only)
     valid_data = CovNet.MatrixDataset(training_dir, "validation", 1., train_gaussian_only)
     t2 = time.time()
     print("Done loading in data, took {:0.2f} s".format(t2 - t1))
@@ -222,6 +222,7 @@ def main():
         net.load_state_dict(torch.load(save_dir+"network.params", map_location=CovNet.try_gpu()))
         combined_loss = 0.
         reconstruct_loss = 0.
+        pc_error = 0.
         for i in range(N_valid):
             params = valid_data[i][0].view(1, 6)
             matrix = valid_data[i][1].view(1, 50, 50).to(CovNet.try_gpu())
@@ -237,9 +238,12 @@ def main():
 
             combined_loss += F.l1_loss(predict, matrix, reduction="sum").item()
             reconstruct_loss += F.l1_loss(reconstruct, matrix, reduction="sum").item()
+            pc_error += torch.mean((components - components_true) / components_true)
 
+        pc_error = 100 * pc_error / N_valid
         print("Comparison PCA validation loss is {:0.3f}".format(combined_loss / N_valid))
         print("Loss from  PCA reconstruction is {:0.3f}".format(reconstruct_loss / N_valid))
+        print("Average error per PC = {:0.3f}".format(pc_error))
 
 if __name__ == "__main__":
     main()

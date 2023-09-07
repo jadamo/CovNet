@@ -121,14 +121,6 @@ class Network_Emulator(nn.Module):
             self.linear_map = nn.Linear(sequence_len, sequence_len)
             self.transform_blocks = nn.Sequential()
             for i in range(num_blocks):
-                #self.transform_blocks.add_module("linear"+str(i+1),
-                #nn.Sequential(nn.Linear(sequence_len, sequence_len),
-                #              nn.LeakyReLU(),
-                #              nn.Linear(sequence_len, sequence_len),
-                #              nn.LeakyReLU(),
-                #              nn.Linear(sequence_len, sequence_len),
-                #              nn.LeakyReLU(),
-                #              nn.Linear(sequence_len, sequence_len)))
                 self.transform_blocks.add_module("transform"+str(i+1), 
                     nn.TransformerEncoderLayer(sequence_len, num_heads, 4*sequence_len,
                                                dropout_prob, "gelu", batch_first=True))
@@ -154,6 +146,20 @@ class Network_Emulator(nn.Module):
             self.resnet3 = Blocks.Block_Full_ResNet(150, 250)
             self.resnet4 = Blocks.Block_Full_ResNet(250, 250)
             self.out = nn.Linear(250, 250)
+        elif architecture == "T":
+            self.h1 = nn.Linear(6, 51*25)
+
+            self.linear_map = nn.Linear(sequence_len, sequence_len)
+            self.transform_blocks = nn.Sequential()
+            for i in range(num_blocks):
+                self.transform_blocks.add_module("transform"+str(i+1), 
+                    nn.TransformerEncoderLayer(sequence_len, num_heads, 4*sequence_len,
+                                               dropout_prob, "gelu", batch_first=True))
+                   #Blocks.Block_Transformer_Encoder(sequence_len, num_heads, dropout_prob))
+            #self.out2 = nn.Linear(2*sequence_len, sequence_len)
+
+            self.pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
+            self.pos_embed.requires_grad = False
         else:
             print("ERROR! Invalid architecture specified")
 
@@ -202,7 +208,6 @@ class Network_Emulator(nn.Module):
         X = X.reshape(-1, 51, 25)
         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
         patches = patches.reshape(-1, self.n_patches[1]*self.n_patches[0], self.patch_size[0]*self.patch_size[1])
-        
         #patches = patches.permute(0, 2, 1)
         #print(patches.shape)
         return patches
@@ -295,6 +300,21 @@ class Network_Emulator(nn.Module):
             X = self.resnet3(X)
             X = self.resnet4(X)
             X = torch.tanh(self.out(X))
+            return X
+        elif self.architecture == "T":
+            X = self.normalize(X)
+            X = torch.tanh(self.h1(X))
+
+            X = self.linear_map(self.patchify(X))
+            if self.embedding == True:
+                pos_embed = self.pos_embed.repeat(X.shape[0], 1, 1)
+                X = X + pos_embed
+            for blk in self.transform_blocks:
+                X = blk(X)
+            X = torch.tanh(self.un_patchify(X))
+
+            X = X.view(-1, 51, 25)
+            X = Dataset.rearange_to_full(X, 50, True)
             return X
 
     def save(self, save_dir):
