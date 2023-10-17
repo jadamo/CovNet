@@ -37,13 +37,13 @@ home_dir = "/home/u12/jadamo/CovNet/Inportance-Set-2/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
-def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
+def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
     Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
     in parallel.
     """
 
-    params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
+    params = np.array([H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot])
 
     Mat_Calc = CovaPT.Analytic_Covmat(z, window_dir="/home/u12/jadamo/CovaPT/Example-Data/")
 
@@ -127,7 +127,7 @@ def main():
     # ---Cosmology parameters---
     H0 = sample[:,0]
     omch2 = sample[:,1]
-    A = sample[:,2]
+    As = sample[:,2]
     b1 = sample[:,3]
     b2 = sample[:,4]
     bG2 = sample[:,5]
@@ -150,7 +150,7 @@ def main():
     fail_posdef_sub = 0
     fail_marg_sub = 0
     with Pool(processes=N_PROC) as pool:
-        for result in pool.starmap(CovAnalytic, zip(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
+        for result in pool.starmap(CovAnalytic, zip(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
             if result == -1: fail_compute_sub+=1
             if result == -2: fail_posdef_sub+=1
             if result == -3: fail_marg_sub+=1

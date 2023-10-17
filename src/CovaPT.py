@@ -23,7 +23,8 @@ import T0
 # what k range and binning we're using
 class Analytic_Covmat():
 
-    def __init__(self, z, k=np.linspace(0.005, 0.245, 25), window_dir='/home/joeadamo/Research/CovaPT/Data/'):
+    def __init__(self, z, k=np.linspace(0.005, 0.245, 25), 
+                 window_dir='/home/joeadamo/Research/CovaPT/Data/'):
         self.k = k
         self.kbins=len(k)
         self.z = z
@@ -39,7 +40,7 @@ class Analytic_Covmat():
         try:
             self.WijFile = np.load(self.dire+'Wij_k'+str(self.kbins)+'_HighZ_NGC.npy')
         except IOError:
-            print("ERROR! Incorrect window kernel size! Please double-check your path or recalculate with the correct binning using Survey_window_kernels.ipynb")
+            print("ERROR! Couldn't read in the window kernel! Please double-check your path or recalculate with the correct binning using Survey_window_kernels.ipynb")
             return -1
 
         # A, ns, ombh2 from Planck best-fit
@@ -294,7 +295,7 @@ class Analytic_Covmat():
         # unpack / specify parameters
         H0    = params[0]
         omch2 = params[1]
-        As    = params[2] * self.A_planck
+        As    = params[2]
 
         b1    = params[3]
         b2    = params[4]
@@ -392,7 +393,7 @@ class Analytic_Covmat():
         H0    = params[0]
         omch2 = params[1]
         ombh2 = self.ombh2_planck
-        As    = params[2] * self.A_planck
+        As    = params[2]
         ns    = self.ns_planck
 
         b1    = params[3]
@@ -483,27 +484,36 @@ class Analytic_Covmat():
         Returns the Non-Gaussian portion of the covariance matrix
         Takes ~ 10 minutes to run
         """
-        # unpack parameters
-        H0, omch2, A, b1, b2 = params[0], params[1], params[2], params[3], params[4]
+        # Cosmology parameters
+        H0, omch2, As = params[0], params[1], params[2]
         ombh2 = self.ombh2_planck
         ns = self.ns_planck
-        As = A * self.A_planck
-        b1 = b1
-        b2 = b2
+
+        # local bias terms
+        b1 = params[3]
+        b2 = params[4]
+        b3 = 0.
+
+        # non-local bias terms
+        g2 = params[5] #<- bG2
+        g3 = 0.  #<- bG3 (third order?)
+        g2x = 0. #<- bdG2 (third order)
+        g21 = 0. #<- bGamma3*
 
         Omega_m = (omch2 + ombh2 + 0.00064) / (H0/100)**2
+        
         # Below are expressions for non-local bias (g_i) from local lagrangian approximation
         # and non-linear bias (b_i) from peak-background split fit of 
         # Lazyeras et al. 2016 (rescaled using Appendix C.2 of arXiv:1812.03208),
         # which could used if those parameters aren't constrained.
-        g2 = -2/7*(b1 - 1)
-        g3 = 11/63*(b1 - 1)
-        #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
-        g2x = -2/7*b2
-        g21 = -22/147*(b1 - 1)
-        b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
+        # g2 = -2/7*(b1 - 1)
+        # g3 = 11/63*(b1 - 1)
+        # #b2 = 0.412 - 2.143*b1 + 0.929*b1**2 + 0.008*b1**3 + 4/3*g2 
+        # g2x = -2/7*b2
+        # g21 = -22/147*(b1 - 1)
+        # b3 = -1.028 + 7.646*b1 - 6.227*b1**2 + 0.912*b1**3 + 4*g2x - 4/3*g3 - 8/3*g21 - 32/21*g2
         
-        # ---Bias and survey parameters---
+        # ---Growth Factor---
         be = self.fgrowth(self.z, Omega_m)/b1; #beta = f/b1, zero for real space
 
         # initializing bias parameters for trispectrum

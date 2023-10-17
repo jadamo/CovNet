@@ -67,13 +67,12 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
     # omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
-    # A_bounds     = [0.2, 1.75]    # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
     H0_bounds    = [50, 100]      # Hubble constant
-    omch2_bounds = [0.01, 0.3]    # Omega_cdm h^2
-    A_bounds     = [0.25, 1.65]   # Ratio of Amplitude of Primordial Power spectrum (As / As_planck)
+    omch2_bounds = [0.02, 0.3]    # Omega_cdm h^2
+    As_bounds    = [0.75, 5.]     # Amplitude of Primordial Power spectrum As
     b1_bounds    = [1, 4]         # Linear bias
-    b2_bounds    = [-5, 3]        # Quadratic bias?
-    bG2_bounds   = [-4, 4]        # 
+    b2_bounds    = [-4, 4]        # Quadratic bias
+    bG2_bounds   = [-4, 4]        # Tidal bias
 
     ombh2_bounds = [0.005, 0.08]  # Omega b h^2
     ns_bounds    = [0.9, 1.1]     # Spectral index
@@ -91,7 +90,7 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # ---Cosmology parameters---
     H0 = dist[:,0]*(H0_bounds[1] - H0_bounds[0]) + H0_bounds[0]
     omch2 = dist[:,1]*(omch2_bounds[1] - omch2_bounds[0]) + omch2_bounds[0]
-    A = dist[:,2]*(A_bounds[1] - A_bounds[0]) + A_bounds[0]
+    As = dist[:,2]*(As_bounds[1] - As_bounds[0]) + As_bounds[0]
     b1 = dist[:,3]*(b1_bounds[1] - b1_bounds[0]) + b1_bounds[0]
     b2 = dist[:,4]*(b2_bounds[1] - b2_bounds[0]) + b2_bounds[0]
     bG2 = dist[:,5]*(bG2_bounds[1] - bG2_bounds[0]) + bG2_bounds[0]
@@ -106,11 +105,11 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
         cbar = dist[:,8]*(cbar_bounds[1] - cbar_bounds[0]) + cbar_bounds[0]
         Pshot = dist[:,9]*(Pshot_bounds[1] - Pshot_bounds[0]) + Pshot_bounds[0]
 
-        samples = np.vstack((H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
+        samples = np.vstack((H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
         header_str = "H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot"
     else:
         header_str = "H0, omch2, A, b1, b2, bG2"
-        samples = np.vstack((H0, omch2, A, b1, b2, bG2)).T
+        samples = np.vstack((H0, omch2, As, b1, b2, bG2)).T
 
     np.savetxt("Sample-params.txt", samples, header=header_str)
     #return samples
@@ -123,13 +122,13 @@ def load_samples(N):
     samples = samples[:N, :]
     return samples
 
-def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
+def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
     Generates and saves the Non-Gaussian term of the analytic covariance matrix. This function is meant to be run
     in parallel.
     """
 
-    params = np.array([H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot])
+    params = np.array([H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot])
 
     Mat_Calc = CovaPT.Analytic_Covmat(z, window_dir="/home/u12/jadamo/CovaPT/Example-Data/")
 
@@ -147,7 +146,7 @@ def CovAnalytic(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
 
         # save results to a file for training
         idx = f'{i:06d}'
-        params_save = np.array([H0, omch2, A, b1, b2, bG2])
+        params_save = np.array([H0, omch2, As, b1, b2, bG2])
         np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
         return 0
     except:
@@ -197,7 +196,7 @@ def main():
     # ---Cosmology parameters---
     H0 = sample[:,0]
     omch2 = sample[:,1]
-    A = sample[:,2]
+    As = sample[:,2]
     b1 = sample[:,3]
     b2 = sample[:,4]
     bG2 = sample[:,5]
@@ -224,7 +223,7 @@ def main():
     fail_compute_sub = 0
     fail_posdef_sub = 0
     with Pool(processes=N_PROC) as pool:
-        for result in pool.starmap(CovAnalytic, zip(H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
+        for result in pool.starmap(CovAnalytic, zip(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
             if result == -1: fail_compute_sub+=1
             if result == -2: fail_posdef_sub+=1
 
