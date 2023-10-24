@@ -95,7 +95,7 @@ class Network_Emulator(nn.Module):
         self.patch_size = torch.Tensor(config_dict.patch_size)
         self.embedding = config_dict.embedding
         self.n_patches = (self.N / self.patch_size).int().tolist()
-        self.patch_size = self.patch_size.tolist()
+        self.patch_size = self.patch_size.int().tolist()
         sequence_len = int(self.patch_size[0]*self.patch_size[1])
         num_sequences = self.n_patches[0] * self.n_patches[1]
 
@@ -107,7 +107,7 @@ class Network_Emulator(nn.Module):
 
         # MLP structure
         elif self.architecture == "MLP":
-            self.h1 = nn.Linear(6, config_dict.mlp_dims[0])
+            self.h1 = nn.Linear(config_dict.input_dim, config_dict.mlp_dims[0])
             self.mlp_blocks = nn.Sequential()
             for i in range(config_dict.num_mlp_blocks):
                 self.mlp_blocks.add_module("ResNet"+str(i+1),
@@ -117,7 +117,7 @@ class Network_Emulator(nn.Module):
 
         # MLP + Transformer structure
         elif self.architecture == "MLP-T":
-            self.h1 = nn.Linear(6, config_dict.mlp_dims[0])
+            self.h1 = nn.Linear(config_dict.input_dim, config_dict.mlp_dims[0])
             self.mlp_blocks = nn.Sequential()
             for i in range(config_dict.num_mlp_blocks):
                 self.mlp_blocks.add_module("ResNet"+str(i+1),
@@ -310,7 +310,7 @@ class Network_Emulator(nn.Module):
         training_data = torch.vstack([torch.Tensor(self.num_epoch), 
                                       torch.Tensor(self.train_loss), 
                                       torch.Tensor(self.valid_loss)])
-        torch.save(training_data, save_dir+"train_data.dat")
+        torch.save(training_data, save_dir+"train_data-"+self.architecture+".dat")
         with open(save_dir+'config.yaml', 'w') as outfile:
             yaml.dump(self.config_dict, outfile, default_flow_style=False)
 
@@ -346,8 +346,7 @@ class Network_Emulator(nn.Module):
             for (i, batch) in enumerate(train_loader):
                 # load data
                 params = batch[0]
-                if self.architecture == "MLP-Quadrants": matrix = train_data.get_quadrant(batch[2], self.quadrant)
-                elif self.architecture == "MLP-PCA": matrix = batch[2]
+                if self.architecture == "MLP-PCA": matrix = batch[2]
                 else: matrix = batch[1]
 
                 # use network to get prediction
@@ -379,8 +378,7 @@ class Network_Emulator(nn.Module):
             self.eval()
             for (i, batch) in enumerate(valid_loader):
                 params = batch[0]
-                if self.architecture == "MLP-Quadrants": matrix = valid_data.get_quadrant(batch[2], self.quadrant)
-                elif self.architecture == "MLP-PCA": matrix = batch[2]
+                if self.architecture == "MLP-PCA": matrix = batch[2]
                 else: matrix = batch[1]
 
                 if self.architecture == "VAE" or self.architecture == "AE":

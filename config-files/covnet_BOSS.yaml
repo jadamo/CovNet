@@ -1,6 +1,6 @@
 # -----------------------------------------------
 # parameters defining the network architecture
-architecture:  MLP
+architecture:  MLP-T
 
 input_dim  : 6
 output_dim : 50
@@ -8,13 +8,14 @@ output_dim : 50
 num_mlp_blocks: 4
 mlp_dims: [25, 50, 100, 500, 1000]
 
-# If you aren't using the transofmer block, you can disregard these arguments
+# If you aren't using the transformer block, you can disregard these arguments
 patch_size             : [17, 5]
 num_transformer_blocks : 5
 num_heads              : 5
-embedding              : True
-dropout_prob           : 0.25
-freeze_mlp             : True
+embedding              : True        # <- whether to apply possitional embedding
+dropout_prob           : 0.25         
+freeze_mlp             : True        # <- whether to keeep mlp weights frozen during training
+train_mlp_first        : True
 
 # Training parameters
 num_epochs: 30
@@ -35,5 +36,5 @@ parameter_bounds:
  - [-4, 4]
 
 repo_dir: /home/joeadamo/Research/CovNet/
-save_dir: /home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP/
+save_dir: /home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP-T/
 training_dir: /home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/

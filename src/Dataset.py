@@ -272,13 +272,24 @@ def load_config_file(config_file):
     with open(config_file, "r") as stream:
         try:
             config_dict = EasyDict(yaml.safe_load(stream))
-            return config_dict
         except:
             print("ERROR! Couldn't read yaml file")
             return
+        
+    # some basic checks that your config file has the correct formating    
+    if len(config_dict.mlp_dims) != config_dict.num_mlp_blocks + 1:
+        print("ERROR! mlp dimensions not formatted correctly!")
+        return
+    if len(config_dict.parameter_bounds) != config_dict.input_dim:
+        print("ERROR! parameter bounds not formatted correctly!")
+        return
+    
+    return config_dict
 
 def try_gpu():
     """Return gpu() if exists, otherwise return cpu()."""
     if torch.cuda.is_available():
         return torch.device('cuda:0')
+    # elif torch.mps.is_available():
+    #     return torch.device("mps")
     return torch.device('cpu')
