@@ -3,7 +3,9 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 import pickle as pkl
-import os
+import os, yaml
+from easydict import EasyDict
+
 from sklearn.decomposition import PCA
 
 torch.set_default_dtype(torch.float32)
@@ -26,6 +28,8 @@ class MatrixDataset(torch.utils.data.Dataset):
 
         if type=="training":
             file = data_dir+"CovA-training.npz"
+        elif type=="training-small":
+            file = data_dir+"CovA-training-small.npz"
         elif type=="validation":
             file = data_dir+"CovA-validation.npz"
         elif type=="testing":
@@ -262,6 +266,16 @@ def symmetric_exp(m, pos_norm, neg_norm):
     neg_m[neg_idx] = -10**(-1*neg_m[neg_idx]) + 1
 
     return pos_m + neg_m
+
+def load_config_file(config_file):
+    """loads in the emulator config file as a dictionary object"""
+    with open(config_file, "r") as stream:
+        try:
+            config_dict = EasyDict(yaml.safe_load(stream))
+            return config_dict
+        except:
+            print("ERROR! Couldn't read yaml file")
+            return
 
 def try_gpu():
     """Return gpu() if exists, otherwise return cpu()."""

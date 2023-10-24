@@ -317,7 +317,9 @@ class Analytic_Covmat():
                 'z_pk':self.z
                 })  
         try: cosmo.compute()
-        except: return []
+        except: 
+            print("ERROR! CLASS-PT failed to run boltzmann solver!")
+            return []
 
         # theory calculations taken from Misha Ivanov's likelihood function
         norm = 1

@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 import pickle as pkl
+import yaml
 
 import src.Blocks as Blocks
 import src.Dataset as Dataset
@@ -13,9 +14,7 @@ from src.Dataset import try_gpu
 # ---------------------------------------------------------------------------
 class CovNet():
 
-    def __init__(self, net_dir, N, architecture="MLP",
-                 pos_norm=5.91572, neg_norm=4.62748,
-                 num_blocks=5, patch_size=torch.Tensor([17, 5]).int(), num_heads=5):
+    def __init__(self, net_dir):
         """
         Initializes the covariance emulator in a warpper class by loading in the trained
         neural networks based on the specified options
@@ -25,25 +24,22 @@ class CovNet():
         @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
         @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
         """
-        self.architecture = architecture
-        self.N = N
 
-        self.norm_pos = pos_norm
-        self.norm_neg = neg_norm
+        self.config_dict = Dataset.load_config_file(net_dir+"config.yaml")
 
-        self.net = Network_Emulator(architecture, 0., num_blocks, patch_size, num_heads).to(try_gpu())
+        self.net = Network_Emulator(self.config_dict).to(try_gpu())
         self.net.eval()
         self.net.load_state_dict(torch.load(net_dir+'network.params', map_location=torch.device("cpu")))
         
-        if architecture == "VAE" or architecture == "AE":
-            self.decoder = Blocks.Block_Decoder(architecture).to(try_gpu())
+        if self.config_dict.architecture == "VAE" or self.config_dict.architecture == "AE":
+            self.decoder = Blocks.Block_Decoder(self.config_dict.architecture).to(try_gpu())
             self.decoder.eval()
             self.decoder.load_state_dict(self.net.Decoder.state_dict())
 
             self.net_latent = Blocks.Network_Latent().to(try_gpu())
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
             self.net_latent.load_state_dict(torch.load(net_dir+'network-latent.params', map_location=torch.device("cpu")))
-        elif architecture == "MLP-PCA":
+        elif self.config_dict.architecture == "MLP-PCA":
             with open(net_dir+"pca.pkl", "rb") as pickle_file:
                 load_data = pkl.load(pickle_file)
                 self.pca = load_data[0]
@@ -59,17 +55,17 @@ class CovNet():
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
-        if self.architecture == "VAE" or self.architecture == "AE":
-            z = self.net_latent(params).view(1,6)
-            matrix = self.decoder(z).view(1,self.N,self.N)
-        elif self.architecture == "MLP-PCA":
+        if self.config_dict.architecture == "VAE" or self.config_dict.architecture == "AE":
+            z = self.net_latent(params).view(1,self.config_dict.input_dim)
+            matrix = self.decoder(z).view(1,self.config_dict.output_dim)
+        elif self.config_dict.architecture == "MLP-PCA":
             components = self.net(params.view(1,6)).view(self.num_pcs)
             matrix = Dataset.reverse_pca(components, self.pca, self.pca_min_values, self.pca_max_values)
         else:
-            matrix = self.net(params.view(1,6)).view(1, self.N, self.N)
+            matrix = self.net(params.view(1,6)).view(1, self.config_dict.output_dim, self.config_dict.output_dim)
 
         if raw == False:
-            matrix = Dataset.symmetric_exp(matrix, self.norm_pos, self.norm_neg).view(self.N,self.N)
+            matrix = Dataset.symmetric_exp(matrix, self.config_dict.norm_pos, self.config_dict.norm_neg).view(self.config_dict.output_dim,self.config_dict.output_dim)
             matrix = matrix.detach().numpy().astype(np.float64)
             matrix = np.matmul(matrix, matrix.T)
             return matrix
@@ -77,12 +73,10 @@ class CovNet():
             return matrix
 
 class Network_Emulator(nn.Module):
-    def __init__(self, architecture="MLP", dropout_prob=0.,
-                 num_blocks=3, patch_size=torch.Tensor([3, 5]).int(), 
-                 num_heads=1, embedding=True, quadrant=""):
+    def __init__(self, config_dict):
         super().__init__()
-        self.architecture = architecture
-        self.embedding = embedding
+        self.config_dict = config_dict
+        self.architecture = config_dict.architecture
 
         self.train_loss = []
         self.valid_loss = []
@@ -90,71 +84,80 @@ class Network_Emulator(nn.Module):
         self.best_loss = 1e10
 
         self.save_state = None
-        self.N = torch.Tensor([51, 25]).int()
-        self.n_patches = (self.N / patch_size).int().tolist()
-        self.patch_size = patch_size.tolist()
+
+        # input and putout dimensions
+        self.input_dim = config_dict.input_dim
+        self.output_dim = config_dict.output_dim
+        self.N = torch.Tensor([config_dict.output_dim+1, config_dict.output_dim/2]).int()
+        self.N_flat = self.N[0] * self.N[1]
+
+        # Transformer variables
+        self.patch_size = torch.Tensor(config_dict.patch_size)
+        self.embedding = config_dict.embedding
+        self.n_patches = (self.N / self.patch_size).int().tolist()
+        self.patch_size = self.patch_size.tolist()
         sequence_len = int(self.patch_size[0]*self.patch_size[1])
         num_sequences = self.n_patches[0] * self.n_patches[1]
-        self.quadrant = quadrant
 
         # VAE structure
-        if architecture == "VAE" or architecture == "AE":
-            self.Encoder = Blocks.Block_Encoder(architecture)
-            self.Decoder = Blocks.Block_Decoder(architecture)
+        if self.architecture == "VAE" or self.architecture == "AE":
+            print("WARNING! VAE / AE architecture code has not been updated in a while!")
+            self.Encoder = Blocks.Block_Encoder(self.architecture)
+            self.Decoder = Blocks.Block_Decoder(self.architecture)
+
         # MLP structure
-        elif architecture == "MLP":
-            self.h1 = nn.Linear(6, 25)
-            self.resnet1 = Blocks.Block_Full_ResNet(25, 50)
-            self.resnet2 = Blocks.Block_Full_ResNet(50, 100)
-            self.resnet3 = Blocks.Block_Full_ResNet(100, 500)
-            self.resnet4 = Blocks.Block_Full_ResNet(500, 1000)
-            self.out = nn.Linear(1000, 51*25)
+        elif self.architecture == "MLP":
+            self.h1 = nn.Linear(6, config_dict.mlp_dims[0])
+            self.mlp_blocks = nn.Sequential()
+            for i in range(config_dict.num_mlp_blocks):
+                self.mlp_blocks.add_module("ResNet"+str(i+1),
+                        Blocks.Block_Full_ResNet(config_dict.mlp_dims[i],
+                                                 config_dict.mlp_dims[i+1]))
+            self.out = nn.Linear(config_dict.mlp_dims[-1], self.N_flat)
+
         # MLP + Transformer structure
-        elif architecture == "MLP-T":
-            self.h1 = nn.Linear(6, 25)
-            self.resnet1 = Blocks.Block_Full_ResNet(25, 50)
-            self.resnet2 = Blocks.Block_Full_ResNet(50, 100)
-            self.resnet3 = Blocks.Block_Full_ResNet(100, 500)
-            self.resnet4 = Blocks.Block_Full_ResNet(500, 1000)
-            self.out = nn.Linear(1000, 51*25)
+        elif self.architecture == "MLP-T":
+            self.h1 = nn.Linear(6, config_dict.mlp_dims[0])
+            self.mlp_blocks = nn.Sequential()
+            for i in range(config_dict.num_mlp_blocks):
+                self.mlp_blocks.add_module("ResNet"+str(i+1),
+                        Blocks.Block_Full_ResNet(config_dict.mlp_dims[i],
+                                                 config_dict.mlp_dims[i+1]))
+            self.out = nn.Linear(config_dict.mlp_dims[-1], self.N_flat)
 
             self.linear_map = nn.Linear(sequence_len, sequence_len)
             self.transform_blocks = nn.Sequential()
-            for i in range(num_blocks):
+            for i in range(config_dict.num_transformer_blocks):
                 self.transform_blocks.add_module("transform"+str(i+1), 
-                    nn.TransformerEncoderLayer(sequence_len, num_heads, 4*sequence_len,
-                                               dropout_prob, "gelu", batch_first=True))
+                    nn.TransformerEncoderLayer(sequence_len, config_dict.num_heads, 4*sequence_len,
+                                               config_dict.dropout_prob, "gelu", batch_first=True))
                    #Blocks.Block_Transformer_Encoder(sequence_len, num_heads, dropout_prob))
             #self.out2 = nn.Linear(2*sequence_len, sequence_len)
 
             if self.embedding == True:
                 self.pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
                 self.pos_embed.requires_grad = False
-        # MLP emulating quadrants
-        elif architecture == "MLP-Quadrants":
-            self.h1 = nn.Linear(6, 25)
-            self.resnet1 = Blocks.Block_Full_ResNet(25, 75)
-            self.resnet2 = Blocks.Block_Full_ResNet(75, 250)
-            self.resnet3 = Blocks.Block_Full_ResNet(250, 500)
-            self.resnet4 = Blocks.Block_Full_ResNet(500, 625)
-            self.out = nn.Linear(625, 625)
+
         # MLP emulating PCs
-        elif architecture == "MLP-PCA":
+        elif self.architecture == "MLP-PCA":
+            print("WARNING! MLP-PCA architecture code has not been updated in a while!")
             self.h1 = nn.Linear(6, 25)
             self.resnet1 = Blocks.Block_Full_ResNet(25, 75)
             self.resnet2 = Blocks.Block_Full_ResNet(75, 150)
             self.resnet3 = Blocks.Block_Full_ResNet(150, 250)
             self.resnet4 = Blocks.Block_Full_ResNet(250, 250)
             self.out = nn.Linear(250, 250)
-        elif architecture == "T":
+
+        elif self.architecture == "T":
+            print("WARNING! T architecture code has not been updated in a while!")
             self.h1 = nn.Linear(6, 51*25)
 
             self.linear_map = nn.Linear(sequence_len, sequence_len)
             self.transform_blocks = nn.Sequential()
-            for i in range(num_blocks):
+            for i in range(config_dict.num_transformer_blocks):
                 self.transform_blocks.add_module("transform"+str(i+1), 
-                    nn.TransformerEncoderLayer(sequence_len, num_heads, 4*sequence_len,
-                                               dropout_prob, "gelu", batch_first=True))
+                    nn.TransformerEncoderLayer(sequence_len, config_dict.num_heads, 4*sequence_len,
+                                               config_dict.dropout_prob, "gelu", batch_first=True))
                    #Blocks.Block_Transformer_Encoder(sequence_len, num_heads, dropout_prob))
             #self.out2 = nn.Linear(2*sequence_len, sequence_len)
 
@@ -163,12 +166,7 @@ class Network_Emulator(nn.Module):
         else:
             print("ERROR! Invalid architecture specified")
 
-        self.bounds = torch.tensor([[50, 100],
-                                [0.01, 0.3],
-                                [0.25, 1.65],
-                                [1, 4],
-                                [-4, 4],
-                                [-4, 4]]).to(try_gpu())
+        self.bounds = torch.tensor(config_dict.parameter_bounds).to(try_gpu())
 
     def load_pretrained(self, path, freeze=True):
         """
@@ -189,6 +187,19 @@ class Network_Emulator(nn.Module):
         params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
         return params_norm
 
+    def normal(m):
+        if type(m) == nn.Linear:
+            nn.init.normal_(m.weight, mean=0., std=0.1)
+            nn.init.zeros_(m.bias)
+
+    def xavier(m):
+        if type(m) == nn.Linear:
+            nn.init.xavier_normal_(m.weight)
+
+    def He(m):
+        if type(m) == nn.Linear:
+            nn.init.kaiming_uniform_(m.weight)
+
     def get_positional_embedding(self, sequence_length, d):
 
         embeddings = torch.ones(sequence_length, d)
@@ -205,7 +216,7 @@ class Network_Emulator(nn.Module):
         @return patches {3D Tensor} flattened patches of the input
         with shape (batch size, number of patches, size of patch)
         """
-        X = X.reshape(-1, 51, 25)
+        X = X.reshape(-1, self.N[0], self.N[1])
         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
         patches = patches.reshape(-1, self.n_patches[1]*self.n_patches[0], self.patch_size[0]*self.patch_size[1])
         #patches = patches.permute(0, 2, 1)
@@ -242,56 +253,34 @@ class Network_Emulator(nn.Module):
         elif self.architecture == "MLP":
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
-            X = self.resnet1(X)
-            X = self.resnet2(X)
-            X = self.resnet3(X)
-            X = self.resnet4(X)
+            for blk in self.mlp_blocks:
+                X = F.leaky_relu(blk(X))
             X = torch.tanh(self.out(X))
 
-            X = X.view(-1, 51, 25)
-            X = Dataset.rearange_to_full(X, 50, True)
+            X = X.view(-1, self.N[0], self.N[1])
+            X = Dataset.rearange_to_full(X, self.output_dim, True)
             return X
 
         elif self.architecture == "MLP-T":
+
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
-            X = self.resnet1(X)
-            X = self.resnet2(X)
-            X = self.resnet3(X)
-            X = self.resnet4(X)
+            for blk in self.mlp_blocks:
+                X = F.leaky_relu(blk(X))
             Y = torch.tanh(self.out(X))
 
-            # X = F.leaky_relu(self.extra1(Y))
-            # X = F.leaky_relu(self.extra2(X))
-            # X = F.leaky_relu(self.extra3(X))
-            # X = Y + torch.tanh(self.extra4(X))
             X = self.linear_map(self.patchify(Y))
             if self.embedding == True:
                 pos_embed = self.pos_embed.repeat(Y.shape[0], 1, 1)
                 X = X + pos_embed
             for blk in self.transform_blocks:
                 X = blk(X)# + X
-            X = torch.tanh(self.un_patchify(X)) + Y.view(-1, 51, 25)
-            # for blk in self.MLP_block:
-            #     X = blk(X)
+            X = torch.tanh(self.un_patchify(X)) + Y.view(-1, self.N[0], self.N[1])
 
-            X = X.view(-1, 51, 25)
-            X = Dataset.rearange_to_full(X, 50, True)
+            X = X.view(-1, self.N[0], self.N[1])
+            X = Dataset.rearange_to_full(X, self.output_dim, True)
             return X
 
-        elif self.architecture == "MLP-Quadrants":
-            X = self.normalize(X)
-            X = F.leaky_relu(self.h1(X))
-            X = self.resnet1(X)
-            X = self.resnet2(X)
-            X = self.resnet3(X)
-            X = self.resnet4(X)
-            X = torch.tanh(self.out(X))
-
-            X = X.view(-1, 25, 25)
-            if self.quadrant == "00" or self.quadrant == "22":
-                X = torch.tril(X)
-            return X
         elif self.architecture == "MLP-PCA":
             X = self.normalize(X)
             X = F.leaky_relu(self.h1(X))
@@ -321,31 +310,34 @@ class Network_Emulator(nn.Module):
         training_data = torch.vstack([torch.Tensor(self.num_epoch), 
                                       torch.Tensor(self.train_loss), 
                                       torch.Tensor(self.valid_loss)])
-        torch.save(training_data, save_dir+"train_data"+self.quadrant+".dat")
+        torch.save(training_data, save_dir+"train_data.dat")
+        with open(save_dir+'config.yaml', 'w') as outfile:
+            yaml.dump(self.config_dict, outfile, default_flow_style=False)
+
         if self.save_state is None: 
-            torch.save(self.state_dict(), save_dir+'network'+self.quadrant+'.params')
+            torch.save(self.state_dict(), save_dir+'network.params')
         else:
-            torch.save(self.save_state, save_dir+'network'+self.quadrant+'.params')
+            torch.save(self.save_state, save_dir+'network.params')
 
     # ---------------------------------------------------------------------------
     # Training Loops
     # ---------------------------------------------------------------------------
-    def Train(self, num_epochs, batch_size,
-              optimizer, train_data, valid_data,
-              print_progress=True, save_dir="", lr=0, beta=0):
+    def Train(self, optimizer, train_data, valid_data,
+              print_progress=True, save_dir="", iter=0):
         """
-        Train the pure MLP network
+        Train the network
         """
         # Keep track of the best validation loss for early stopping
         worse_epochs = 0
+        beta = 0.
 
         #weights = ((torch.arange(0, 250) / 250.) + 1.).to(try_gpu())
         #weights = torch.flip(weights, (0,))
 
-        train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
-        valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=self.config_dict.batch_size, shuffle=True, drop_last=True)
+        valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=self.config_dict.batch_size, shuffle=True, drop_last=True)
 
-        for epoch in range(num_epochs):
+        for epoch in range(self.config_dict.num_epochs):
             # Run through the training set and update weights
             self.train()
             train_loss_sub, valid_loss_sub  = 0., 0.
@@ -360,15 +352,15 @@ class Network_Emulator(nn.Module):
 
                 # use network to get prediction
                 if self.architecture == "VAE" or self.architecture == "AE":
-                    prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
+                    prediction, mu, log_var = self.forward(matrix.view(self.config_dict.batch_size, self.output_dim, self.output_dim))
                     loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
                     train_KLD_sub += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
                 elif self.architecture == "MLP-PCA":
-                    prediction = self.forward(params.view(batch_size, 6))
+                    prediction = self.forward(params.view(self.config_dictbatch_size, self.input_dim))
                     diff = abs(prediction - matrix)
                     loss = torch.sum(diff)
                 else:
-                    prediction = self.forward(params.view(batch_size, 6))
+                    prediction = self.forward(params.view(self.config_dict.batch_size, self.input_dim))
                     loss = F.l1_loss(prediction, matrix, reduction="sum")
 
                 assert torch.isnan(loss) == False 
@@ -392,15 +384,15 @@ class Network_Emulator(nn.Module):
                 else: matrix = batch[1]
 
                 if self.architecture == "VAE" or self.architecture == "AE":
-                    prediction, mu, log_var = self.forward(matrix.view(batch_size, 50, 50))
+                    prediction, mu, log_var = self.forward(matrix.view(self.config_dict.batch_size, self.output_dim, self.output_dim))
                     loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
                     valid_KLD_sub  += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
                 elif self.architecture == "MLP-PCA":
-                    prediction = self.forward(params.view(batch_size, 6))
+                    prediction = self.forward(params.view(self.config_dict.batch_size, self.input_dim))
                     diff = abs(prediction - matrix)
                     loss = torch.sum(diff)
                 else:
-                    prediction = self.forward(params.view(batch_size, 6))
+                    prediction = self.forward(params.view(self.config_dict.batch_size, self.input_dim))
                     loss = F.l1_loss(prediction, matrix, reduction="sum")
 
                 valid_loss_sub += loss.item()
@@ -427,9 +419,10 @@ class Network_Emulator(nn.Module):
             if epoch > 15 and worse_epochs >= 15 and self.valid_loss[-1] > self.train_loss[-1]:
                 if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
                 break
-        print("lr {:0.3e}, bsize {:0.0f}: Best validation loss was {:0.3f} after {:0.0f} epochs".format(lr, batch_size, self.best_loss, epoch - worse_epochs))
+        print("lr {:0.3e}, bsize {:0.0f}: Best validation loss was {:0.3f} after {:0.0f} epochs".format(
+            self.config_dict.learning_rate[iter], self.config_dict.batch_size, self.best_loss, epoch - worse_epochs))
 
-
+# This function is old - I don't recommend using it as-is
 def train_latent(net, num_epochs, optimizer, train_loader, valid_loader,
                     print_progress=True, save_dir=""):
     """

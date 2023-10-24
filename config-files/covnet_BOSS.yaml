@@ -1,0 +1,39 @@
+# -----------------------------------------------
+# parameters defining the network architecture
+architecture:  MLP
+
+input_dim  : 6
+output_dim : 50
+
+num_mlp_blocks: 4
+mlp_dims: [25, 50, 100, 500, 1000]
+
+# If you aren't using the transofmer block, you can disregard these arguments
+patch_size             : [17, 5]
+num_transformer_blocks : 5
+num_heads              : 5
+embedding              : True
+dropout_prob           : 0.25
+freeze_mlp             : True
+
+# Training parameters
+num_epochs: 30
+learning_rate: [1.438e-3, 1.e-4, 1.e-5]
+batch_size: 600
+
+train_gaussian_only   : False
+start_from_checkpoint : False
+
+# cosmology parameter bounds. This should line up with what you used to generate your
+# training set
+parameter_bounds:
+ - [50, 100]
+ - [0.02, 0.3]
+ - [0.75, 5.]
+ - [1, 4]
+ - [-4, 4]
+ - [-4, 4]
+
+repo_dir: /home/joeadamo/Research/CovNet/
+save_dir: /home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP/
+training_dir: /home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/
