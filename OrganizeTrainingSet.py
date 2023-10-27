@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import *
 from multiprocessing import Pool
 
-in_path = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
+in_path  = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
 out_path = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
 
 def load_file(idx):
@@ -28,6 +28,7 @@ def main():
     #path = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
     #N = 150400
     N = 1052800
+    #N = 10000
     #N = 4
 
     params = np.zeros((N, 6))
@@ -58,7 +59,8 @@ def main():
 
     # with Pool(processes=N_PROC) as pool:
     #     for result in pool.map(load_file, idx):
-
+    print("loading from", in_path)
+    print("saving to", out_path)
 
     # load in all the matrices internally (NOTE: memory and time intensive!)
     for i in tqdm(range(N)):

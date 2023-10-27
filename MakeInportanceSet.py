@@ -20,11 +20,12 @@ ns_planck = 0.9649
 ombh2_planck = 0.02237
 
 #N = 150400
-N = 19888
+N = 72400
+#N = 8
 #N = 4
 #N = 16
 N_PROC = 94
-#N_PROC=1
+#N_PROC=4
 
 #-------------------------------------------------------------------
 # FUNCTIONS
@@ -33,7 +34,8 @@ N_PROC = 94
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
 #home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
 #home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
-home_dir = "/home/u12/jadamo/CovNet/Inportance-Set-2/"
+home_dir = "/xdisk/timeifler/jadamo/Inportance-Set-1/"
+BOSS_dir = "/home/u12/jadamo/software/montepython/data/BOSS_DR12/Updated/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
@@ -44,12 +46,11 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
 
     params = np.array([H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot])
-
     Mat_Calc = CovaPT.Analytic_Covmat(z, window_dir="/home/u12/jadamo/CovaPT/Example-Data/")
 
     # calculate the covariance matrix
     C_G = Mat_Calc.get_gaussian_covariance(params, return_Pk=False)
-    if True in np.isnan(C_G):
+    if np.any(np.isnan(C_G)) == True:
         print("idx", i, "failed to compute power spectrum! skipping...")
         return -1
 
@@ -59,24 +60,22 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     try:
         L = np.linalg.cholesky(C_G + C_SSC + C_T0)
     except:
-        print("idx", i, "is not positive definite! skipping...")
         return -2
 
     try:
-        C_marg, model_vector, om0, s8 = Mat_Calc.get_marginalized_covariance(params, C_G + C_SSC + C_T0)
-
-        # save results to a file for training
+        # save results to a file for trainin
+        C_marg, model_vector, om0, s8 = Mat_Calc.get_marginalized_covariance(params, C_G+C_SSC+C_T0, BOSS_dir)
         idx = f'{i:05d}'
-        params_save = np.array([H0, omch2, A, b1, b2, bG2, om0, s8])
+        params_save = np.array([H0, omch2, As, b1, b2, bG2, om0, s8])
         np.savez(home_dir+"CovA-"+idx+".npz",
-                params=params_save, model_vector=model_vector, C_G=C_G, C_NG=C_SSC + C_T0, C_marg=C_marg)
+                params=params_save, model_vector=model_vector, C_G=C_G, C_marg=C_marg)
         return 0
     except:
         print("idx", i, "failed to marginalize covariance! saving what we have")
         idx = f'{i:05d}'
-        params_save = np.array([H0, omch2, A, b1, b2, bG2])
+        params_save = np.array([H0, omch2, As, b1, b2, bG2])
         np.savez(home_dir+"CovA-"+idx+".npz",
-                    params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
+                    params=params_save, C_G=C_G)#, C_NG=C_SSC + C_T0)
         return -3
 
 #-------------------------------------------------------------------
@@ -94,7 +93,7 @@ def main():
     t1 = time.time(); t2 = t1
 
     # generate samples (done on each rank for simplicity)
-    file = home_dir+"inportance-params-T1_1.txt"
+    file = home_dir+"inportance-params-T1.txt"
     assert os.path.exists(file)
     
     if rank == 0:
@@ -140,7 +139,7 @@ def main():
 
     z = 0.61
     # split up workload to different nodes
-    i = np.arange(offset, offset+data_len, dtype=np.int)
+    i = np.arange(offset, offset+data_len, dtype=np.int32)
 
     # initialize pool for multiprocessing
     print("Rank", rank, "beginning matrix calculations...")

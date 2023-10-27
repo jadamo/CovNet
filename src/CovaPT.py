@@ -30,11 +30,6 @@ class Analytic_Covmat():
         self.z = z
 
         self.dire = window_dir
-        # directory with window functions (I assumed these are calculated beforehand)
-        #self.dire='/home/u12/jadamo/CovaPT/Example-Data/'
-        #self.dire='/home/joeadamo/Research/CovaPT/Data/'
-        #self.dire='/home/jadamo/UArizona/Research/CovaPT/Example-Data/'
-
         #Using the window kernels calculated from the survey random catalog as input
         #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
         try:
@@ -586,7 +581,7 @@ class Analytic_Covmat():
         cov_SSC, cov_T0 = self.get_non_gaussian_covariance(params)
         return cov_G, cov_SSC, cov_T0
     
-    def get_marginalized_covariance(self, params, C):
+    def get_marginalized_covariance(self, params, C, window_dir):
         """
         Returns the marginalized covariance matrix as well as the convolved model vector
         taken from Misha Ivanov's Montepython Likelihood: https://github.com/Michalychforever/lss_montepython
@@ -595,8 +590,8 @@ class Analytic_Covmat():
         norm = 1; Nmarg = 4
         omit = 0; ksize = len(self.k)
         if len(self.wmat) == 0:
-            self.wmat = np.loadtxt("/home/joeadamo/Research/Data/BOSS-DR12/Updated/W_ngc_z3.matrix", skiprows = 0)
-            self.mmat = np.loadtxt("/home/joeadamo/Research/Data/BOSS-DR12/Updated/M_ngc_z3.matrix", skiprows = 0)
+            self.wmat = np.loadtxt(window_dir+"W_ngc_z3.matrix", skiprows = 0)
+            self.mmat = np.loadtxt(window_dir+"M_ngc_z3.matrix", skiprows = 0)
 
         h    = params[0] / 100.
         b1   = params[3]

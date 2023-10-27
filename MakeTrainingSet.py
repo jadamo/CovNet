@@ -41,8 +41,8 @@ N_PROC = 94
 
 dire='/home/u12/jadamo/CovaPT/Example-Data/'
 #home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-#home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
-home_dir = "/home/u12/jadamo/CovNet/Inportance-Set-1/"
+home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
+#home_dir = "/home/u12/jadamo/CovNet/Inportance-Set-1/"
 #dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
@@ -69,7 +69,7 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
     H0_bounds    = [50, 100]      # Hubble constant
     omch2_bounds = [0.02, 0.3]    # Omega_cdm h^2
-    As_bounds    = [0.75, 5.]     # Amplitude of Primordial Power spectrum As
+    As_bounds    = [0.75, 4.75]     # Amplitude of Primordial Power spectrum As
     b1_bounds    = [1, 4]         # Linear bias
     b2_bounds    = [-4, 4]        # Quadratic bias
     bG2_bounds   = [-4, 4]        # Tidal bias
@@ -106,9 +106,9 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
         Pshot = dist[:,9]*(Pshot_bounds[1] - Pshot_bounds[0]) + Pshot_bounds[0]
 
         samples = np.vstack((H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot)).T
-        header_str = "H0, omch2, A, b1, b2, bG2, cs0, cs2, cbar, Pshot"
+        header_str = "H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot"
     else:
-        header_str = "H0, omch2, A, b1, b2, bG2"
+        header_str = "H0, omch2, As, b1, b2, bG2"
         samples = np.vstack((H0, omch2, As, b1, b2, bG2)).T
 
     np.savetxt("Sample-params.txt", samples, header=header_str)
