@@ -15,7 +15,7 @@ torch.set_default_dtype(torch.float32)
 # ---------------------------------------------------------------------------
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, type, frac=1., train_gaussian_only=False,
-                 pos_norm=5.91572, neg_norm=4.62748):
+                 pos_norm=0, neg_norm=0):
         """
         Initialize and load in dataset for training
         @param data_dir {string} location of training set
@@ -47,23 +47,25 @@ class MatrixDataset(torch.utils.data.Dataset):
 
         data = np.load(file)
         self.params = torch.from_numpy(data["params"]).to(torch.float32)
-
+        
         # store specific terms of each matrix depending on the circumstances
         if self.gaussian_only:
             self.matrices = torch.from_numpy(data["C_G"]).to(torch.float32)
         else:
             self.matrices = torch.from_numpy(data["C_G"] + data["C_NG"]).to(torch.float32)
-
+        data.close()
+        self.N = self.matrices.shape[1]
+        
         if frac != 1.:
             N_frac = int(len(self.matrices) * frac)
             self.matrices = self.matrices[0:N_frac]
             self.params = self.params[0:N_frac]
 
         self.pre_process()
-
+        
         self.params = self.params.to(try_gpu())
         self.matrices = self.matrices.to(try_gpu())
-
+        
     def add_latent_space(self, z):
         # training latent net seems to be faster on cpu, so move data there
         self.latent_space = z.detach().to(torch.device("cpu"))
@@ -135,13 +137,16 @@ class MatrixDataset(torch.utils.data.Dataset):
         3. Normalizing each element based on the sign
         """
         self.matrices = torch.linalg.cholesky(self.matrices)
-
+        
         if self.norm_pos == 0:
             self.norm_pos = torch.log10(torch.max(self.matrices) + 1.)
         if self.norm_neg == 0:
             self.norm_neg = torch.log10(-1*torch.min(self.matrices) + 1.)
 
+        # Memory-intensive step
+        self.matrices = rearange_to_half(self.matrices, self.N)
         self.matrices = symmetric_log(self.matrices, self.norm_pos, self.norm_neg)
+        self.matrices = rearange_to_full(self.matrices, self.N, self.cholesky)
 
     def get_full_matrix(self, idx):
         """

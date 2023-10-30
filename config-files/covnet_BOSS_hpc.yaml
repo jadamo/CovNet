@@ -25,6 +25,11 @@ batch_size: 600
 train_gaussian_only   : False
 start_from_checkpoint : False
 
+# numbers with which to normalize the training set
+# Should be updated after generating your specific training set
+norm_pos : 5.8111
+norm_neg : 4.7667
+
 # cosmology parameter bounds. This should line up with what you used to generate your
 # training set
 parameter_bounds:
@@ -35,6 +40,5 @@ parameter_bounds:
  - [-4, 4]
  - [-4, 4]
 
-repo_dir: /home/joeadamo/Research/CovNet/
-save_dir: /home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP-T/
-training_dir: /home/joeadamo/Research/CovNet/Data/Training-Set-HighZ-NGC/
+save_dir: /home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T/
+training_dir: /xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/

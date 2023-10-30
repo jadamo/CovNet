@@ -12,15 +12,15 @@ import src as CovNet
 
 torch.set_default_dtype(torch.float32)
 
-config_dir = "/home/joeadamo/Research/CovNet/config-files/covnet_BOSS.yaml"
+config_dir = "/home/u12/jadamo/CovNet/config-files/covnet_BOSS_hpc.yaml"
 # directory to save the intermediate MLP network
-mlp_save_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP/"
-output_dir = "/home/joeadamo/Research/CovNet/emulators/ngc_z3"
+mlp_save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP/"
+output_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3"
 
-save_dir_1 = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP-T-001/"
-save_dir_2 = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP-T-005/"
-save_dir_3 = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP-T-01/"
-save_dir_4 = "/home/joeadamo/Research/CovNet/emulators/ngc_z3/MLP-T/"
+save_dir_1 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T-001/"
+save_dir_2 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T-005/"
+save_dir_3 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T-01/"
+save_dir_4 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T/"
 save_dirs = [save_dir_1, save_dir_2, save_dir_3, save_dir_4]
 
 num_attempts = 2
