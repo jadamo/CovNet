@@ -15,7 +15,7 @@ torch.set_default_dtype(torch.float32)
 # ---------------------------------------------------------------------------
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir, type, frac=1., train_gaussian_only=False,
-                 pos_norm=0, neg_norm=0):
+                 pos_norm=0, neg_norm=0, use_gpu=True):
         """
         Initialize and load in dataset for training
         @param data_dir {string} location of training set
@@ -63,8 +63,9 @@ class MatrixDataset(torch.utils.data.Dataset):
 
         self.pre_process()
         
-        self.params = self.params.to(try_gpu())
-        self.matrices = self.matrices.to(try_gpu())
+        if use_gpu == True:
+            self.params = self.params.to(try_gpu())
+            self.matrices = self.matrices.to(try_gpu())
         
     def add_latent_space(self, z):
         # training latent net seems to be faster on cpu, so move data there
@@ -194,11 +195,12 @@ def rearange_to_half(C, N):
     Takes a batch of matrices (B, N, N) and rearanges the lower half of each matrix
     to a rectangular (B, N+1, N/2) shape.
     """
+    device = C.device
     N_half = int(N/2)
     B = C.shape[0]
     L1 = torch.tril(C)[:,:,:N_half]; L2 = torch.tril(C)[:,:,N_half:]
-    L1 = torch.cat((torch.zeros((B,1, N_half), device=try_gpu()), L1), 1)
-    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, N_half), device=try_gpu())),1)
+    L1 = torch.cat((torch.zeros((B,1, N_half), device=device), L1), 1)
+    L2 = torch.cat((torch.flip(L2, [1,2]), torch.zeros((B,1, N_half), device=device)),1)
 
     return L1 + L2
 
@@ -207,9 +209,10 @@ def rearange_to_full(C_half, N, return_cholesky=False):
     Takes a batch of half matrices (B, N+1, N/2) and reverses the rearangment to return full,
     symmetric matrices (B, N, N). This is the reverse operation of rearange_to_half()
     """
+    device = C_half.device
     N_half = int(N/2)
     B = C_half.shape[0]
-    C_full = torch.zeros((B, N,N), device=try_gpu())
+    C_full = torch.zeros((B, N,N), device=device)
     C_full[:,:,:N_half] = C_full[:,:,:N_half] + C_half[:,1:,:]
     C_full[:,:,N_half:] = C_full[:,:,N_half:] + torch.flip(C_half[:,:-1,:], [1,2])
     L = torch.tril(C_full)
@@ -295,6 +298,6 @@ def try_gpu():
     """Return gpu() if exists, otherwise return cpu()."""
     if torch.cuda.is_available():
         return torch.device('cuda:0')
-    # elif torch.mps.is_available():
-    #     return torch.device("mps")
+    elif torch.backends.mps.is_available() :
+        return torch.device("mps")
     return torch.device('cpu')

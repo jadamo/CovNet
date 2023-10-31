@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import time, math
+import time
 from easydict import EasyDict
 
 # This script trains the emulator for several different sizes of the training set
@@ -12,44 +12,52 @@ import src as CovNet
 
 torch.set_default_dtype(torch.float32)
 
-config_dir = "/home/u12/jadamo/CovNet/config-files/covnet_BOSS_hpc.yaml"
-# directory to save the intermediate MLP network
-mlp_save_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP/"
-output_dir = "/home/u12/jadamo/CovNet/emulators/ngc_z3"
+CovNet_dir = "/Users/JoeyA/Research/CovNet/"
+config_dir = CovNet_dir+"config-files/covnet_BOSS_mac.yaml"
 
-save_dir_1 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T-001/"
-save_dir_2 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T-005/"
-save_dir_3 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T-01/"
-save_dir_4 = "/home/u12/jadamo/CovNet/emulators/ngc_z3/MLP-T/"
+# directory to save the intermediate MLP network
+mlp_save_dir = CovNet_dir+"emulators/ngc_z3/MLP/"
+output_dir = CovNet_dir+"emulators/ngc_z3/"
+
+save_dir_1 = CovNet_dir+"emulators/ngc_z3/MLP-T-001/"
+save_dir_2 = CovNet_dir+"emulators/ngc_z3/MLP-T-005/"
+save_dir_3 = CovNet_dir+"emulators/ngc_z3/MLP-T-01/"
+save_dir_4 = CovNet_dir+"emulators/ngc_z3/MLP-T/"
 save_dirs = [save_dir_1, save_dir_2, save_dir_3, save_dir_4]
 
 num_attempts = 2
 
-def get_testing_loss(net, test_data):
+def get_testing_loss(net, test_loader):
     avg_loss = 0
-    for i in range(len(test_data)):
-        params = test_data[i][0].view(1, net.config_dict.input_dim)
-        matrix = test_data[i][1].view(1, net.config_dict.output_dim, net.config_dict.output_dim).to(CovNet.try_gpu())
+    net = net.to("cpu"); net.bounds = net.bounds.to("cpu")
+    for (i, batch) in enumerate(test_loader):
+        params = batch[0]
+        matrix = batch[1]
         prediction = net(params)
         avg_loss += F.l1_loss(prediction, matrix, reduction="sum")
-    avg_loss /= len(test_data)
+    avg_loss /= len(test_loader.dataset)
+    net = net.to(CovNet.try_gpu()); net.bounds = net.bounds.to(CovNet.try_gpu())
     return avg_loss
 
 def main():
 
     config_dict = CovNet.load_config_file(config_dir)
 
+    use_gpu = torch.cuda.is_available() or torch.backends.mps.is_available()
     print("Training with just gaussian term:   " + str(config_dict.train_gaussian_only))
-    print("Using GPU:", torch.cuda.is_available())
+    print("Using GPU:", use_gpu)
     print("network architecture =", config_dict.architecture)
+    print(CovNet.try_gpu())
 
     assert config_dict.architecture == "MLP-T", "This file only works with the full network configuration!"
     assert config_dict.train_mlp_first == True
 
-    data_sizes = torch.Tensor([0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.])
-    batch_sizes = torch.Tensor([250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 400, 500, 500, 600]).int()
+    #data_sizes = torch.Tensor([0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.])
+    #batch_sizes = torch.Tensor([250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 400, 500, 500, 600]).int()
+    data_sizes = torch.Tensor([0.05, 0.1, 0.25, 0.5, 1])
+    batch_sizes = torch.Tensor([250, 250, 250, 250, 250]).int()
     num_rounds = len(config_dict.learning_rate)
-    save_sizes = [0, 1, 4, 13]; idx = 0 
+    save_sizes = [0, 1, 4]; idx = 0 
 
     # get the training / test datasets
     t1 = time.time()
@@ -58,24 +66,25 @@ def main():
                                       config_dict.norm_pos, config_dict.norm_neg)
     test_data = CovNet.MatrixDataset(config_dict.training_dir, "testing", 1, 
                                       config_dict.train_gaussian_only,
-                                      config_dict.norm_pos, config_dict.norm_neg)
+                                      config_dict.norm_pos, config_dict.norm_neg, False)
     t2 = time.time()
     print("Done loading in validation + test data, took {:0.2f} s".format(t2 - t1))
-    
+
     loss_data = torch.zeros((data_sizes.shape[0], num_attempts, 4))
     time_data = torch.zeros((data_sizes.shape[0], num_attempts, 2))
     save_str = ""
     for size in range(data_sizes.shape[0]):
 
-        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training", data_sizes[size], 
+        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training-small", data_sizes[size], 
                                           config_dict.train_gaussian_only, 
                                           config_dict.norm_pos, config_dict.norm_neg)
-        print(train_data.matrices.shape[0])
+        print("Training with", train_data.matrices.shape[0], "matrices")
 
         config_dict_MLP = EasyDict(config_dict)
         config_dict_MLP.architecture = "MLP"
-        config_dict_MLP.batch_size = batch_sizes[size]
+        config_dict_MLP.batch_size = batch_sizes[size].item()
         config_dict_MLP.save_dir = mlp_save_dir
+        test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_sizes[size].item(), shuffle=True, drop_last=True)
 
         # ----------------------------------------------------------
         # Train the MLP Block
@@ -94,10 +103,10 @@ def main():
 
                 # Train the network! Progress is saved to file within the function
                 net.Train(optimizer, train_data, valid_data, \
-                          False, "", round)
+                          True, "", round)
 
             t2 = time.time()
-            test_loss = get_testing_loss(net, test_data)
+            test_loss = get_testing_loss(net, test_loader)
             loss_data[size, attempt, 0] = net.best_loss
             loss_data[size, attempt, 1] = test_loss
             time_data[size, attempt, 0] = t2 - t1
@@ -146,13 +155,13 @@ def main():
 
                 # Train the network! Progress is saved to file within the function
                 net.Train(optimizer, train_data, valid_data, \
-                          False, "", round)
+                          True, "", round)
 
             if net.best_loss < best_loss and size in save_sizes:
                 best_loss = net.best_loss
                 net.save(save_dirs[idx])
 
-            test_loss = get_testing_loss(net, test_data)
+            test_loss = get_testing_loss(net, test_loader)
             loss_data[size, attempt, 2] = net.best_loss
             loss_data[size, attempt, 3] = test_loss
             time_data[size, attempt, 1] = t2 - t1
