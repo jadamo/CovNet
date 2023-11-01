@@ -19,8 +19,8 @@ config_dir = CovNet_dir+"config-files/covnet_BOSS_mac.yaml"
 mlp_save_dir = CovNet_dir+"emulators/ngc_z3/MLP/"
 output_dir = CovNet_dir+"emulators/ngc_z3/"
 
-save_dir_1 = CovNet_dir+"emulators/ngc_z3/MLP-T-001/"
-save_dir_2 = CovNet_dir+"emulators/ngc_z3/MLP-T-005/"
+save_dir_1 = CovNet_dir+"emulators/ngc_z3/MLP-T-0005/"
+save_dir_2 = CovNet_dir+"emulators/ngc_z3/MLP-T-001/"
 save_dir_3 = CovNet_dir+"emulators/ngc_z3/MLP-T-01/"
 save_dir_4 = CovNet_dir+"emulators/ngc_z3/MLP-T/"
 save_dirs = [save_dir_1, save_dir_2, save_dir_3, save_dir_4]
@@ -29,14 +29,15 @@ num_attempts = 2
 
 def get_testing_loss(net, test_loader):
     avg_loss = 0
-    net = net.to("cpu"); net.bounds = net.bounds.to("cpu")
+    net.eval()
+    net = net.to("cpu")
     for (i, batch) in enumerate(test_loader):
         params = batch[0]
         matrix = batch[1]
         prediction = net(params)
-        avg_loss += F.l1_loss(prediction, matrix, reduction="sum")
+        avg_loss += F.l1_loss(prediction, matrix, reduction="sum").item()
     avg_loss /= len(test_loader.dataset)
-    net = net.to(CovNet.try_gpu()); net.bounds = net.bounds.to(CovNet.try_gpu())
+    net = net.to(CovNet.try_gpu())
     return avg_loss
 
 def main():
@@ -71,7 +72,7 @@ def main():
     print("Done loading in validation + test data, took {:0.2f} s".format(t2 - t1))
 
     loss_data = torch.zeros((data_sizes.shape[0], num_attempts, 4))
-    time_data = torch.zeros((data_sizes.shape[0], num_attempts, 2))
+    time_data = torch.zeros((data_sizes.shape[0], num_attempts, 4))
     save_str = ""
     for size in range(data_sizes.shape[0]):
 
@@ -141,7 +142,7 @@ def main():
             # initialize networks
 
             config_dict_full = EasyDict(config_dict)
-            config_dict_full.batch_size = batch_sizes[size]
+            config_dict_full.batch_size = batch_sizes[size].item()
 
             net = CovNet.Network_Emulator(config_dict_full).to(CovNet.try_gpu())
             net.apply(CovNet.Network_Emulator.He)

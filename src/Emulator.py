@@ -135,8 +135,9 @@ class Network_Emulator(nn.Module):
             #self.out2 = nn.Linear(2*sequence_len, sequence_len)
 
             if self.embedding == True:
-                self.pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
-                self.pos_embed.requires_grad = False
+                pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
+                pos_embed.requires_grad = False
+                self.register_buffer("pos_embed", pos_embed)
 
         # MLP emulating PCs
         elif self.architecture == "MLP-PCA":
@@ -166,7 +167,8 @@ class Network_Emulator(nn.Module):
         else:
             print("ERROR! Invalid architecture specified")
 
-        self.bounds = torch.tensor(config_dict.parameter_bounds).to(try_gpu())
+        bounds = torch.tensor(config_dict.parameter_bounds).to(try_gpu())
+        self.register_buffer("bounds", bounds)
 
     def load_pretrained(self, path, freeze=True):
         """
