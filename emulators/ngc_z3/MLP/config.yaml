@@ -1,0 +1,44 @@
+architecture: MLP
+batch_size: 600
+dropout_prob: 0.25
+embedding: true
+freeze_mlp: true
+input_dim: 6
+learning_rate:
+- 0.001438
+- 0.0001
+- 1.0e-05
+mlp_dims:
+- 25
+- 50
+- 100
+- 500
+- 1000
+norm_neg: 4.7667
+norm_pos: 5.8111
+num_epochs: 300
+num_heads: 5
+num_mlp_blocks: 4
+num_transformer_blocks: 5
+output_dim: 50
+parameter_bounds:
+- - 50
+  - 100
+- - 0.02
+  - 0.3
+- - 0.75
+  - 5.0
+- - 1
+  - 4
+- - -4
+  - 4
+- - -4
+  - 4
+patch_size:
+- 17
+- 5
+save_dir: /home/u12/jadamo/CovNet/emulators/ngc_z3/MLP/
+start_from_checkpoint: false
+train_gaussian_only: false
+train_mlp_first: true
+training_dir: /xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/
