@@ -17,16 +17,16 @@ class CovNet():
     def __init__(self, net_dir):
         """
         Initializes the covariance emulator in a warpper class by loading in the trained
-        neural networks based on the specified options
-        @param net_dir {string} location of trained networks
-        @param N {int} the matrix dimensionality
-        @param architecture {string} flag specifying the specific network structure
-        @param pos_norm {float} the normalization value to be applied to positive elements of each matrix
-        @param neg_norm {float} the normalization value to be applied to negative elements of each matrix
+        neural network
+        Class assumes the config yaml file used to train the network was saved to the same
+        directory as the network itself
+        @param net_dir {string} location of trained network and config file
         """
 
         self.config_dict = Dataset.load_config_file(net_dir+"config.yaml")
 
+        # NOTE: Currently loads everything onto the cpu, which shouldn't matter
+        # for using in an actual analysis
         self.net = Network_Emulator(self.config_dict).to(try_gpu())
         self.net.eval()
         self.net.load_state_dict(torch.load(net_dir+'network.params', map_location=torch.device("cpu")))
@@ -55,14 +55,16 @@ class CovNet():
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
+        assert len(params) == self.config_dict.input_dim
+
         if self.config_dict.architecture == "VAE" or self.config_dict.architecture == "AE":
             z = self.net_latent(params).view(1,self.config_dict.input_dim)
             matrix = self.decoder(z).view(1,self.config_dict.output_dim)
         elif self.config_dict.architecture == "MLP-PCA":
-            components = self.net(params.view(1,6)).view(self.num_pcs)
+            components = self.net(params.view(1,self.config_dict.input_dim)).view(self.num_pcs)
             matrix = Dataset.reverse_pca(components, self.pca, self.pca_min_values, self.pca_max_values)
         else:
-            matrix = self.net(params.view(1,6)).view(1, self.config_dict.output_dim, self.config_dict.output_dim)
+            matrix = self.net(params.view(1,self.config_dict.input_dim)).view(1, self.config_dict.output_dim, self.config_dict.output_dim)
 
         if raw == False:
             matrix = Dataset.symmetric_exp(matrix, self.config_dict.norm_pos, self.config_dict.norm_neg).view(self.config_dict.output_dim,self.config_dict.output_dim)
@@ -314,7 +316,7 @@ class Network_Emulator(nn.Module):
                                       torch.Tensor(self.valid_loss)])
         torch.save(training_data, save_dir+"train_data-"+self.architecture+".dat")
         with open(save_dir+'config.yaml', 'w') as outfile:
-            yaml.dump(self.config_dict, outfile, default_flow_style=False)
+            yaml.dump(dict(self.config_dict), outfile, default_flow_style=False)
 
         if self.save_state is None: 
             torch.save(self.state_dict(), save_dir+'network.params')

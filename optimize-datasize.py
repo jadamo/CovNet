@@ -12,8 +12,8 @@ import src as CovNet
 
 torch.set_default_dtype(torch.float32)
 
-CovNet_dir = "/Users/JoeyA/Research/CovNet/"
-config_dir = CovNet_dir+"config-files/covnet_BOSS_mac.yaml"
+CovNet_dir = "/home/u12/jadamo/CovNet/"
+config_dir = CovNet_dir+"config-files/covnet_BOSS_hpc.yaml"
 
 # directory to save the intermediate MLP network
 mlp_save_dir = CovNet_dir+"emulators/ngc_z3/MLP/"
@@ -23,7 +23,7 @@ save_dir_1 = CovNet_dir+"emulators/ngc_z3/MLP-T-0005/"
 save_dir_2 = CovNet_dir+"emulators/ngc_z3/MLP-T-001/"
 save_dir_3 = CovNet_dir+"emulators/ngc_z3/MLP-T-01/"
 save_dir_4 = CovNet_dir+"emulators/ngc_z3/MLP-T/"
-save_dirs = [save_dir_1, save_dir_2, save_dir_3, save_dir_4]
+save_dirs = [save_dir_3, save_dir_4]
 
 num_attempts = 2
 
@@ -53,13 +53,12 @@ def main():
     assert config_dict.architecture == "MLP-T", "This file only works with the full network configuration!"
     assert config_dict.train_mlp_first == True
 
-    #data_sizes = torch.Tensor([0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.])
-    #batch_sizes = torch.Tensor([250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 400, 500, 500, 600]).int()
-    data_sizes = torch.Tensor([0.05, 0.1, 0.25, 0.5, 1])
-    batch_sizes = torch.Tensor([250, 250, 250, 250, 250]).int()
+    data_sizes = torch.Tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.])
+    batch_sizes = torch.Tensor([300, 300, 300, 300, 300, 300, 400, 500, 600, 600]).int()
+    #data_sizes = torch.Tensor([0.05, 0.1, 0.25, 0.5, 1])
+    #batch_sizes = torch.Tensor([250, 250, 250, 250, 250]).int()
     num_rounds = len(config_dict.learning_rate)
-    save_sizes = [0, 1, 4]; idx = 0 
-
+    save_sizes = [0, 9]; idx = 0 
     # get the training / test datasets
     t1 = time.time()
     valid_data = CovNet.MatrixDataset(config_dict.training_dir, "validation", 1, 
@@ -76,7 +75,7 @@ def main():
     save_str = ""
     for size in range(data_sizes.shape[0]):
 
-        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training-small", data_sizes[size], 
+        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training", data_sizes[size], 
                                           config_dict.train_gaussian_only, 
                                           config_dict.norm_pos, config_dict.norm_neg)
         print("Training with", train_data.matrices.shape[0], "matrices")

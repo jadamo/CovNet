@@ -68,14 +68,14 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         idx = f'{i:05d}'
         params_save = np.array([H0, omch2, As, b1, b2, bG2, om0, s8])
         np.savez(home_dir+"CovA-"+idx+".npz",
-                params=params_save, model_vector=model_vector, C_G=C_G, C_marg=C_marg)
+                params=params_save, model_vector=model_vector, C_G=C_G, C_NG=C_SSC+C_T0, C_marg=C_marg)
         return 0
     except:
         print("idx", i, "failed to marginalize covariance! saving what we have")
         idx = f'{i:05d}'
         params_save = np.array([H0, omch2, As, b1, b2, bG2])
         np.savez(home_dir+"CovA-"+idx+".npz",
-                    params=params_save, C_G=C_G)#, C_NG=C_SSC + C_T0)
+                    params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
         return -3
 
 #-------------------------------------------------------------------

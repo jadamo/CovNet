@@ -16,11 +16,12 @@ torch.set_default_dtype(torch.float32)
 # wether to train the main and secondary nets
 do_main = True; do_features = False
 
-CovNet_dir = "/home/joeadamo/Research/CovNet/"
+config_file = "/home/joeadamo/Research/CovNet/config-files/covnet_BOSS_mac.yaml"
+config_file = "/home/u12/jadamo/CovNet/config-files/covnet_BOSS_hpc.yaml"
 
 def main():
 
-    config_dict = CovNet.load_config_file(CovNet_dir+"config-files/covnet_BOSS.yaml")
+    config_dict = CovNet.load_config_file(config_file)
 
     print("Loading from Checkpoint             " + str(config_dict.start_from_checkpoint))
     print("Training with just gaussian term:   " + str(config_dict.train_gaussian_only))
@@ -44,11 +45,11 @@ def main():
     # get the training / test datasets
     t1 = time.time()
     if "norm_pos" in net.config_dict:
-        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training-small", 0.1, 
+        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training", 1., 
                                         net.config_dict.train_gaussian_only,
                                         net.config_dict.norm_pos, net.config_dict.norm_neg)
     else:
-        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training-small", 0.1, 
+        train_data = CovNet.MatrixDataset(config_dict.training_dir, "training", 1., 
                                         net.config_dict.train_gaussian_only,
                                         0, 0)
         norm_pos, norm_neg = train_data.norm_pos.item(), train_data.norm_neg.item()

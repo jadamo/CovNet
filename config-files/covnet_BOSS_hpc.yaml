@@ -18,7 +18,7 @@ freeze_mlp             : True        # <- whether to keeep mlp weights frozen du
 train_mlp_first        : True
 
 # Training parameters
-num_epochs: 30
+num_epochs: 300
 learning_rate: [1.438e-3, 1.e-4, 1.e-5]
 batch_size: 600
 
