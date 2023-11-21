@@ -4,28 +4,38 @@
 # Import tests
 # --------------------------------------------------
 print("Checking modules can be imported...")
-bad_imports = 0
+success_imports = 0
+num_tests = 4
+
 try:
     from easydict import EasyDict
     print("EasyDict: Success")
+    success_imports+= 1
 except:
     print("ERROR! Could not import EasyDict!")
-    bad_imports += 1
 try:
     import torch
     print("PyTorch: Success")
+    success_imports+= 1
 except:
     print("ERROR! Could not import PyTorch!")
 try:
+    import yaml
+    print("yaml: Success")
+    success_imports+= 1
+except:
+    print("ERROR! Could not import yaml!")
+try:
     from classy import Class
     print("CLASS-PT: Success")
+    success_imports+= 1
 except:
     print("ERROR! CLASS-PT was not built correctly! Please follow the instructions at https://github.com/Michalychforever/CLASS-PT/blob/master/instructions.pdf")
-    bad_imports += 1
 
-print(bad_imports, "/ 3 modules succesfully imported")
 
-if bad_imports != 0:
+print(success_imports, "/", num_tests, "modules succesfully imported")
+
+if success_imports != num_tests:
     print("To run the rest of these tests, please fix the necesary modules")
 else:
     print("yay!")
