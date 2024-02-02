@@ -4,14 +4,17 @@
 
 export OMP_NUM_THREADS=3
 
-base_dir="/Users/JoeyA/Research/"
+#base_dir="/Users/JoeyA/Research/"
+base_dir="/home/joeadamo/Research/"
 conf_file=$base_dir"Software/Montepython/default.conf"
 param_file=$base_dir"Software/Montepython/input/boss_ngc_z3.param"
-output_folder=$base_dir"CovNet/chains/MontePython/simulated-data/fixed-400/"
+output_folder=$base_dir"CovNet/chains/MontePython/noisy-data/cov-vary-single-nd/"
 
 #covmat="/home/joeadamo/Research/CovNet/chains/MontePython/beutler-data/old-likelihood/initial-marg/initial-beutler.covmat"
 #covmat=$base_dir"CovNet/chains/MontePython/simulated-data/vary-gaussian/test.covmat"
-covmat=$base_dir"CovNet/chains/MontePython/simulated-data/vary-no-determinant-1/vary-no-determinant.covmat"
+covmat=$base_dir"CovNet/chains/MontePython/simulated-data/old-data-vector/vary-no-determinant-1/vary-no-determinant.covmat"
+#covmat=$base_dir"CovNet/chains/MontePython/simulated-data/vary-determinant/vary-determinant.covmat"
+#covmat=$base_dir"CovNet/chains/MontePython/noisy-data/model-vary-old/fixed-noisy.covmat"
 
 log_file=$output_folder"log.param"
 
@@ -20,7 +23,7 @@ log_file=$output_folder"log.param"
 # "sequential" - varies one parameter at a time (good for debugging / initial runs?)
 # "fast" - varies cosmo and nuisance parameters seperately (DO NOT USE!)
 jump_mode="global"
-N=15000
+N=20000
 
 # flag to restart a run using -r
 # need to specify the name of the lowest-number chain (so example date_N__1.txt)
