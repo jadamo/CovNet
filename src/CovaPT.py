@@ -11,12 +11,10 @@ from scipy.misc import derivative
 import camb
 from camb import model
 from classy import Class
-#sys.path.append('/home/joeadamo/Research') #<- parent directory of dark emulator code
 
-sys.path.append("/Users/JoeyA/Research/CovaPT/detail")
-sys.path.append('/home/u12/jadamo/CovaPT/detail')
-sys.path.append('/home/joeadamo/Research/CovaPT/detail')
-#sys.path.append('/home/jadamo/UArizona/Research/CovaPT/detail')
+from src.config import CovaPT_T0_dir, CovaPT_data_dir
+
+sys.path.append(CovaPT_T0_dir)
 import T0
 
 # Organize everything into a class to more clearly specify things like
@@ -24,7 +22,7 @@ import T0
 class Analytic_Covmat():
 
     def __init__(self, z, k=np.linspace(0.005, 0.245, 25), 
-                 window_dir='/home/joeadamo/Research/CovaPT/Data/'):
+                 window_dir=CovaPT_data_dir):
         self.k = k
         self.kbins=len(k)
         self.z = z
