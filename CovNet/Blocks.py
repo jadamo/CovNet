@@ -3,8 +3,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 
-from src.Dataset import try_gpu, symmetric_exp, rearange_to_half, rearange_to_full
-import src.Emulator as Emulator
+from CovNet.Dataset import try_gpu, rearange_to_half, rearange_to_full
+import CovNet.Emulator as Emulator
 
 #torch.set_default_dtype(torch.float64)
 

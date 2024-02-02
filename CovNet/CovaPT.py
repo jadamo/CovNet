@@ -12,7 +12,7 @@ import camb
 from camb import model
 from classy import Class
 
-from src.config import CovaPT_T0_dir, CovaPT_data_dir
+from CovNet.config import CovaPT_T0_dir, CovaPT_data_dir
 
 sys.path.append(CovaPT_T0_dir)
 import T0

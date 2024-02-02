@@ -5,9 +5,9 @@ import numpy as np
 import pickle as pkl
 import yaml
 
-import src.Blocks as Blocks
-import src.Dataset as Dataset
-from src.Dataset import try_gpu
+import CovNet.Blocks as Blocks
+import CovNet.Dataset as Dataset
+from CovNet.Dataset import try_gpu
 
 # ---------------------------------------------------------------------------
 # Emulator API Class - this is the class to call in a likelihood analysis

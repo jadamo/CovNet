@@ -1,4 +1,6 @@
 # This script tests that your enviornment is setup correctly to run CovNet
+# TODO: replace this with something more formal like unittest
+#import unittest
 
 # --------------------------------------------------
 # Import tests
@@ -57,7 +59,7 @@ def main():
     # --------------------------------------------------
     # Compatability tests
     # --------------------------------------------------
-    import src as CovNet
+    from CovNet import CovaPT
 
     # test wether or not your machine is configured to use pytorch on a gpu
     if torch.cuda.is_available() == True:
@@ -69,7 +71,7 @@ def main():
 
     # test that you can use CLASS-PT without triggering a segmentation fault
     # if not, then it's not configured correctly
-    Analytic_Model = CovNet.CovaPT.Analytic_Covmat(0.61)
+    Analytic_Model = CovaPT.Analytic_Covmat(0.61)
     params = np.array([67.77, 0.1184, 3.0447, 2., 0., 0., 0., 0., 500, 0.])
     output = Analytic_Model.Pk_CLASS_PT(params)
     if len(output) == 0:
