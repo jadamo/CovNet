@@ -5,12 +5,15 @@ setup(
     version="1.0",
     author="Joe Adamo",
     author_email="jadamo@arizona.edu",
+    description="Neural network emulator to generate covariance matrices for cosmological data analysis",
     packages=find_packages(),
-    install_requires=[
+    install_requires=["build",
                       "numpy",
                       "scipy",
                       "torch >= 1.12.1",
                       "PyYAML",
-                      "camb >= 1.3.5"
+                      "easydict",
+                      "camb >= 1.3.5",
+                      "classy"
     ],
 )

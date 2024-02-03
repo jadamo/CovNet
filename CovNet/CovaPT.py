@@ -12,10 +12,9 @@ import camb
 from camb import model
 from classy import Class
 
-from CovNet.config import CovaPT_T0_dir, CovaPT_data_dir
+from CovNet.config import CovaPT_data_dir
 
-sys.path.append(CovaPT_T0_dir)
-import T0
+from CovNet import T0
 
 # Organize everything into a class to more clearly specify things like
 # what k range and binning we're using
