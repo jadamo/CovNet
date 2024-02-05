@@ -18,7 +18,7 @@ from CovNet import T0
 
 # Organize everything into a class to more clearly specify things like
 # what k range and binning we're using
-class Analytic_Covmat():
+class LSS_Model():
 
     def __init__(self, z, k=np.linspace(0.005, 0.245, 25), 
                  window_dir=CovaPT_data_dir):
@@ -43,8 +43,12 @@ class Analytic_Covmat():
         # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
         # These are needed to calculate the sigma^2 terms
         # Columns are k P00 P02 P04 P22 P24 P44 Nmodes
-        self.powW22=np.loadtxt(self.dire+'WindowPower_W22_highz.dat')
-        self.powW10=np.loadtxt(self.dire+'WindowPower_W10_highz.dat')
+        try:
+            self.powW22=np.loadtxt(self.dire+'WindowPower_W22_highz.dat')
+            self.powW10=np.loadtxt(self.dire+'WindowPower_W10_highz.dat')
+        except IOError:
+            print("Error: Couldn't find window power sepctra!")
+            return -1
 
         # Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
         self.powW22x10=np.loadtxt(self.dire+'WindowPower_W22xW10_highz.dat')
@@ -64,13 +68,13 @@ class Analytic_Covmat():
 
         # k bins for the theory power spectrum
         dkf = 0.001
-        self.kbins3 = np.zeros(400)
-        for i in range(400): self.kbins3[i] = dkf/2+i*dkf
+        self.k_theory = np.zeros(400)
+        for i in range(400): self.k_theory[i] = dkf/2+i*dkf
 
         self.wmat = np.array([])
         self.mmat = np.array([])
 
-        # common CLASS-PT settings
+        # "common" CLASS-PT settings
         self.common_settings = {'output':'mPk',         # what to output
                             'non linear':'PT',      # {None, Halofit, PT}
                             'IR resummation':'Yes',
@@ -314,11 +318,12 @@ class Analytic_Covmat():
             return []
 
         # theory calculations taken from Misha Ivanov's likelihood function
+        # these let you specify some more nuisance parameters than base CLASS-PT
         norm = 1
         h = cosmo.h()
         fz = cosmo.scale_independent_growth_factor_f(self.z)
-        all_theory = cosmo.get_pk_mult(self.kbins3*h,self.z, 400)
-        kinloop1 = self.kbins3 * h
+        all_theory = cosmo.get_pk_mult(self.k_theory*h,self.z, 400)
+        kinloop1 = self.k_theory * h
         sigma8 = cosmo.sigma8()
         Omega_m = cosmo.Omega_m()
 
@@ -328,7 +333,7 @@ class Analytic_Covmat():
                 + b2*norm**3*all_theory[38]
                 + bG2*norm**3*all_theory[39]
                 + 2.*cs4*norm**2*all_theory[13]/h**2)*h**3
-                + fz**2*b4*self.kbins3**2*(norm**2*fz**2*48./143. + 48.*fz*b1*norm/77.+8.*b1**2/35.)*(35./8.)*all_theory[13]*h)
+                + fz**2*b4*self.k_theory**2*(norm**2*fz**2*48./143. + 48.*fz*b1*norm/77.+8.*b1**2/35.)*(35./8.)*all_theory[13]*h)
 
         theory2 = ((norm**2*all_theory[18]
                 + norm**4*(all_theory[24])
@@ -341,8 +346,8 @@ class Analytic_Covmat():
                 + bG2*norm**3*all_theory[37]
                 + 2.*(cs2 + 0.*b4*kinloop1**2)*norm**2*all_theory[12]/h**2
                 + (2.*bG2+0.8*bGamma3*norm)*norm**3*all_theory[9])*h**3
-                + a2*(2./3.)*(self.kbins3/0.45)**2.
-                + fz**2*b4*self.kbins3**2*((norm**2*fz**2*70. + 165.*fz*b1*norm+99.*b1**2)*4./693.)*(35./8.)*all_theory[13]*h)
+                + a2*(2./3.)*(self.k_theory/0.45)**2.
+                + fz**2*b4*self.k_theory**2*((norm**2*fz**2*70. + 165.*fz*b1*norm+99.*b1**2)*4./693.)*(35./8.)*all_theory[13]*h)
 
         theory0 = ((norm**2*all_theory[15]
                 + norm**4*(all_theory[21])
@@ -360,14 +365,14 @@ class Analytic_Covmat():
                 + 2.*cs0*norm**2*all_theory[11]/h**2
                 + (2.*bG2+0.8*bGamma3*norm)*norm**2*(b1*all_theory[7]+norm*all_theory[8]))*h**3
                 + Pshot
-                + a0*(self.kbins3/0.45)**2.
-                + a2*(1./3.)*(self.kbins3/0.45)**2.
-                + fz**2*b4*self.kbins3**2*(norm**2*fz**2/9. + 2.*fz*b1*norm/7. + b1**2/5)*(35./8.)*all_theory[13]*h)
+                + a0*(self.k_theory/0.45)**2.
+                + a2*(1./3.)*(self.k_theory/0.45)**2.
+                + fz**2*b4*self.k_theory**2*(norm**2*fz**2/9. + 2.*fz*b1*norm/7. + b1**2/5)*(35./8.)*all_theory[13]*h)
 
         if interpolate == True:
-            pk_g0 = InterpolatedUnivariateSpline(self.kbins3,theory0)(self.k)
-            pk_g2 = InterpolatedUnivariateSpline(self.kbins3,theory2)(self.k)
-            pk_g4 = InterpolatedUnivariateSpline(self.kbins3,theory4)(self.k)
+            pk_g0 = InterpolatedUnivariateSpline(self.k_theory,theory0)(self.k)
+            pk_g2 = InterpolatedUnivariateSpline(self.k_theory,theory2)(self.k)
+            pk_g4 = InterpolatedUnivariateSpline(self.k_theory,theory4)(self.k)
 
             cosmo.struct_cleanup()
             return [pk_g0, 0, pk_g2, 0, pk_g4]
@@ -473,10 +478,13 @@ class Analytic_Covmat():
         else: return covMat, Pk_galaxy
 
     #-------------------------------------------------------------------
-    def get_non_gaussian_covariance(self, params, do_T0=True):
+    def get_non_gaussian_covariance(self, params):
         """
         Returns the Non-Gaussian portion of the covariance matrix
-        Takes ~ 10 minutes to run
+        WARNING: This function is very expensive to run! (~10 minutes)
+        @param params {np array} input parameters [H0, omch2, As, b1, b2, gG2]
+        @return covaSSCmult {2D array} the SSC covaraince term
+        @return covaT0mult {2D array} the T0 covariance term
         """
         # Cosmology parameters
         H0, omch2, As = params[0], params[1], params[2]
@@ -553,9 +561,6 @@ class Analytic_Covmat():
         covaSSCmult[:self.kbins,self.kbins:]=self.covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
         covaSSCmult[self.kbins:,:self.kbins]=np.transpose(covaSSCmult[:self.kbins,self.kbins:])
 
-        if do_T0 == False:
-            return covaSSCmult, None
-
         # Calculate the Non-Gaussian multipole covariance
         # Warning: the trispectrum takes a while to run
         covaT0mult=np.zeros((2*self.kbins,2*self.kbins))
@@ -597,20 +602,20 @@ class Analytic_Covmat():
         b4sig = 500.
         Pshotsig = 5000.
 
-        dtheory4_dcss0 = np.zeros_like(self.kbins3)
-        dtheory4_dcss2 = np.zeros_like(self.kbins3)
-        dtheory4_db4 = fz**2*self.kbins3**2*(norm**2*fz**2*48./143. + 48.*fz*b1*norm/77.+8.*b1**2/35.)*(35./8.)*all_theory[13]*h
-        dtheory4_dPshot = np.zeros_like(self.kbins3)
+        dtheory4_dcss0 = np.zeros_like(self.k_theory)
+        dtheory4_dcss2 = np.zeros_like(self.k_theory)
+        dtheory4_db4 = fz**2*self.k_theory**2*(norm**2*fz**2*48./143. + 48.*fz*b1*norm/77.+8.*b1**2/35.)*(35./8.)*all_theory[13]*h
+        dtheory4_dPshot = np.zeros_like(self.k_theory)
 
-        dtheory2_dcss0 = np.zeros_like(self.kbins3)
+        dtheory2_dcss0 = np.zeros_like(self.k_theory)
         dtheory2_dcss2 = (2.*norm**2.*all_theory[12]/h**2.)*h**3.
-        dtheory2_db4 = fz**2.*self.kbins3**2.*((norm**2.*fz**2.*70. + 165.*fz*b1*norm+99.*b1**2.)*4./693.)*(35./8.)*all_theory[13]*h
-        dtheory2_dPshot = np.zeros_like(self.kbins3)
+        dtheory2_db4 = fz**2.*self.k_theory**2.*((norm**2.*fz**2.*70. + 165.*fz*b1*norm+99.*b1**2.)*4./693.)*(35./8.)*all_theory[13]*h
+        dtheory2_dPshot = np.zeros_like(self.k_theory)
 
         dtheory0_dcss0 = (2.*norm**2.*all_theory[11]/h**2.)*h**3.
-        dtheory0_dcss2 = np.zeros_like(self.kbins3)
-        dtheory0_db4 = fz**2.*self.kbins3**2.*(norm**2.*fz**2./9. + 2.*fz*b1*norm/7. + b1**2./5)*(35./8.)*all_theory[13]*h
-        dtheory0_dPshot = np.ones_like(self.kbins3)
+        dtheory0_dcss2 = np.zeros_like(self.k_theory)
+        dtheory0_db4 = fz**2.*self.k_theory**2.*(norm**2.*fz**2./9. + 2.*fz*b1*norm/7. + b1**2./5)*(35./8.)*all_theory[13]*h
+        dtheory0_dPshot = np.ones_like(self.k_theory)
 
         theory0vec = np.vstack([theory0,dtheory0_dcss0,dtheory0_dcss2,dtheory0_db4,dtheory0_dPshot])
         theory2vec = np.vstack([theory2,dtheory2_dcss0,dtheory2_dcss2,dtheory2_db4,dtheory2_dPshot])

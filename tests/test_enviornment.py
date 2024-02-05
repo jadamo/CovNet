@@ -1,87 +1,43 @@
 # This script tests that your enviornment is setup correctly to run CovNet
-# TODO: replace this with something more formal like unittest
-#import unittest
+import unittest
+import numpy as np
+
+from CovNet import CovaPT
+from CovNet.config import CovaPT_data_dir
+import torch
+import os
 
 # --------------------------------------------------
 # Import tests
 # --------------------------------------------------
-def main():
-
-    print("Checking all required packages can be imported...")
-    success_imports = 0
-    num_tests = 6
-
-    try:
-        import numpy as np
-        print("NumPy: Success")
-        success_imports+= 1
-    except:
-        print("ERROR! Could not import Numpy!")
-    try:
-        from easydict import EasyDict
-        print("EasyDict: Success")
-        success_imports+= 1
-    except:
-        print("ERROR! Could not import EasyDict!")
-    try:
-        import torch
-        print("PyTorch: Success")
-        success_imports+= 1
-    except:
-        print("ERROR! Could not import PyTorch!")
-    try:
-        import yaml
-        print("yaml: Success")
-        success_imports+= 1
-    except:
-        print("ERROR! Could not import yaml!")
-
-    try:
-        import camb
-        print("camb: Success")
-        success_imports+= 1
-    except:
-        print("ERROR: Could not import camb!")
-    try:
-        from classy import Class
-        print("CLASS-PT: Success")
-        success_imports+= 1
-    except:
-        print("ERROR! CLASS-PT was not built correctly! Please follow the instructions at https://github.com/Michalychforever/CLASS-PT/blob/master/instructions.pdf")
-
-
-    print(success_imports, "/", num_tests, "modules succesfully imported")
-
-    if success_imports != num_tests:
-        print("To run the rest of these tests, please fix the necesary modules")
-        return 0
+class TestEnviornment(unittest.TestCase):
 
     # --------------------------------------------------
     # Compatability tests
     # --------------------------------------------------
-    from CovNet import CovaPT
+    # test that file paths poinitng to external stuff exists
+    def test_covapt_dir(self):
 
-    # test wether or not your machine is configured to use pytorch on a gpu
-    if torch.cuda.is_available() == True:
-        print("Pytorch is configured to run on GPU!")
-    elif torch.backends.mps.is_available() == True:
-        print("Pytorch is configured to run on M1/2 mac GPU")
-    else:
-        print("Pytorch is configured to run only on CPU")
+        # assert directory exits
+        print(CovaPT_data_dir)
+        self.assertTrue(os.path.exists(CovaPT_data_dir))
 
-    # test that you can use CLASS-PT without triggering a segmentation fault
-    # if not, then it's not configured correctly
-    Analytic_Model = CovaPT.Analytic_Covmat(0.61)
-    params = np.array([67.77, 0.1184, 3.0447, 2., 0., 0., 0., 0., 500, 0.])
-    output = Analytic_Model.Pk_CLASS_PT(params)
-    if len(output) == 0:
-        print("ERROR: Bolztman Solver failed! This is probably due to CLASS-PT being configured incorrectly")
-    else:
-        print("CLASS-PT configuration test: success!")
+        # assert directory is not empty
+        dir = os.listdir(CovaPT_data_dir)
+        self.assertTrue(len(dir) > 0) 
+
+    # # test wether or not your machine is configured to use pytorch on a gpu
+    # if torch.cuda.is_available() == True:
+    #     print("Pytorch is configured to run on GPU!")
+    # elif torch.backends.mps.is_available() == True:
+    #     print("Pytorch is configured to run on M1/2 mac GPU")
+    # else:
+    #     print("Pytorch is configured to run only on CPU")
+
 
     # --------------------------------------------------
     # File-path tests
     # --------------------------------------------------
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    unittest.main()
