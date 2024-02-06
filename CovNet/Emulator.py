@@ -37,6 +37,7 @@ class CovNet():
         Uses the emulator to return a covariance matrix
         params -> secondary network -> decoder -> post-processing
         @param params {np array} the list of cosmology parameters to emulator a covariance matrix from
+        @param raw {bool} flag to specify wether or not to undo matrix processing before returning
         @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
         """
         params = torch.from_numpy(params).to(torch.float32)
@@ -53,7 +54,12 @@ class CovNet():
             return matrix
 
 class Network_Emulator(nn.Module):
+
     def __init__(self, config_dict):
+        """
+        Inititalizes the neural network based on the input configuration file.
+        @param config_dict {easydict} dictionary of parameters specifying how to build the network
+        """
         super().__init__()
         self.config_dict = config_dict
         self.architecture = config_dict.architecture
@@ -125,7 +131,9 @@ class Network_Emulator(nn.Module):
 
     def load_pretrained(self, path, freeze=True):
         """
-        loads the pre-trained layers into the current model
+        loads the pre-trained layers from a file into the current model
+        @param path {string} directory+filename of the trained network to load
+        @param freeze {bool} flag indicating whether to fix weights after loading them in
         """
         pre_trained_dict = torch.load(path, map_location=try_gpu())
 
@@ -135,11 +143,13 @@ class Network_Emulator(nn.Module):
             self.state_dict()[name].copy_(param)
             if freeze==True: self.state_dict()[name].requires_grad = False
 
-        #print("Pre-trained layers loaded in succesfully")
 
     def normalize(self, params):
         """
         Normalizes the input parameters to a range of (0, 1)
+        This function requires you properly specify parameter bounds in the config file used to initialize the network.
+        @param params {2D tensor} batch of input parameters to normalize
+        @return params_norm {2D tensor} batch of normalized input parameters
         """
         params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
         return params_norm
