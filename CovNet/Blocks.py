@@ -9,7 +9,17 @@ from CovNet.Dataset import try_gpu
 # ResNet Blocks
 # ---------------------------------------------------------------------------
 class Block_Full_ResNet(nn.Module):
+    """
+    Class defining the residual net (ResNet) block used in the full covariance emulator
+    """
+    
     def __init__(self, dim_in, dim_out):
+        """
+        Initializes the ResNet block, which is composed of 
+        4 sets of MLP + batchnorm layers, and a skip connection at the end
+        @param in_dim {int} size of the input dimension
+        @param out_dim {int} size of the output dimention
+        """
         super().__init__()
 
         self.h1 = nn.Linear(dim_in, dim_out)
@@ -24,6 +34,11 @@ class Block_Full_ResNet(nn.Module):
         self.skip = nn.Linear(dim_in, dim_out)
 
     def forward(self, X):
+        """
+        Passes input through the block
+        @param X {2D Tensor} a batch of block inputs
+        @return X {2D Tensor} the batch output of the block
+        """
         residual = X
         X = F.leaky_relu(self.bn1(self.h1(X)))
         X = F.leaky_relu(self.bn2(self.h2(X)))
@@ -34,6 +49,11 @@ class Block_Full_ResNet(nn.Module):
         return X
 
 class Block_CNN_ResNet(nn.Module):
+    """
+    Class defining a residual net (ResNet) block that uses CNN instead of MLP layers
+    NOTE: This block is not used in the actual emulator structure. You should use Block_Full_ResNet instead
+    """
+
     def __init__(self, C_in, C_out, reverse=False):
         super().__init__()
         if reverse==False:
@@ -160,6 +180,10 @@ class Block_AddNorm(nn.Module):
         return self.layerNorm(self.dropoiut(Y) + X)
 
 class Block_Transformer_Encoder(nn.Module):
+    """
+    Class defining the transformer encoder block used by the full covariance emulator
+    NOTE: The actual emulator uses a dedicated Pytorch transformer encoder object, so this class is deprecated!
+    """
 
     def __init__(self, hidden_dim, n_heads, dropout_prob=0.):
         super().__init__()

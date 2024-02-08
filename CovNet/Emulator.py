@@ -13,6 +13,9 @@ from CovNet.Dataset import try_gpu
 # Emulator API Class - this is the class to call in a likelihood analysis
 # ---------------------------------------------------------------------------
 class CovNet():
+    """
+    Class defining the covariance matrix emulator for external use.
+    """
 
     def __init__(self, net_dir):
         """
@@ -54,6 +57,12 @@ class CovNet():
             return matrix
 
 class Network_Emulator(nn.Module):
+    """
+    Class defining the neural network used to emulate covariance matrices.
+    Includes functions for saving, loading, training, and using the network.
+    In an actual analysis, you should use the CovNet class instead, which wraps around
+    This one for simplicity
+    """
 
     def __init__(self, config_dict):
         """
@@ -211,7 +220,7 @@ class Network_Emulator(nn.Module):
 
     def un_patchify(self, patches):
         """
-        Combines images patches (stored as 1D tensors) into a full image
+        Combines image patches (stored as 1D tensors) into a full image
         @param patches {4D Tensor} Transformer block output of seperate covariance patches
         @return X {3D tensor} Full matrix batch created by combining adjacent patches together
         """

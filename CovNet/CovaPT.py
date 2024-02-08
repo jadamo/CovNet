@@ -2,7 +2,7 @@
 # Source, Jay Wadekar: https://github.com/JayWadekar/CovaPT
 # NOTE: CovaPT must be downloaded for these functions to work
 
-import scipy, sys
+import scipy
 from scipy.integrate import quad
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
@@ -13,15 +13,28 @@ from camb import model
 from classy import Class
 
 from CovNet.config import CovaPT_data_dir
-
 from CovNet import T0
 
 # Organize everything into a class to more clearly specify things like
 # what k range and binning we're using
 class LSS_Model():
+    """
+    Class that defines the EFTofLSS model used to calculate both
+    predictions for the galaxy power spectrum multipoles with RSD, and
+    covariance matrices for said predictions. Said model is configured to predict data from
+    the BOSS DR12 galaxy catalog (specifically the highz, NGC sample)
+    TODO: give sources
+    """
 
     def __init__(self, z, k=np.linspace(0.005, 0.245, 25), 
                  window_dir=CovaPT_data_dir):
+        """
+        Initializes model
+        NOTE: Currently only configured for the highz NGC sample of the BOSS DR12 catalog
+        @param z {float} effective / mean redshift of the sample
+        @param k {np array} k bin centers. Default 25 k bins with kmax of 0.25 h/Mpc
+        @param window_dir {string} location of precomputed window functions. Detault directory provided by the repo
+        """
         self.k = k
         self.kbins=len(k)
         self.z = z
@@ -71,6 +84,7 @@ class LSS_Model():
         self.k_theory = np.zeros(400)
         for i in range(400): self.k_theory[i] = dkf/2+i*dkf
 
+        # window / wide-angle functions in matrix format
         self.wmat = np.array([])
         self.mmat = np.array([])
 
@@ -105,6 +119,7 @@ class LSS_Model():
     # For generating individual elements of the Gaussian covariance matrix
     # see Survey_window_kernels.ipynb for further details where the same function is used
     def Cij(self, kt, Wij, Pfit):
+
         temp=np.zeros((7,6))
         for i in range(-3,4):
             if(kt+i<0 or kt+i>=self.kbins):
@@ -128,6 +143,12 @@ class LSS_Model():
     #-------------------------------------------------------------------
     # Growth factor for LCDM cosmology
     def Dz(self, z,Om0):
+        """
+        Calculates the LambdaCDM growth factor D(z, Om0)
+        @param z {float} cosmological redshift
+        @param Om0 {float} matter density parameter
+        @return Dz {float} growth factor D(z, Om0) 
+        """
         return(scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3)
                                     /scipy.special.hyp2f1(1/3., 1, 11/6., 1-1/Om0)/(1+z))
 
@@ -587,6 +608,13 @@ class LSS_Model():
         """
         Returns the marginalized covariance matrix as well as the convolved model vector
         taken from Misha Ivanov's Montepython Likelihood: https://github.com/Michalychforever/lss_montepython
+        @param params {np array} array of input cosmology parameters [h, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot]
+        @param C {2D numpy array} Covariance matrix to marginalize
+        @param window_dir {string} location of window / wide angle functions
+        @return C_marg {2D numpy array} Marginalized covariance matrix
+        @return model_vector {numpy array} Power spectrum multipoles calculated during marginalization
+        @return Omega_m {float} value for matter parameter Omega_m
+        @return sigma8 {float} value for the power spectrum normalization sigma8
         """
         all_theory, theory0, theory2, theory4, fz, Omega_m, sigma8 = self.Pk_CLASS_PT(params, False)
         norm = 1; Nmarg = 4

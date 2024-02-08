@@ -1,6 +1,6 @@
 # This script is basically CovaPT's jupyter notebook, but in script form so you can more easily run it
 
-import time, os, sys, warnings, math
+import time, os, warnings, math
 import numpy as np
 from scipy.stats import qmc
 
@@ -8,9 +8,8 @@ from multiprocessing import Pool
 from itertools import repeat
 from mpi4py import MPI
 
-sys.path.append('/home/u12/jadamo/')
-#sys.path.append("/home/joeadamo/Research")
-import src.CovaPT as CovaPT
+from CovNet import CovaPT
+from CovNet.Dataset import organize_training_set
 
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
@@ -24,26 +23,32 @@ ombh2_planck = 0.02237
 # NOTE: This doubles the dimensionality of the parameter space, so you should also increase the 
 # number of samples to compensate
 vary_nuisance = False
-# wether or not to sample from an external set of parameters instead
-# if this is true you should also specify the total number of params below
-load_external_params = False
 
-#N = 150400
-N = 1052800
+load_existing_params = False
+
+#N = 1052800
 #N = 20000
-#N = 16
-N_PROC = 94
-#N_PROC=4
+N = 16
+#N_PROC = 94
+N_PROC=4
+
+# dimension of each matrix
+dim = 50
+
+# fraction of dataset to be partitioned to the training | validation | test sets
+train_frac = 0.8
+valid_frac = 0.1
+test_frac  = 0.1
 
 #-------------------------------------------------------------------
 # FUNCTIONS
 #-------------------------------------------------------------------
 
-dire='/home/u12/jadamo/CovaPT/Example-Data/'
 #home_dir = "/home/u12/jadamo/CovNet/Training-Set-HighZ-NGC/"
-home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
+
+home_dir = "/home/joeadamo/Research/Data/CovNet-Data/TIMESTEP-Training-Set/"
+#home_dir = "/xdisk/timeifler/jadamo/Training-Set-HighZ-NGC/"
 #home_dir = "/home/u12/jadamo/CovNet/Inportance-Set-1/"
-#dire='/home/joeadamo/Research/CovaPT/Example-Data/'
 #home_dir = "/home/joeadamo/Research/CovNet/Data/Inportance-Set/"
 
 def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
@@ -61,10 +66,6 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # bounds either taken from Wadekar et al (2020) or assumed to be "very wide"
     # NOTE: H0, A, and ombh2 have no assumed priors in that paper, so I chose an arbitrary large range
     # that minimizes the amount of failures when computing power spectra
-    # NOTE: ns and omega_b have assumed values, as they claim using Planck priors makes no difference.
-    # I'll therefore try to chose a range based on those priors found from https://wiki.cosmos.esa.int/planckpla/index.php/Cosmological_Parameters 
-    # For As, the reference value is taken from https://arxiv.org/pdf/1807.06209.pdf table 1 (the best fit column), 
-    # since Wadekar uses A = As / As_planck
     # ---Cosmology parameters sample bounds---
     # omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
     H0_bounds    = [50, 100]      # Hubble constant
@@ -74,8 +75,6 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     b2_bounds    = [-4, 4]        # Quadratic bias
     bG2_bounds   = [-4, 4]        # Tidal bias
 
-    ombh2_bounds = [0.005, 0.08]  # Omega b h^2
-    ns_bounds    = [0.9, 1.1]     # Spectral index
     # nuisance parameter sample bounds, should you chose to vary these when generating your training set
     cs0_bounds   = [-120, 120]
     cs2_bounds   = [-120, 120]
@@ -111,16 +110,8 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
         header_str = "H0, omch2, As, b1, b2, bG2"
         samples = np.vstack((H0, omch2, As, b1, b2, bG2)).T
 
-    np.savetxt("Sample-params.txt", samples, header=header_str)
+    np.savetxt(home_dir+"sample-params.txt", samples, header=header_str)
     #return samples
-
-def load_samples(N):
-    """
-    Loads in a set of parameters to generate covariance matrices from
-    """
-    samples = np.loadtxt(home_dir+"importance-params.txt", skiprows=1)
-    samples = samples[:N, :]
-    return samples
 
 def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
@@ -129,29 +120,38 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
 
     params = np.array([H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot])
+    params_save = np.array([H0, omch2, As, b1, b2, bG2])
 
-    Mat_Calc = CovaPT.Analytic_Covmat(z, window_dir="/home/u12/jadamo/CovaPT/Example-Data/")
+    Analytic_Model = CovaPT.LSS_Model(z)
 
     # calculate the covariance matrix
-    C_G = Mat_Calc.get_gaussian_covariance(params, return_Pk=False)
+    C_G = Analytic_Model.get_gaussian_covariance(params, return_Pk=False)
     if True in np.isnan(C_G):
         print("idx", i, "failed to compute power spectrum! skipping...")
-        return -1
-
-    C_SSC, C_T0 = Mat_Calc.get_non_gaussian_covariance(params)
-
-    # Test that the matrix we calculated is positive definite. It it isn't, then skip
+        return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -1
     try:
-        L = np.linalg.cholesky(C_G + C_SSC + C_T0)
-
+        L = np.linalg.cholesky(C_G)
         # save results to a file for training
         idx = f'{i:06d}'
-        params_save = np.array([H0, omch2, As, b1, b2, bG2])
-        np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
-        return 0
+        #np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G)
+        return C_G, np.zeros((dim, dim)), params_save, 0
     except:
         print("idx", i, "is not positive definite! skipping...")
-        return -2
+        return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -2
+    
+    #C_SSC, C_T0 = Analytic_Model.get_non_gaussian_covariance(params)
+
+    # Test that the matrix we calculated is positive definite. It it isn't, then skip
+    # try:
+    #     L = np.linalg.cholesky(C_G + C_SSC + C_T0)
+    #     # save results to a file for training
+    #     idx = f'{i:06d}'
+    #     params_save = np.array([H0, omch2, As, b1, b2, bG2])
+    #     np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
+    #     return C_G, C_SSC + C_T0, 0
+    # except:
+    #     print("idx", i, "is not positive definite! skipping...")
+    #     return [], [], -2
 
 #-------------------------------------------------------------------
 # MAIN
@@ -164,20 +164,21 @@ def main():
 
     if rank == 0:
         print("Varying nuisance parameters:", vary_nuisance)
-        print("Loading external set of parameters:", load_external_params)
+        print("Loading external set of parameters:", load_existing_params)
 
     # TEMP: ignore integration warnings to make output more clean
     warnings.filterwarnings("ignore")
 
     t1 = time.time(); t2 = t1
 
-    if rank == 0:
+    if rank == 0 and load_existing_params == False:
         # generate samples and sve them (only one rank does this!)
         Latin_Hypercube(N, vary_nuisance)
     comm.Barrier()
+
     # generate samples (done on each rank for simplicity)
-    if load_external_params == False: file = "Sample-params.txt"
-    else:                             file = home_dir+"inportance-params.txt"
+    # loads from file generated in Latin_Hypercube to prevent race conditions
+    file = home_dir+"sample-params.txt"
 
     # Split up samples to multiple MPI ranks
     # but only read into one rank to prevent wierd race conditions
@@ -222,11 +223,26 @@ def main():
     t1 = time.time()
     fail_compute_sub = 0
     fail_posdef_sub = 0
-    with Pool(processes=N_PROC) as pool:
-        for result in pool.starmap(CovAnalytic, zip(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)):
-            if result == -1: fail_compute_sub+=1
-            if result == -2: fail_posdef_sub+=1
 
+    with Pool(processes=N_PROC) as pool:
+        C_G, C_NG, params, result = zip(*pool.starmap(CovAnalytic, zip(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)))
+    
+        # aggregate data
+        C_G = np.array(C_G)
+        C_NG = np.array(C_NG)
+        params = np.array(params)
+        result = np.array(result)
+
+        idx_pass = np.where(result == 0)[0]
+
+        fail_compute_sub = len(np.where(result == -1)[0])
+        fail_posdef_sub = len(np.where(result == -2)[0])
+
+        C_G = C_G[idx_pass]
+        C_NG = C_NG[idx_pass]
+        params = params[idx_pass]
+
+    np.savez(home_dir+"CovA-"+str(rank)+".npz", params=params, C_G=C_G, C_NG=C_NG)
     t2 = time.time()
     print("Rank {:0.0f} is Done! Took {:0.0f} hours {:0.0f} minutes".format(rank, math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
     print("{:0.0f} matrices failed to compute power spectra".format(fail_compute_sub))
@@ -242,11 +258,14 @@ def main():
         print("\n All ranks done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
 
         # there (should be) no directories in the output directory, so no need to loop over the files
-        files = os.listdir(home_dir)
-        num_success = len(files)
+        #files = os.li3stdir(home_dir)
+        num_success = N - fail_compute - fail_posdef#len(files)
         print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
         print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
         print("{:0.0f} matrices were not positive definite".format(fail_posdef))
+
+        organize_training_set(home_dir, train_frac, valid_frac, test_frac,
+                              params.shape[1], C_G.shape[1])
 
 if __name__ == "__main__":
     main()
