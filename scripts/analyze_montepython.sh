@@ -6,6 +6,6 @@
 #base_dir="/Users/JoeyA/Research/"
 base_dir="/home/joeadamo/Research/"
 
-output_folder=$base_dir"CovNet/chains/MontePython/noisy-data/cov-vary-single-nd/"
+output_folder=$base_dir"CovNet/chains/MontePython/noisy-data/vary-noisy-1/"
 
-./montepython/MontePython.py info $output_folder
+./../montepython/MontePython.py info $output_folder

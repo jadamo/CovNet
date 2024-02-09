@@ -6,7 +6,7 @@ from CovNet import Emulator
 from CovNet.Dataset import load_config_file
 from CovNet.config import CovNet_config_dir
 
-class TEstNetwork(unittest.TestCase):
+class TestNetwork(unittest.TestCase):
 
     def test_emulator_constructor(self):
 
