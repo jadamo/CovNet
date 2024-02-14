@@ -42,6 +42,8 @@ class TestNetwork(unittest.TestCase):
         # test that the resulting matrix behaves well
         self.assertFalse(np.any(np.isnan(C_test)))
         self.assertEqual(len(C_test), 50)
+
+        # tests the matrix is positive definite
         L = np.linalg.cholesky(C_test)
 
 if __name__ == '__main__':

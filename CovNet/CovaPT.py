@@ -1,6 +1,5 @@
 # This file is simply a repackaging of the functions and math found in CovaPT
 # Source, Jay Wadekar: https://github.com/JayWadekar/CovaPT
-# NOTE: CovaPT must be downloaded for these functions to work
 
 import scipy
 from scipy.integrate import quad
@@ -45,7 +44,7 @@ class LSS_Model():
         try:
             self.WijFile = np.load(self.dire+'Wij_k'+str(self.kbins)+'_HighZ_NGC.npy')
         except IOError:
-            print("ERROR! Couldn't read in the window kernel! Please double-check your path or recalculate with the correct binning using Survey_window_kernels.ipynb")
+            print("ERROR! Couldn't read in the window kernel! Please double-check your path or recalculate with the correct binning using make_window_function.py")
             return -1
 
         # A, ns, ombh2 from Planck best-fit
@@ -123,7 +122,7 @@ class LSS_Model():
         temp=np.zeros((7,6))
         for i in range(-3,4):
             if(kt+i<0 or kt+i>=self.kbins):
-                temp[i+3]=0.
+                temp[i+3]=0
                 continue
             temp[i+3]=Wij[i+3,0]*Pfit[0][kt]*Pfit[0][kt+i]+\
             Wij[i+3,1]*Pfit[0][kt]*Pfit[2][kt+i]+\
