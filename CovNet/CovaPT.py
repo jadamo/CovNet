@@ -201,6 +201,7 @@ class LSS_Model():
         pk_lin = np.asarray([cosmo.pk_lin(kh,self.z)*cosmo.h()**3. for kh in khvec])
 
         pdata = np.vstack((k, pk_lin)).T
+        cosmo.struct_cleanup()
         return pdata
 
     #-------------------------------------------------------------------

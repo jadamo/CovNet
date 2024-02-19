@@ -35,7 +35,7 @@ class TestCovaPT(unittest.TestCase):
         self.assertFalse(np.any(np.isnan(C)))
         self.assertEqual(len(C), 50)
 
-    def test_window_kernel_constructor(self):
+    def test_gaussian_window_kernel_constructor(self):
         """
         Test the window kernel class constructor, as well as some
         of its helper functions
@@ -44,7 +44,7 @@ class TestCovaPT(unittest.TestCase):
         k_width_test = 0.01
         k_edges_test = np.linspace(0, 0.25, 26)
         
-        Window_Kernels = window.Window_Function(k_centers_test)
+        Window_Kernels = window.Gaussian_Window_Kernels(k_centers_test)
         self.assertAlmostEqual(k_width_test, Window_Kernels.kbin_width)
         
         self.assertEqual(len(k_edges_test), len(Window_Kernels.kbin_edges))

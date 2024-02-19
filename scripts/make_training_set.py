@@ -28,12 +28,15 @@ load_existing_params = False
 
 #N = 1052800
 #N = 20000
-N = 16
+N = 10000
 #N_PROC = 94
-N_PROC=4
+N_PROC=3
+
+# k bin centers to generate covariance for
+k = np.linspace(0.01, 0.19, 10)
 
 # dimension of each matrix
-dim = 50
+dim = int(2*len(k))
 
 # fraction of dataset to be partitioned to the training | validation | test sets
 train_frac = 0.8
@@ -122,36 +125,35 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     params = np.array([H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot])
     params_save = np.array([H0, omch2, As, b1, b2, bG2])
 
-    Analytic_Model = CovaPT.LSS_Model(z)
+    Analytic_Model = CovaPT.LSS_Model(z, k)
 
     # calculate the covariance matrix
     C_G = Analytic_Model.get_gaussian_covariance(params, return_Pk=False)
     if True in np.isnan(C_G):
         print("idx", i, "failed to compute power spectrum! skipping...")
+        del Analytic_Model 
         return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -1
     try:
         L = np.linalg.cholesky(C_G)
-        # save results to a file for training
-        idx = f'{i:06d}'
-        #np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G)
-        return C_G, np.zeros((dim, dim)), params_save, 0
     except:
         print("idx", i, "is not positive definite! skipping...")
+        del Analytic_Model 
         return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -2
     
-    #C_SSC, C_T0 = Analytic_Model.get_non_gaussian_covariance(params)
+    #return C_G, np.zeros((dim, dim)), params_save, 0
+    C_SSC, C_T0 = Analytic_Model.get_non_gaussian_covariance(params)
+    del Analytic_Model 
 
     # Test that the matrix we calculated is positive definite. It it isn't, then skip
-    # try:
-    #     L = np.linalg.cholesky(C_G + C_SSC + C_T0)
-    #     # save results to a file for training
-    #     idx = f'{i:06d}'
-    #     params_save = np.array([H0, omch2, As, b1, b2, bG2])
-    #     np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
-    #     return C_G, C_SSC + C_T0, 0
-    # except:
-    #     print("idx", i, "is not positive definite! skipping...")
-    #     return [], [], -2
+    try:
+        L = np.linalg.cholesky(C_G + C_SSC + C_T0)
+        # save results to a file for training
+        #idx = f'{i:06d}'
+        #np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
+        return C_G, C_SSC + C_T0, params_save, 0
+    except:
+        print("idx", i, "is not positive definite! skipping...")
+        return [], [], params_save, -2
 
 #-------------------------------------------------------------------
 # MAIN
@@ -163,6 +165,7 @@ def main():
     rank = MPI.COMM_WORLD.Get_rank()
 
     if rank == 0:
+        print("Generating", str(N), "matrices...")
         print("Varying nuisance parameters:", vary_nuisance)
         print("Loading external set of parameters:", load_existing_params)
 
@@ -224,25 +227,33 @@ def main():
     fail_compute_sub = 0
     fail_posdef_sub = 0
 
-    with Pool(processes=N_PROC) as pool:
-        C_G, C_NG, params, result = zip(*pool.starmap(CovAnalytic, zip(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i)))
-    
-        # aggregate data
-        C_G = np.array(C_G)
-        C_NG = np.array(C_NG)
-        params = np.array(params)
-        result = np.array(result)
+    p = Pool(processes=N_PROC)
 
-        idx_pass = np.where(result == 0)[0]
+    # After testing, this function does slowly build up used RAM over time
+    # but that buildup is most likely from filling the data arrays
+    C_G, C_NG, params, result = zip(*p.starmap(CovAnalytic, 
+                                                zip(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, repeat(z), i),
+                                                chunksize=25))
+    p.close()
+    p.join()
 
-        fail_compute_sub = len(np.where(result == -1)[0])
-        fail_posdef_sub = len(np.where(result == -2)[0])
+    # aggregate data
+    C_G = np.array(C_G)
+    C_NG = np.array(C_NG)
+    params = np.array(params)
+    result = np.array(result)
 
-        C_G = C_G[idx_pass]
-        C_NG = C_NG[idx_pass]
-        params = params[idx_pass]
+    idx_pass = np.where(result == 0)[0]
 
-    np.savez(home_dir+"CovA-"+str(rank)+".npz", params=params, C_G=C_G, C_NG=C_NG)
+    fail_compute_sub = len(np.where(result == -1)[0])
+    fail_posdef_sub = len(np.where(result == -2)[0])
+
+    C_G = C_G[idx_pass]
+    C_NG = C_NG[idx_pass]
+    params = params[idx_pass]
+
+    if C_G.shape[0] > 1:
+        np.savez(home_dir+"CovA-"+str(rank)+".npz", params=params, C_G=C_G, C_NG=C_NG)
     t2 = time.time()
     print("Rank {:0.0f} is Done! Took {:0.0f} hours {:0.0f} minutes".format(rank, math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
     print("{:0.0f} matrices failed to compute power spectra".format(fail_compute_sub))
@@ -265,7 +276,7 @@ def main():
         print("{:0.0f} matrices were not positive definite".format(fail_posdef))
 
         organize_training_set(home_dir, train_frac, valid_frac, test_frac,
-                              params.shape[1], C_G.shape[1])
+                              params.shape[1], dim)
 
 if __name__ == "__main__":
     main()

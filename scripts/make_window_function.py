@@ -4,16 +4,17 @@
 
 import time
 import numpy as np
+from itertools import repeat
 from multiprocessing import Pool
 from CovNet import window
 from CovNet.config import CovaPT_data_dir
 
 # how many processers to use
-num_processes = 12
+num_processes = 14
 
 # number of kmodes to sample
 # The default used by Jay Wadekar was 25000, which was run on a cluster
-kmodes_sampled = 10
+kmodes_sampled = 25000
 
 # K bins to generate the window function for
 k_centers = np.linspace(0.01, 0.19, 10)
@@ -25,13 +26,13 @@ key='HighZ_NGC'
 def main():
     
     t1 = time.time()
-    window_kernels = window.Window_Function(k_centers)
+    window_kernels = window.Gaussian_Window_Kernels(k_centers, key)
     idx = range(len(k_centers))
     nBins = len(k_centers)
 
     print("Starting window function generation with {:0.0f} processes...".format(num_processes))
     p = Pool(processes=num_processes)
-    WinFunAll=p.map(window_kernels.WinFun, idx)
+    WinFunAll=p.starmap(window_kernels.calc_gaussian_window_function, zip(idx, repeat(kmodes_sampled)))
     p.close()
     p.join()
 

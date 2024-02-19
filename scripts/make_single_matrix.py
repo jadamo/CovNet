@@ -12,7 +12,7 @@ def main():
     t1 = time.time()
 
     # define where to save the covariance matrix
-    save_file = os.getcwd()+"../data/Cov-Fid.npz"
+    save_file = os.getcwd()+"/../data/Cov-test.npz"
 
     # option to display the resulting matrix with matplotlib
     plot_matrix = True
@@ -23,7 +23,10 @@ def main():
     # params = np.array([70.848,0.1120,0.7573, 2.8213,-0.2566, -0.0442, 12.0884, 4.54, 381.8, 984])
     #params = np.array([6.9383e+01, 1.18316e-01, 1.038e+00, 1.9094e+00, -2.956e+00, 2.06320e-01, 0, 0, 500, 0])
     
-    Analytic_Model = CovaPT.LSS_Model(0.61)
+    # k bin centers to generate covariance for
+    k = np.linspace(0.01, 0.19, 10)
+
+    Analytic_Model = CovaPT.LSS_Model(0.61, k)
     C_G, C_SSC, C_T0 = Analytic_Model.get_full_covariance(params)
     C = C_G + C_SSC + C_T0
 

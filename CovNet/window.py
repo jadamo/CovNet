@@ -1,18 +1,22 @@
 # This file is a repackaging of the "Survey_window_kernels.ipynb" found in CovaPT
 # Source, Jay Wadekar: https://github.com/JayWadekar/CovaPT
 
+import os
 import numpy as np
 from numpy import conj
 
 from CovNet.config import CovaPT_data_dir
 
-class Window_Function():
+class Gaussian_Window_Kernels():
 
-    def __init__(self, k_centers):
+    def __init__(self, k_centers, key="HighZ_NGC"):
         """
-        Constructs window function object 
+        Constructs window kernel object 
         @param {np array} array of k bin centers
         """
+
+        assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
+               'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
 
         # the total number of kbins
         self.nBins = len(k_centers)
@@ -98,7 +102,7 @@ class Window_Function():
 
         return Wij2
     
-    def WinFun(self, bin_idx, kmodes_sampled=400):
+    def calc_gaussian_window_function(self, bin_idx, kmodes_sampled=400):
         """
         Returns the window function kernels for l=0,2,and 4 auto + cross covariance
         NOTE: This function is computationally expensive and should be run on a cluster in parralel
