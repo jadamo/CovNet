@@ -339,7 +339,7 @@ def organize_training_set(training_dir, train_frac, valid_frac, test_frac,
     for file in all_filenames:
         if "CovA-" in file:
 
-            F_1 = np.load(training_dir+file)
+            F_1 = np.load(training_dir+file, allow_pickle=True)
 
             params = F_1["params"]
             C_G = F_1["C_G"]
@@ -351,11 +351,6 @@ def organize_training_set(training_dir, train_frac, valid_frac, test_frac,
             all_C_NG = np.vstack([all_C_NG, C_NG])
 
     # TODO: Add additional check for positive-definete-ness
-            
-    if remove_old_files == True:
-        for file in all_filenames:
-            if "CovA-" in file:
-                os.remove(training_dir+file)
 
     N = all_params.shape[0]
     N_train = int(N * train_frac)
@@ -368,6 +363,11 @@ def organize_training_set(training_dir, train_frac, valid_frac, test_frac,
     test_end = N_train + N_valid + N_test
     assert test_end - valid_end == N_test
     assert valid_end - valid_start == N_valid
+
+    if remove_old_files == True:
+        for file in all_filenames:
+            if "CovA-" in file:
+                os.remove(training_dir+file)
 
     print("splitting dataset into chunks of size [{:0.0f}, {:0.0f}, {:0.0f}]...".format(N_train, N_valid, N_test))
 

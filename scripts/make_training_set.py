@@ -29,6 +29,7 @@ load_existing_params = False
 #N = 1052800
 #N = 20000
 N = 10000
+#N = 36
 #N_PROC = 94
 N_PROC=3
 
@@ -37,6 +38,7 @@ k = np.linspace(0.01, 0.19, 10)
 
 # dimension of each matrix
 dim = int(2*len(k))
+p_dim = 6
 
 # fraction of dataset to be partitioned to the training | validation | test sets
 train_frac = 0.8
@@ -72,11 +74,11 @@ def Latin_Hypercube(N, vary_nuisance=False, vary_ombh2=False, vary_ns=False):
     # ---Cosmology parameters sample bounds---
     # omch2_bounds = [0.004, 0.3]   # Omega_cdm h^2
     H0_bounds    = [50, 100]      # Hubble constant
-    omch2_bounds = [0.02, 0.3]    # Omega_cdm h^2
-    As_bounds    = [0.75, 4.75]     # Amplitude of Primordial Power spectrum As
+    omch2_bounds = [0.05, 0.3]    # Omega_cdm h^2
+    As_bounds    = [0.75, 4.5]    # Amplitude of Primordial Power spectrum As
     b1_bounds    = [1, 4]         # Linear bias
     b2_bounds    = [-4, 4]        # Quadratic bias
-    bG2_bounds   = [-4, 4]        # Tidal bias
+    bG2_bounds   = [-3, 3]        # Tidal bias
 
     # nuisance parameter sample bounds, should you chose to vary these when generating your training set
     cs0_bounds   = [-120, 120]
@@ -153,7 +155,7 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         return C_G, C_SSC + C_T0, params_save, 0
     except:
         print("idx", i, "is not positive definite! skipping...")
-        return [], [], params_save, -2
+        return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -2
 
 #-------------------------------------------------------------------
 # MAIN
@@ -252,7 +254,7 @@ def main():
     C_NG = C_NG[idx_pass]
     params = params[idx_pass]
 
-    if C_G.shape[0] > 1:
+    if C_G.shape[0] > 1 and C_G.ndim == 3:
         np.savez(home_dir+"CovA-"+str(rank)+".npz", params=params, C_G=C_G, C_NG=C_NG)
     t2 = time.time()
     print("Rank {:0.0f} is Done! Took {:0.0f} hours {:0.0f} minutes".format(rank, math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
@@ -269,14 +271,13 @@ def main():
         print("\n All ranks done! Took {:0.0f} hours {:0.0f} minutes".format(math.floor((t2 - t1)/3600), math.floor((t2 - t1)/60%60)))
 
         # there (should be) no directories in the output directory, so no need to loop over the files
-        #files = os.li3stdir(home_dir)
         num_success = N - fail_compute - fail_posdef#len(files)
         print("Succesfully made {:0.0f} / {:0.0f} matrices ({:0.2f}%)".format(num_success, N, 100.*num_success/N))
         print("{:0.0f} matrices failed to compute power spectra".format(fail_compute))
         print("{:0.0f} matrices were not positive definite".format(fail_posdef))
 
         organize_training_set(home_dir, train_frac, valid_frac, test_frac,
-                              params.shape[1], dim)
+                              p_dim, dim, False)
 
 if __name__ == "__main__":
     main()
