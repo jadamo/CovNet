@@ -14,6 +14,8 @@ setup(
                       "PyYAML",
                       "easydict",
                       "camb >= 1.3.5",
-                      "classy"
+                      "classy",
+                      "mpi4py",
+                      "multiprocessing"
     ],
 )
