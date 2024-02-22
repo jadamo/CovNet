@@ -4,6 +4,8 @@ dropout_prob: 0.25
 embedding: true
 freeze_mlp: true
 input_dim: 6
+early_stopping_epochs: 15
+weight_initialization: He
 learning_rate:
 - 0.001438
 - 0.0001

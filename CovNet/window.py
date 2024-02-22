@@ -11,13 +11,17 @@ class Gaussian_Window_Kernels():
 
     def __init__(self, k_centers, key="HighZ_NGC"):
         """
-        Constructs window kernel object 
+        Constructs window kernel object for calculating the gaussian covariance window kernels
+        NOTE: This constructor needs FFT randoms to be pre-calculated, otherwise it won't work
         @param {np array} array of k bin centers
         """
 
+        # sanity checks 
         assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
                'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
 
+
+        assert os.path.exists(CovaPT_data_dir+"FFTWinFun_"+key+".npy")
         # the total number of kbins
         self.nBins = len(k_centers)
 

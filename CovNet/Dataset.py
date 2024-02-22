@@ -87,7 +87,7 @@ class MatrixDataset(torch.utils.data.Dataset):
         @return matrices {3D Tensor} the covariance matrices associated with idx
         @return idx {1D Tensor} the idx that was querried
         """
-        return self.params[idx], self.matrices[idx], idx
+        return self.params[idx], self.matrices[idx]
         
     def get_quadrant(self, idx, quadrant):
         """
@@ -316,6 +316,26 @@ def load_config_file(config_file):
         return None
     
     return config_dict
+
+def get_avg_loss(net, data):
+    """
+    Runs through the given set of matrices and returns the average loss value.
+    @param net {Emulator object} the network to test
+    @param data {MatrixDataset object} the dataset to generate loss values for
+    @return avg_loss {float} the average loss value for the input dataset
+    """
+    avg_loss = 0
+    net.eval()
+    net = net.to("cpu")
+
+    loader = torch.utils.data.DataLoader(data, batch_size=net.config_dict.batch_size, shuffle=True)
+    for params, matrix in loader:
+        prediction = net(params)
+        avg_loss += F.l1_loss(prediction, matrix, reduction="sum").item()
+
+    avg_loss /= len(data)
+    net = net.to(try_gpu())
+    return avg_loss
 
 def organize_training_set(training_dir, train_frac, valid_frac, test_frac, 
                           params_dim, mat_dim, remove_old_files=True):

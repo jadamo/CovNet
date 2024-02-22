@@ -21,6 +21,8 @@ train_mlp_first        : True
 num_epochs: 300
 learning_rate: [1.438e-3, 1.e-4, 1.e-5]
 batch_size: 600
+early_stopping_epochs: 15
+weight_initialization: He
 
 train_gaussian_only   : False
 start_from_checkpoint : False

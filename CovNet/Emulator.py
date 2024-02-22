@@ -56,6 +56,15 @@ class CovNet():
         else:
             return matrix
 
+    def get_avg_loss(self, data):
+        """
+        Helpfer function to get the average loss from a given dataset.
+        @param data {MatrixDataset object} the dataset to generate loss values for
+        @return avg_loss {float} the average loss value for the input dataset
+        """
+        return Dataset.get_avg_loss(self.net, data)
+
+
 class Network_Emulator(nn.Module):
     """
     Class defining the neural network used to emulate covariance matrices.
@@ -138,6 +147,27 @@ class Network_Emulator(nn.Module):
         bounds = torch.tensor(config_dict.parameter_bounds).to(try_gpu())
         self.register_buffer("bounds", bounds)
 
+        # initialize weights
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        """
+        Initializes weights using a specific scheme set in the input yaml file
+        This function is meant to be called by the constructor only.
+        Current options for initialization schemes are ["normal", "He", "xavier"]
+        """
+        if isinstance(m, nn.Linear):
+            if self.config_dict.weight_initialization == "He":
+                nn.init.kaiming_uniform_(m.weight)
+            elif self.config_dict.weight_initialization == "normal":
+                nn.init.normal_(m.weight, mean=0., std=0.1)
+                nn.init.zeros_(m.bias)
+            elif self.config_dict.weight_initialization == "xavier":
+                nn.init.xavier_normal_(m.weight)
+            else: # if scheme is invalid, use normal initialization as a substitute
+                nn.init.normal_(m.weight, mean=0., std=0.1)
+                nn.init.zeros_(m.bias)
+
     def load_pretrained(self, path, freeze=True):
         """
         loads the pre-trained layers from a file into the current model
@@ -163,30 +193,6 @@ class Network_Emulator(nn.Module):
         params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
         return params_norm
 
-    def normal(m):
-        """
-        Function that lets you randomly set your initial network weights based on 
-        a normal distribution
-        """
-        if type(m) == nn.Linear:
-            nn.init.normal_(m.weight, mean=0., std=0.1)
-            nn.init.zeros_(m.bias)
-
-    def xavier(m):
-        """
-        Function that lets you randomly set your initial network weights based on 
-        the xavier method: https://pytorch.org/docs/stable/nn.init.html
-        """
-        if type(m) == nn.Linear:
-            nn.init.xavier_normal_(m.weight)
-
-    def He(m):
-        """
-        Function that lets you randomly set your initial network weights 
-        Using the method from He et al 2015
-        """
-        if type(m) == nn.Linear:
-            nn.init.kaiming_uniform_(m.weight)
 
     def get_positional_embedding(self, sequence_length, d):
         """
@@ -300,78 +306,53 @@ class Network_Emulator(nn.Module):
         @param save_dir {string} Location to dynamically save the network during training. If black, stores progress in save_state variable instead.
         @param iter {int} current training round (used for printing only)
         """
-        # Keep track of the best validation loss for early stopping
+
         worse_epochs = 0
-        beta = 0.
-
-        #weights = ((torch.arange(0, 250) / 250.) + 1.).to(try_gpu())
-        #weights = torch.flip(weights, (0,))
-
-        train_loader = torch.utils.data.DataLoader(train_data, batch_size=self.config_dict.batch_size, shuffle=True, drop_last=True)
-        valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=self.config_dict.batch_size, shuffle=True, drop_last=True)
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=self.config_dict.batch_size, shuffle=True)
+        valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=self.config_dict.batch_size, shuffle=False)
 
         for epoch in range(self.config_dict.num_epochs):
             # Run through the training set and update weights
             self.train()
-            train_loss_sub, valid_loss_sub  = 0., 0.
-            if self.architecture == "VAE": train_KLD_sub, valid_KLD_sub = 0., 0.
-            
             for (i, batch) in enumerate(train_loader):
                 # load data
                 params = batch[0]
-                if self.architecture == "MLP-PCA": matrix = batch[2]
-                else: matrix = batch[1]
+                matrix = batch[1]
 
                 # use network to get prediction
-                if self.architecture == "VAE" or self.architecture == "AE":
-                    prediction, mu, log_var = self.forward(matrix.view(self.config_dict.batch_size, self.output_dim, self.output_dim))
-                    loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
-                    train_KLD_sub += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-                elif self.architecture == "MLP-PCA":
-                    prediction = self.forward(params.view(self.config_dictbatch_size, self.input_dim))
-                    diff = abs(prediction - matrix)
-                    loss = torch.sum(diff)
-                else:
-                    prediction = self.forward(params.view(self.config_dict.batch_size, self.input_dim))
-                    loss = F.l1_loss(prediction, matrix, reduction="sum")
-
+                prediction = self.forward(params)
+                loss = F.l1_loss(prediction, matrix, reduction="sum")
                 assert torch.isnan(loss) == False 
                 assert torch.isinf(loss) == False
                 assert loss > 0
 
                 # update model
-                train_loss_sub += loss.item()
+                #train_loss_sub += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
+
                 # gradient clipping
                 torch.nn.utils.clip_grad_norm_(self.parameters(), 1e8)    
                 optimizer.step()
 
-            # run through the validation set
             self.eval()
-            for (i, batch) in enumerate(valid_loader):
-                params = batch[0]
-                if self.architecture == "MLP-PCA": matrix = batch[2]
-                else: matrix = batch[1]
+            train_loss_sub, valid_loss_sub  = 0., 0.
+            # To get accurate training loss data given the current net state, run thru
+            # the training set again
+            for params, matrix in train_loader:
+                prediction = self.forward(params)
+                loss = F.l1_loss(prediction, matrix, reduction="sum")
+                train_loss_sub += loss.item()
 
-                if self.architecture == "VAE" or self.architecture == "AE":
-                    prediction, mu, log_var = self.forward(matrix.view(self.config_dict.batch_size, self.output_dim, self.output_dim))
-                    loss = Dataset.VAE_loss(prediction, matrix, mu, log_var, beta)
-                    valid_KLD_sub  += beta*(0.5 * torch.sum(log_var.exp() - log_var - 1 + mu.pow(2))).item()
-                elif self.architecture == "MLP-PCA":
-                    prediction = self.forward(params.view(self.config_dict.batch_size, self.input_dim))
-                    diff = abs(prediction - matrix)
-                    loss = torch.sum(diff)
-                else:
-                    prediction = self.forward(params.view(self.config_dict.batch_size, self.input_dim))
-                    loss = F.l1_loss(prediction, matrix, reduction="sum")
-
+            for params, matrix in valid_loader:
+                prediction = self.forward(params)
+                loss = F.l1_loss(prediction, matrix, reduction="sum")
                 valid_loss_sub += loss.item()
 
             # Aggregate loss information
             self.num_epoch.append(epoch)
-            self.train_loss.append(train_loss_sub / len(train_loader.dataset))
-            self.valid_loss.append(valid_loss_sub / len(valid_loader.dataset))
+            self.train_loss.append(train_loss_sub / len(train_data))
+            self.valid_loss.append(valid_loss_sub / len(valid_data))
 
             # save the network if the validation loss improved, else stop early if there hasn't been
             # improvement for several epochs
@@ -385,10 +366,18 @@ class Network_Emulator(nn.Module):
 
             if print_progress == True: 
                 print("Epoch : {:d}, avg train loss: {:0.3f}\t avg validation loss: {:0.3f}\t ({:0.0f})".format(epoch, self.train_loss[-1], self.valid_loss[-1], worse_epochs))
-                if beta != 0: print("Avg train KLD: {:0.3f}, avg valid KLD: {:0.3f}".format(train_KLD_sub/len(train_loader.dataset), valid_KLD_sub/len(valid_loader.dataset)))
 
-            if epoch > 15 and worse_epochs >= 15 and self.valid_loss[-1] > self.train_loss[-1]:
+            # early stopping criteria
+            if self.config_dict.early_stopping_epochs != -1 and \
+               worse_epochs >= self.config_dict.early_stopping_epochs  and \
+               self.valid_loss[-1] > self.train_loss[-1]:
                 if print_progress == True: print("Validation loss hasn't improved for", worse_epochs, "epochs, stopping...")
                 break
+
+        # re-load the save state or previous best network
+        if save_dir != "":
+            self.load_state_dict(torch.load(save_dir+'network.params', map_location=Dataset.try_gpu()))
+        else: self.load_state_dict(self.save_state)
+
         print("lr {:0.3e}, bsize {:0.0f}: Best validation loss was {:0.3f} after {:0.0f} epochs".format(
             self.config_dict.learning_rate[iter], self.config_dict.batch_size, self.best_loss, epoch - worse_epochs))
