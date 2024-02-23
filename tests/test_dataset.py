@@ -24,8 +24,8 @@ class TestDataset(unittest.TestCase):
         mat_test = torch.rand(1, 50, 50)
         mat_test = torch.tril(mat_test)
 
-        mat_half = Dataset.rearange_to_half(mat_test, 50)
-        mat_full = Dataset.rearange_to_full(mat_half, 50, False)
+        mat_half = Dataset.rearange_to_half(mat_test)
+        mat_full = Dataset.rearange_to_full(mat_half, False)
 
         self.assertEqual(mat_full.shape, mat_test.shape)
         

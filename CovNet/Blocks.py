@@ -13,12 +13,15 @@ class Block_Full_ResNet(nn.Module):
     Class defining the residual net (ResNet) block used in the full covariance emulator
     """
     
-    def __init__(self, dim_in, dim_out):
-        """
-        Initializes the ResNet block, which is composed of 
-        4 sets of MLP + batchnorm layers, and a skip connection at the end
-        @param in_dim {int} size of the input dimension
-        @param out_dim {int} size of the output dimention
+    def __init__(self, dim_in:int, dim_out:int):
+        """Initializes the ResNet block.
+
+        Currently this block has a fixed structure of 4 sets of 
+        MLP + batchnorm layers, and a skip connection at the end
+        
+        Args:
+            in_dim: Size of the input dimension
+            out_dim: Size of the output dimention
         """
         super().__init__()
 
@@ -34,11 +37,7 @@ class Block_Full_ResNet(nn.Module):
         self.skip = nn.Linear(dim_in, dim_out)
 
     def forward(self, X):
-        """
-        Passes input through the block
-        @param X {2D Tensor} a batch of block inputs
-        @return X {2D Tensor} the batch output of the block
-        """
+        """Passes input through the block"""
         residual = X
         X = F.leaky_relu(self.bn1(self.h1(X)))
         X = F.leaky_relu(self.bn2(self.h2(X)))

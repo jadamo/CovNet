@@ -13,17 +13,18 @@ from CovNet.Dataset import try_gpu
 # Emulator API Class - this is the class to call in a likelihood analysis
 # ---------------------------------------------------------------------------
 class CovNet():
-    """
-    Class defining the covariance matrix emulator for external use.
-    """
+    """Class defining the covariance matrix emulator for external use."""
 
-    def __init__(self, net_dir):
-        """
-        Initializes the covariance emulator in a warpper class by loading in the trained
-        neural network. This is the class you should call during an analysis
-        Class assumes the config yaml file used to train the network was saved to the same
+    def __init__(self, net_dir:str):
+        """Initializes the covariance emulator 
+        
+        This is a warpper class that loads in the trained
+        neural network, and is what you should call during an analysis. Class 
+        assumes the config yaml file used to train the network was saved to the same
         directory as the network itself
-        @param net_dir {string} location of trained network and config file
+        
+        Args:
+            net_dir: location of trained network and config file
         """
 
         self.config_dict = Dataset.load_config_file(net_dir+"config.yaml")
@@ -36,12 +37,12 @@ class CovNet():
 
 
     def get_covariance_matrix(self, params, raw=False):
-        """
-        Uses the emulator to return a covariance matrix
-        params -> secondary network -> decoder -> post-processing
-        @param params {np array} the list of cosmology parameters to emulator a covariance matrix from
-        @param raw {bool} flag to specify wether or not to undo matrix processing before returning
-        @return C {np array} the emulated covariance matrix of size (N, N) where N was specified during initialization
+        """Uses the emulator to return a covariance matrix
+
+        Args:
+            params: The list of cosmology parameters to generate a covariance matrix from.
+            raw: If True, returns the matrix without reversing pre-processing steps.\
+            Default False
         """
         params = torch.from_numpy(params).to(torch.float32)
         assert len(params) == self.config_dict.input_dim
@@ -57,10 +58,10 @@ class CovNet():
             return matrix
 
     def get_avg_loss(self, data):
-        """
-        Helpfer function to get the average loss from a given dataset.
-        @param data {MatrixDataset object} the dataset to generate loss values for
-        @return avg_loss {float} the average loss value for the input dataset
+        """Helpfer function to get the average loss from a given dataset.
+        
+        Args:
+            data: the dataset (as a MatrixDataset object) to generate loss values for
         """
         return Dataset.get_avg_loss(self.net, data)
 
@@ -74,9 +75,11 @@ class Network_Emulator(nn.Module):
     """
 
     def __init__(self, config_dict):
-        """
-        Inititalizes the neural network based on the input configuration file.
-        @param config_dict {easydict} dictionary of parameters specifying how to build the network
+        """Inititalizes the neural network based on the input configuration file.
+        
+        Args:
+            config_dict: easydict dictionary of parameters specifying how \
+            to build the network
         """
         super().__init__()
         self.config_dict = config_dict
@@ -148,11 +151,11 @@ class Network_Emulator(nn.Module):
         self.register_buffer("bounds", bounds)
 
         # initialize weights
-        self.apply(self._init_weights)
+        self.apply(self.init_weights)
 
-    def _init_weights(self, m):
-        """
-        Initializes weights using a specific scheme set in the input yaml file
+    def init_weights(self, m):
+        """Initializes weights using a specific scheme set in the input yaml file
+        
         This function is meant to be called by the constructor only.
         Current options for initialization schemes are ["normal", "He", "xavier"]
         """
@@ -168,11 +171,13 @@ class Network_Emulator(nn.Module):
                 nn.init.normal_(m.weight, mean=0., std=0.1)
                 nn.init.zeros_(m.bias)
 
-    def load_pretrained(self, path, freeze=True):
-        """
-        loads the pre-trained layers from a file into the current model
-        @param path {string} directory+filename of the trained network to load
-        @param freeze {bool} flag indicating whether to fix weights after loading them in
+    def load_pretrained(self, path:str, freeze=True):
+        """loads the pre-trained layers from a file into the current model
+        
+        Args:
+            path: The directory+filename of the trained network to load
+            freeze: If True, freezes loaded-in weights to their current values. \
+            Default True
         """
         pre_trained_dict = torch.load(path, map_location=try_gpu())
 
@@ -184,23 +189,25 @@ class Network_Emulator(nn.Module):
 
 
     def normalize(self, params):
-        """
-        Normalizes the input parameters to a range of (0, 1)
-        This function requires you properly specify parameter bounds in the config file used to initialize the network.
-        @param params {2D tensor} batch of input parameters to normalize
-        @return params_norm {2D tensor} batch of normalized input parameters
+        """Normalizes the input parameters to a range of (0, 1)
+        
+        This function requires you properly specify parameter bounds 
+        in the config file used to initialize the network.
+        
+        Args:
+            params: batch of input parameters to normalize (2D tensor)
         """
         params_norm = (params - self.bounds[:,0]) / (self.bounds[:,1] - self.bounds[:,0])
         return params_norm
 
 
-    def get_positional_embedding(self, sequence_length, d):
-        """
-        Defines a position-dependent function to be added to your input when using
+    def get_positional_embedding(self, sequence_length:int, d:int):
+        """Returns a position-dependent function to be added to your input when using
         a transformer network
-        @param sequence_length {int} the length of each independent sequence in the input
-        @param d {int} the number of sequences in your input
-        @return embeddings {2D Tensor} the positional embedding to be applied
+        
+        Args:
+            sequence_length: The length of each independent sequence in the input
+            d: The number of sequences in your input
         """
 
         embeddings = torch.ones(sequence_length, d)
@@ -211,24 +218,27 @@ class Network_Emulator(nn.Module):
         return embeddings
 
     def patchify(self, X):
-        """
-        Takes an input tensor and splits it into 2D patches before flattening each patch to 1D again
-        @param X {3D Tensor} Covariance Matrix with shape (batch size, 51, 25)
-        @return patches {3D Tensor} flattened patches of the input
-        with shape (batch size, number of patches, size of patch)
+        """Splits input into specially-adjacent patches that are then flattened
+        
+        Args:
+            X: Covariance Matrix with shape [batch size, N+1, (N+1)/2]
+        Returns:
+            patches flattened patches of the input with shape \
+            [batch size, number of patches, size of patch]
         """
         X = X.reshape(-1, self.N[0], self.N[1])
         patches = X.unfold(1, self.patch_size[0], self.patch_size[0]).unfold(2, self.patch_size[1], self.patch_size[1])
         patches = patches.reshape(-1, self.n_patches[1]*self.n_patches[0], self.patch_size[0]*self.patch_size[1])
-        #patches = patches.permute(0, 2, 1)
-        #print(patches.shape)
+
         return patches
 
     def un_patchify(self, patches):
-        """
-        Combines image patches (stored as 1D tensors) into a full image
-        @param patches {4D Tensor} Transformer block output of seperate covariance patches
-        @return X {3D tensor} Full matrix batch created by combining adjacent patches together
+        """Combines image patches (stored as 1D tensors) into a full matrix
+        
+        Args:
+            patches: Transformer block output of seperate covariance patches
+        Returns:
+            X: Full matrix batch created by combining adjacent patches together
         """
 
         #patches = patches.permute(0, 2, 1)
@@ -238,10 +248,15 @@ class Network_Emulator(nn.Module):
         return X
 
     def forward(self, X):
-        """
-        Steps through the network to go from input (cosmology parameters) to output (L matrix)
-        @param X {2D Tensor} batch of cosmology parameters
-        @return X {3D Tensor} batch of lower triangular matrices
+        """Steps through the network 
+        
+        Specifically, this function go from input (cosmology parameters) 
+        to output (L matrix) based on the architecture defined in self.config_dict
+
+        Args:
+            X: 2D Tensor batch of cosmology parameters with size [batch_size, num_params]
+        Returns:
+            X: 3D Tensor batch of lower triangular matrices with size [batch_size, N, N]
         """
 
         X = self.normalize(X)
@@ -253,7 +268,7 @@ class Network_Emulator(nn.Module):
             X = torch.tanh(self.out(X))
 
             X = X.view(-1, self.N[0], self.N[1])
-            X = Dataset.rearange_to_full(X, self.output_dim, True)
+            X = Dataset.rearange_to_full(X, True)
             return X
 
         elif self.architecture == "MLP-T":
@@ -271,13 +286,14 @@ class Network_Emulator(nn.Module):
             X = torch.tanh(self.un_patchify(X)) + Y.view(-1, self.N[0], self.N[1])
 
             X = X.view(-1, self.N[0], self.N[1])
-            X = Dataset.rearange_to_full(X, self.output_dim, True)
+            X = Dataset.rearange_to_full(X, True)
             return X
 
-    def save(self, save_dir):
-        """
-        Saves the current network state and config parameters to file
-        @param save_dir {string} the location to save the network at
+    def save(self, save_dir:str):
+        """Saves the current network state and config parameters to file
+        
+        Args:
+            save_dir: the location to save the network to
         """
         training_data = torch.vstack([torch.Tensor(self.num_epoch), 
                                       torch.Tensor(self.train_loss), 
@@ -297,14 +313,16 @@ class Network_Emulator(nn.Module):
     # ---------------------------------------------------------------------------
     def Train(self, optimizer, train_data, valid_data,
               print_progress=True, save_dir="", iter=0):
-        """
-        Train the network!
-        @param optimizer {torch.optim object} the optimization scheme to use (ex. Adam)
-        @param train_data {MatrixDataset object} The data used to train the network
-        @param valid_data {MatrixDataset object} The data used to test the network during training. Used to quantify if the network is overfitting
-        @param print_progress {bool} whether or not to print the network performance to terminal
-        @param save_dir {string} Location to dynamically save the network during training. If black, stores progress in save_state variable instead.
-        @param iter {int} current training round (used for printing only)
+        """Train the network via minibatch stochastic gradient descent
+        
+        Args:
+            optimizer: (torch.optim object) the optimization scheme to use (ex. Adam)
+            train_data: (MatrixDataset object) The data used to train the network
+            valid_data: (MatrixDataset object) The data used to test the network during training. Used to quantify if the network is overfitting
+            print_progress: If True, prints training and validation loss to terminal. Default True
+            save_dir: Location to dynamically save the network during training. \
+                If "", stores progress in save_state variable instead. Detaulf ""
+            iter: current training round (used for printing only)
         """
 
         worse_epochs = 0

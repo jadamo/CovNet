@@ -1,14 +1,14 @@
 # This file is simply a repackaging of the functions and math found in CovaPT
 # Source, Jay Wadekar: https://github.com/JayWadekar/CovaPT
 
+import os
 import scipy
 from scipy.integrate import quad
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from numpy import pi
 from scipy.misc import derivative
-import camb
-from camb import model
+
 from classy import Class
 
 from CovNet.config import CovaPT_data_dir
@@ -18,56 +18,40 @@ from CovNet import T0
 # what k range and binning we're using
 class LSS_Model():
     """
-    Class that defines the EFTofLSS model used to calculate both
-    predictions for the galaxy power spectrum multipoles with RSD, and
-    covariance matrices for said predictions. Said model is configured to predict data from
-    the BOSS DR12 galaxy catalog (specifically the highz, NGC sample)
-    TODO: give sources
+    Class that defines the EFTofLSS model used to calculate predictions
+    for the galaxy power spectrum multipole covariance matrices.
+    Said model is configured to predict data from the BOSS DR12 galaxy catalog,
+    and draws heavily from CovaPT (https://github.com/JayWadekar/CovaPT)
+    
     """
 
-    def __init__(self, z, k=np.linspace(0.005, 0.245, 25), 
-                 window_dir=CovaPT_data_dir):
+    def __init__(self, z:float, k=np.linspace(0.005, 0.245, 25), alpha=0.02,
+                 window_dir=CovaPT_data_dir, key="HighZ_NGC"):
+        """Initializes power spectrum and covariance model
+        
+        Args:
+            z: effective / mean redshift of the sample
+            k: np array of k bin centers. Default 25 k bins with kmax of 0.25 h/Mpc
+            alpha: ratio of number of objects in the galaxy vs random catalogs
+            window_dir: location of precomputed window functions. Detault directory provided by the repo
+            key: specific data sample to model. Must be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]
         """
-        Initializes model
-        NOTE: Currently only configured for the highz NGC sample of the BOSS DR12 catalog
-        @param z {float} effective / mean redshift of the sample
-        @param k {np array} k bin centers. Default 25 k bins with kmax of 0.25 h/Mpc
-        @param window_dir {string} location of precomputed window functions. Detault directory provided by the repo
-        """
+        assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
+        'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
+
         self.k = k
         self.kbins=len(k)
         self.z = z
 
-        self.dire = window_dir
-        #Using the window kernels calculated from the survey random catalog as input
-        #See Survey_window_kernels.ipynb for the code to generate these window kernels using the Wij() function
-        try:
-            self.WijFile = np.load(self.dire+'Wij_k'+str(self.kbins)+'_HighZ_NGC.npy')
-        except IOError:
-            print("ERROR! Couldn't read in the window kernel! Please double-check your path or recalculate with the correct binning using make_window_function.py")
-            return -1
+        self.load_window_functions(key, window_dir)
 
         # A, ns, ombh2 from Planck best-fit
         self.A_planck = 3.0447
         self.ns_planck = 0.9649
         self.ombh2_planck = 0.02237
 
-        # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
-        # These are needed to calculate the sigma^2 terms
-        # Columns are k P00 P02 P04 P22 P24 P44 Nmodes
-        try:
-            self.powW22=np.loadtxt(self.dire+'WindowPower_W22_highz.dat')
-            self.powW10=np.loadtxt(self.dire+'WindowPower_W10_highz.dat')
-        except IOError:
-            print("Error: Couldn't find window power sepctra!")
-            return -1
-
-        # Columns are k P00 P02 P04 P20 P22 P24 P40 P42 P44 Nmodes
-        self.powW22x10=np.loadtxt(self.dire+'WindowPower_W22xW10_highz.dat')
-
         # The following parameters are calculated from the survey random catalog
         # Using Iij convention in Eq.(3)
-        alpha = 0.02; 
         self.i22 = 454.2155*alpha; self.i11 = 7367534.87288*alpha; self.i12 = 2825379.84558*alpha;
         self.i10 = 23612072*alpha; self.i24 = 58.49444652*alpha; 
         self.i14 = 756107.6916375*alpha; self.i34 = 8.993832235e-3*alpha;
@@ -110,15 +94,43 @@ class LSS_Model():
                             'n_s':self.ns_planck
                             }
 
-#-------------------------------------------------------------------
-# HELPER FUNCTIONS
-#-------------------------------------------------------------------
+    #-------------------------------------------------------------------
+    def load_window_functions(self, key:str, window_dir:str):
+        """Loads window power spectra and gaussian window functions from file"""
+        # Loading window power spectra calculated from the survey random catalog (code will be uploaded in a different notebook)
+        # These are needed to calculate the sigma^2 terms
+        # Columns are k P00 P02 P04 P22 P24 P44 | P00 P02 P04 P22 P24 P44 | P00 P02 P04 P20 P22 P24 P40 P42 P44
+        # First section of these is for W22, second for W10 and third for W22xW10
+        try:
+            data=np.load(window_dir+'WindowPowers_'+key+'.npy')
+            self.kwin = data[0]
+            self.powW22 = data[1:7]
+            self.powW10 = data[7:13]
+            self.powW22x10 = data[13:]
+        except IOError: # try the old file format instead
+            self.powW22=np.loadtxt(window_dir+'WindowPower_W22_'+key+'.dat')
+            self.kwin = self.powW22[:,0]
+            self.powW10=np.loadtxt(window_dir+'WindowPower_W10_'+key+'.dat')
+            self.powW22x10=np.loadtxt(window_dir+'WindowPower_W22xW10_'+key+'.dat')
+
+        #Using the window kernels calculated from the survey random catalog as input
+        window_file = window_dir+'Wij_k'+str(self.kbins)+'_'+key+'.npy'
+        if not os.path.exists(window_file):
+            raise IOError("ERROR! Couldn't find", window_file)
+        
+        self.WijFile = np.load(window_dir+'Wij_k'+str(self.kbins)+'_'+key+'.npy')
 
     #-------------------------------------------------------------------
-    # For generating individual elements of the Gaussian covariance matrix
-    # see Survey_window_kernels.ipynb for further details where the same function is used
-    def Cij(self, kt, Wij, Pfit):
+    def get_k_bins(self):
+        return self.k
 
+    #-------------------------------------------------------------------
+    # Covariance Helper functions
+    #-------------------------------------------------------------------
+
+    #-------------------------------------------------------------------
+    def Cij(self, kt, Wij, Pfit):
+        """Generates intermidiate product for the Gaussian covariance matrix"""
         temp=np.zeros((7,6))
         for i in range(-3,4):
             if(kt+i<0 or kt+i>=self.kbins):
@@ -140,50 +152,30 @@ class LSS_Model():
         return(temp)
 
     #-------------------------------------------------------------------
-    # Growth factor for LCDM cosmology
     def Dz(self, z,Om0):
-        """
-        Calculates the LambdaCDM growth factor D(z, Om0)
-        @param z {float} cosmological redshift
-        @param Om0 {float} matter density parameter
-        @return Dz {float} growth factor D(z, Om0) 
+        """Calculates the LambdaCDM growth factor D(z, Om0)
+
+        Args:
+            z: cosmological redshift
+            Om0: matter density parameter
         """
         return(scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3)
                                     /scipy.special.hyp2f1(1/3., 1, 11/6., 1-1/Om0)/(1+z))
 
     #-------------------------------------------------------------------
-    # Growth rate for LCDM cosmology
     def fgrowth(self, z,Om0):
+        """Calculates the LambdaCDM growth rate f_growth(z, Om0)
+
+        Args:
+            z: cosmological redshift
+            Om0: matter density parameter
+        """
         return(1. + 6*(Om0-1)*scipy.special.hyp2f1(4/3., 2, 17/6., (1-1/Om0)/(1+z)**3)
                     /( 11*Om0*(1+z)**3*scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3) ))
 
     #-------------------------------------------------------------------
-    def Pk_lin(self, H0, omch2, ombh2, As, ns, z):
-        """
-        Generates a linear initial power spectrum from CAMB
-        """
-        #get matter power spectra and sigma8 at the redshift we want
-        pars = camb.CAMBparams()
-        pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
-        pars.InitPower.set_params(ns=ns, As=np.exp(As)/1e10)
-        #Note non-linear corrections couples to smaller scales than you want
-        pars.set_matter_power(redshifts=[z], kmax=0.4)
-
-        #Linear spectra
-        pars.NonLinear = model.NonLinear_none
-        results = camb.get_results(pars)
-        # k bins will be interpolated to what we want later, so it's "ok" if this isn't exact
-        # this k is in units of h/Mpc
-        kh, z1, pk = results.get_matter_power_spectrum(minkh=0.0025, maxkh=0.4, npoints = 100)
-        
-        pdata = np.vstack((kh, pk[0])).T
-        return pdata
-
-    #-------------------------------------------------------------------
-    def Pk_lin_CLASS(self, H0, omch2, ombh2, As, ns):
-        """
-        Generates a linear initial power spectrum with CLASS
-        """
+    def Pk_lin_CLASS(self, H0:float, omch2:float, ombh2:float, As:float, ns:float):
+        """Generates a linear initial matter power spectrum with CLASS"""
         cosmo = Class()
         cosmo.set(self.common_settings)
 
@@ -206,6 +198,7 @@ class LSS_Model():
 
     #-------------------------------------------------------------------
     def trispIntegrand(self, u12,k1,k2,Plin):
+        """Integrand function for use when calculating the trispectrum"""
         return( (8*self.i44*(Plin(k1)**2*T0.e44o44_1(u12,k1,k2) + Plin(k2)**2*T0.e44o44_1(u12,k2,k1))
                 +16*self.i44*Plin(k1)*Plin(k2)*T0.e44o44_2(u12,k1,k2)
                 +8*self.i34*(Plin(k1)*T0.e34o44_2(u12,k1,k2)+Plin(k2)*T0.e34o44_2(u12,k2,k1))
@@ -213,18 +206,18 @@ class LSS_Model():
                 *Plin(np.sqrt(k1**2+k2**2+2*k1*k2*u12)) )
 
     #-------------------------------------------------------------------
-    # Returns the tree-level trispectrum as a function of multipoles and k1, k2
-    def trisp(self, l1,l2,k1,k2, Plin):
+    def trisp(self, l1:int, l2:int, k1:float, k2:float, Plin):
+        """Returns the tree-level trispectrum as a function of multipoles and k1, k2"""
         T0.l1=l1; T0.l2=l2
         expr = self.i44*(Plin(k1)**2*Plin(k2)*T0.ez3(k1,k2) + Plin(k2)**2*Plin(k1)*T0.ez3(k2,k1))\
             +8*self.i34*Plin(k1)*Plin(k2)*T0.e34o44_1(k1,k2)
 
-        temp = (quad(self.trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=150)[0]/2. + expr)/self.i22**2
-        return(temp)
+        T_kk = (quad(self.trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=150)[0]/2. + expr)/self.i22**2
+        return(T_kk)
 
     #-------------------------------------------------------------------
-    # Using the Z12 kernel which is defined in Eq. (A9) (equations copy-pasted from Generating_T0_Z12_expressions.nb)
-    def Z12Kernel(self, l,mu,be,b1,b2,g2,dlnpk):
+    def Z12Kernel(self, l:int, mu,be,b1,b2,g2,dlnpk):
+        """Using the Z12 kernel which is defined in Eq. (A9) (equations copy-pasted from Generating_T0_Z12_expressions.nb)"""
         if(l==0):
             exp=(7*b1**2*be*(70 + 42*be + (-35*(-3 + dlnpk) + 3*be*(28 + 13*be - 14*dlnpk - 5*be*dlnpk))*mu**2) + 
                 b1*(35*(47 - 7*dlnpk) + be*(798 + 153*be - 98*dlnpk - 21*be*dlnpk + 
@@ -242,16 +235,16 @@ class LSS_Model():
         return(exp)
 
     #-------------------------------------------------------------------
-    # Legendre polynomials
-    def lp(self, l,mu):
+    def lp(self, l:int, mu:float):
+        """Returns the legenre polynomial of order l evaluated at mu"""
         if (l==0): exp=1
         if (l==2): exp=((3*mu**2 - 1)/2.)
         if (l==4): exp=((35*mu**4 - 30*mu**2 + 3)/8.)
         return(exp)
 
     #-------------------------------------------------------------------
-    # For transforming the linear array to a matrix
     def MatrixForm(self, a):
+        """transforms the linear np-array a to a matrix"""
         b=np.zeros((3,3))
         if len(a)==6:
             b[0,0]=a[0]; b[1,0]=b[0,1]=a[1]; 
@@ -264,50 +257,24 @@ class LSS_Model():
         return(b)
 
     #-------------------------------------------------------------------
-    # Calculating multipoles of the Z12 kernel
     def Z12Multipoles(self, i,l,be,b1,b2,g2,dlnpk):
+        """Calculates multipoles of the Z12 kernel"""
         return(quad(lambda mu: self.lp(i,mu)*self.Z12Kernel(l,mu,be,b1,b2,g2,dlnpk), -1, 1, limit=60)[0])
 
     #-------------------------------------------------------------------
-    def CovLATerm(self, sigma22x10, dlnPk, be,b1,b2,g2):
-        """
-        Calculates the LA terms used in the SSC calculations
-        """
-        covaLAterm=np.zeros((3,len(self.k)))
-        for l in range(3):
-            for i in range(3):
-                for j in range(3):
-                    covaLAterm[l]+=1/4.*sigma22x10[i,j]*self.vec_Z12Multipoles(2*i,2*l,be,b1,b2,g2,dlnPk)\
-                    *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=80)[0]
-        return covaLAterm
-            
-    #-------------------------------------------------------------------
-    def covaSSC(self, l1,l2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk):
-        """
-        Returns the SSC covariance matrix contrbution
-        BC= beat-coupling, LA= local average effect, SSC= super sample covariance
-        """
-        
-        covaBC=np.zeros((len(self.k),len(self.k)))
-        for i in range(3):
-            for j in range(3):
-                covaBC+=1/4.*sigma22Sq[i,j]*np.outer(Plin(self.k)*self.vec_Z12Multipoles(2*i,l1,be,b1,b2,g2,dlnPk),Plin(self.k)*self.vec_Z12Multipoles(2*j,l2,be,b1,b2,g2,dlnPk))
-                sigma10Sq[i,j]=1/4.*sigma10Sq[i,j]*quad(lambda mu: self.lp(2*i,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]\
-                *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=80)[0]
-
-        covaLA=-rsd[l2]*np.outer(Plin(self.k)*(covaLAterm[int(l1/2)]+self.i32/self.i22/self.i10*rsd[l1]*Plin(self.k)*b2/b1**2+2/self.i10*rsd[l1]),Plin(self.k))\
-            -rsd[l1]*np.outer(Plin(self.k),Plin(self.k)*(covaLAterm[int(l2/2)]+self.i32/self.i22/self.i10*rsd[l2]*Plin(self.k)*b2/b1**2+2/self.i10*rsd[l2]))\
-            +(np.sum(sigma10Sq)+1/self.i10)*rsd[l1]*rsd[l2]*np.outer(Plin(self.k),Plin(self.k))
-
-        return(covaBC+covaLA)
-
-    #-------------------------------------------------------------------
-    # Functions meant to be called elsewhere
-    # ------------------------------------------------------------------
-
-    #-------------------------------------------------------------------
     def Pk_CLASS_PT(self, params, interpolate=True):
-
+        """Calculates the galaxy power spectrum monopole and quadropoles using CLASS-PT
+        
+        Args:
+            np array of cosmology parameters. Should be ordered  \
+            like [H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot]
+            interpolate: If true, interpolates the power spectrum to the k-bins \
+            provided in the constructor. If false, leaves in original theoretical k-bins
+        
+        Raises:
+            RuntimeError: If CLASS-PT's boltzmann solver fails, most likely because params \
+            is incorrectly formatted
+        """
         cosmo = Class()
         # unpack / specify parameters
         H0    = params[0]
@@ -320,7 +287,7 @@ class LSS_Model():
         bGamma3 = 0 # set to 0 since multipoles can only distinguish bG2 + 0.4*bGamma3
         # we're only using monopole+quadropole, so the specific value for this "shouldn't" matter
         cs4 = 0.
-        # NOTE: I'm pretty sure b4 is actually cbar
+
         # these parameters are normally analytically marginalized over, but you can specify them if don't want to do that
         cs0, cs2, b4, Pshot  = params[6], params[7], params[8], params[9]
         a0 = 0
@@ -335,8 +302,8 @@ class LSS_Model():
                 })  
         try: cosmo.compute()
         except: 
-            print("ERROR! CLASS-PT failed to run boltzmann solver!")
-            return []
+            raise RuntimeError("ERROR! CLASS-PT failed to run boltzmann solver! \
+                               Double-check out params are correctly formatted")
 
         # theory calculations taken from Misha Ivanov's likelihood function
         # these let you specify some more nuisance parameters than base CLASS-PT
@@ -405,8 +372,7 @@ class LSS_Model():
 
 #-------------------------------------------------------------------
     def Pk_CLASS_PT_2(self, params, k, return_sigma8=False, return_OmegaM=False):
-        """
-        Same function as above, except with user-specified k-bins
+        """Same function as above, except with user-specified k-bins
         """
         cosmo = Class()
         # unpack / specify parameters
@@ -462,23 +428,87 @@ class LSS_Model():
         else: return np.concatenate([pk_g0, pk_g2, pk_g4])
 
     #-------------------------------------------------------------------
-    def get_k_bins(self):
-        return self.k
+    # High-level covariance functions
+    # ------------------------------------------------------------------
+
+    #-------------------------------------------------------------------
+    def CovBC(self, l1, l2, sigma22Sq, sigma10Sq, Plin, dlnPk,
+                          be:float,b1:float,b2:float,g2:float):
+        """Returns the BC portion of the SSC covariance term"""
+
+        covaBC=np.zeros((len(self.k),len(self.k)))
+        for i in range(3):
+            for j in range(3):
+                covaBC+=1/4.*sigma22Sq[i,j]*np.outer(Plin(self.k)*self.vec_Z12Multipoles(2*i,l1,be,b1,b2,g2,dlnPk),Plin(self.k)*self.vec_Z12Multipoles(2*j,l2,be,b1,b2,g2,dlnPk))
+                sigma10Sq[i,j]=1/4.*sigma10Sq[i,j]*quad(lambda mu: self.lp(2*i,mu)*(1 + be*mu**2), -1, 1, limit=60)[0]\
+                *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=80)[0]
+
+        return covaBC
+
+    #-------------------------------------------------------------------
+    def CovLA(self, l1, l2, sigma22x10, sigma10Sq, Plin, dlnPk, rsd, 
+                  be:float,b1:float,b2:float,g2:float):
+        """Returns the LA portion of the SSC covariance term"""
+
+        covaLAterm=np.zeros((3,len(self.k)))
+        for l in range(3):
+            for i in range(3):
+                for j in range(3):
+                    covaLAterm[l]+=1/4.*sigma22x10[i,j]*self.vec_Z12Multipoles(2*i,2*l,be,b1,b2,g2,dlnPk)\
+                    *quad(lambda mu: self.lp(2*j,mu)*(1 + be*mu**2), -1, 1, limit=80)[0]
+        
+        covaLA=-rsd[l2]*np.outer(Plin(self.k)*(covaLAterm[int(l1/2)]+self.i32/self.i22/self.i10*rsd[l1]*Plin(self.k)*b2/b1**2+2/self.i10*rsd[l1]),Plin(self.k))\
+            -rsd[l1]*np.outer(Plin(self.k),Plin(self.k)*(covaLAterm[int(l2/2)]+self.i32/self.i22/self.i10*rsd[l2]*Plin(self.k)*b2/b1**2+2/self.i10*rsd[l2]))\
+            +(np.sum(sigma10Sq)+1/self.i10)*rsd[l1]*rsd[l2]*np.outer(Plin(self.k),Plin(self.k))
+
+        return covaLA
+            
+    #-------------------------------------------------------------------
+    def covaSSC(self, l1:int, l2:int, sigma22Sq, sigma10Sq, sigma22x10, 
+                rsd, be:float,b1:float,b2:float,g2:float, Plin, dlnPk):
+        """Returns the SSC covariance matrix term for a given l1 and l2
+
+        This term is composed of two effects, those being beat-coupling (BC), 
+        and local average effects (LA). Both effects are calculated in 
+        seperate helper functions
+        
+        Args:
+            l1: multipole 1
+            l2: multipole 2
+            be: growth factor scaled by b1
+            b1: linear bias
+            b2: quadratic bias
+            g2: tidal bias (similar to bG2)
+            Plin: linear power spectrum
+            dlnPk: derivative of the linear matter power spectrum
+        """
+        covaBC = self.CovBC(l1, l2, sigma22Sq, sigma10Sq, Plin, dlnPk,
+                             be, b1, b2, g2)
+
+        covaLA = self.CovLA(l1, l2, sigma22x10, sigma10Sq, Plin, dlnPk,
+                             rsd, b2, b1, b2, g2)
+        
+        return(covaBC+covaLA)
 
     #-------------------------------------------------------------------
     def get_gaussian_covariance(self, params, return_Pk=False, Pk_galaxy=[]):
-        """
-        Returns the (Monopole+Quadrupole) Gaussian covariance matrix
-        If Pk_galaxy is already calculated, takes ~10 ms to run
-        Else, takes ~0.5 s
+        """Returns the (Monopole+Quadrupole) Gaussian covariance matrix
+
+        Args:
+            params: np array of cosmology parameters. Should be ordered  \
+            like [H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot]
+            return_Pk: Whether or not to return the galaxy power spectrum as well
+            Pk_galaxy: Optional tuple of galaxy power spectrum multipoles [monopole, quadropole]. \
+            If empty, this function calculates it from the input params
+        
+        Raises:
+            RuntimeError: If generating the power spectrum fails
+            AssertionError: If the input galaxy power spectrum is a different size than \
+            the k bins
         """
         # generate galaxy redshift-space power spectrum if necesary
         if len(Pk_galaxy) == 0:
             Pk_galaxy = self.Pk_CLASS_PT(params)
-        # if generating the galaxy power spectrum failed, return nan value
-        if len(Pk_galaxy) == 0:
-            if return_Pk == False: return np.nan
-            else: return np.nan, np.nan
 
         # sanity check to make sure the galaxy power spectrum has the correct dimensions
         assert len(Pk_galaxy[0]) == len(self.k), "Galaxy power spectrum has wrong dimensions! Double check your k-bins"
@@ -499,13 +529,18 @@ class LSS_Model():
         else: return covMat, Pk_galaxy
 
     #-------------------------------------------------------------------
-    def get_non_gaussian_covariance(self, params):
-        """
-        Returns the Non-Gaussian portion of the covariance matrix
-        WARNING: This function is very expensive to run! (~10 minutes)
-        @param params {np array} input parameters [H0, omch2, As, b1, b2, gG2]
-        @return covaSSCmult {2D array} the SSC covaraince term
-        @return covaT0mult {2D array} the T0 covariance term
+    def get_non_gaussian_covariance(self, params, seperate_SSC=False):
+        """Returns the Non-Gaussian portion of the covariance matrix
+        
+        This function specifically calculates both covariance from the regular
+        trispectrum (T0), and Super-Sample Covariance (SSC). Currently all third-order
+        bias terms are set to 0. Due to the trispectrum calculations, this process
+        is compuationally expensive (~minutes)
+
+        Args:
+            params: np array of cosmology parameters. Should be ordered  \
+            like [H0, omch2, As, b1, b2, bG2]. Recommended to use the same object \
+            that is passed to get_gaussian_covariance
         """
         # Cosmology parameters
         H0, omch2, As = params[0], params[1], params[2]
@@ -557,7 +592,6 @@ class LSS_Model():
         
         # Calculating the RMS fluctuations of supersurvey modes 
         #(e.g., sigma22Sq which was defined in Eq. (33) and later calculated in Eq.(65)
-        kwin = self.powW22[:,0]
         [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
         for i in range(9):
             Pwin=InterpolatedUnivariateSpline(kwin, self.powW22x10[:,1+i])
@@ -571,15 +605,15 @@ class LSS_Model():
             else:
                 continue
         
-        sigma22Sq = self.MatrixForm(temp); sigma10Sq = self.MatrixForm(temp2); sigma22x10 = self.MatrixForm(temp3)
+        sigma22Sq  = self.MatrixForm(temp)
+        sigma10Sq  = self.MatrixForm(temp2)
+        sigma22x10 = self.MatrixForm(temp3)
     
-        # Calculate the LA term
-        covaLAterm = self.CovLATerm(sigma22x10, dlnPk, be,b1,b2,g2)
-        
+        # Calculate SSC covariance    
         covaSSCmult=np.zeros((2*self.kbins,2*self.kbins))
-        covaSSCmult[:self.kbins,:self.kbins]=self.covaSSC(0,0, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-        covaSSCmult[self.kbins:,self.kbins:]=self.covaSSC(2,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
-        covaSSCmult[:self.kbins,self.kbins:]=self.covaSSC(0,2, covaLAterm, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
+        covaSSCmult[:self.kbins,:self.kbins]=self.covaSSC(0,0, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
+        covaSSCmult[self.kbins:,self.kbins:]=self.covaSSC(2,2, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
+        covaSSCmult[:self.kbins,self.kbins:]=self.covaSSC(0,2, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk); 
         covaSSCmult[self.kbins:,:self.kbins]=np.transpose(covaSSCmult[:self.kbins,self.kbins:])
 
         # Calculate the Non-Gaussian multipole covariance
@@ -593,29 +627,46 @@ class LSS_Model():
         covaT0mult[self.kbins:,:self.kbins]=np.transpose(covaT0mult[:self.kbins,self.kbins:])
 
         #return covaNG
-        return covaSSCmult, covaT0mult
+        return covaSSCmult + covaT0mult
 
     #-------------------------------------------------------------------
-    def get_full_covariance(self, params, Pk_galaxy=[]):
-        """
-        Returns the full analytic covariance matrix
+    def get_full_covariance(self, params, Pk_galaxy=[], seperate_terms=False):
+        """Returns the full analytic covariance matrix
+
+        This function sequencially calls get_gaussian_covariance() and 
+        get_non_gaussian_covariance()
+
+        Args:
+            params: np array of cosmology parameters. Should be ordered  \
+            like [H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot]
+            Pk_galaxy: Optional tuple of galaxy power spectrum multipoles [monopole, quadropole]. \
+            If empty, this function calculates it from the input params
+            seperate_terms: If True, return C_G and C_NG as seperate arrays. Default False
         """
         cov_G = self.get_gaussian_covariance(params, False, Pk_galaxy)
-        cov_SSC, cov_T0 = self.get_non_gaussian_covariance(params)
-        return cov_G, cov_SSC, cov_T0
+        cov_NG = self.get_non_gaussian_covariance(params)
+
+        if seperate_terms: return cov_G, cov_NG
+        else             : return cov_G + cov_NG
     
-    def get_marginalized_covariance(self, params, C, window_dir):
+    def get_marginalized_covariance(self, params, C, window_dir=CovaPT_data_dir):
+        """Returns the marginalized covariance matrix as well as the convolved model vector
+        
+        taken from Misha Ivanov's Montepython Likelihood 
+        )https://github.com/Michalychforever/lss_montepython)
+
+        Args:
+            params: {np array} array of input cosmology parameters [h, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot]
+            C: {2D numpy array} Covariance matrix to marginalize
+            window_dir: location of window / wide angle functions. Default to the directory \
+            defined in config.py
+        Returns:
+            C_marg: Marginalized covariance matrix
+            model_vector: Power spectrum multipoles calculated during marginalization
+            Omega_m: (float) value for matter parameter Omega_m
+            sigma8: (float) value for the power spectrum normalization sigma8
         """
-        Returns the marginalized covariance matrix as well as the convolved model vector
-        taken from Misha Ivanov's Montepython Likelihood: https://github.com/Michalychforever/lss_montepython
-        @param params {np array} array of input cosmology parameters [h, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot]
-        @param C {2D numpy array} Covariance matrix to marginalize
-        @param window_dir {string} location of window / wide angle functions
-        @return C_marg {2D numpy array} Marginalized covariance matrix
-        @return model_vector {numpy array} Power spectrum multipoles calculated during marginalization
-        @return Omega_m {float} value for matter parameter Omega_m
-        @return sigma8 {float} value for the power spectrum normalization sigma8
-        """
+
         all_theory, theory0, theory2, theory4, fz, Omega_m, sigma8 = self.Pk_CLASS_PT(params, False)
         norm = 1; Nmarg = 4
         omit = 0; ksize = len(self.k)
@@ -666,7 +717,6 @@ class LSS_Model():
         db4_stack = np.hstack([P0int[:,3],P2int[:,3]])#,P4int[:,4]])
         dPshot_stack = np.hstack([P0int[:,4],P2int[:,4]])#,P4int[:,5]])
 
-        # Do in two pieces; with and without Pshot part
         C_marg = (C
                 + css0sig**2*np.outer(dcss0_stack,dcss0_stack)
                 + css2sig**2*np.outer(dcss2_stack,dcss2_stack)
