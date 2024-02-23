@@ -13,9 +13,9 @@ setup(
                       "torch >= 1.12.1",
                       "PyYAML",
                       "easydict",
-                      "camb >= 1.3.5",
                       "classy",
                       "mpi4py",
+                      "nbodykit",
                       "multiprocessing"
     ],
 )

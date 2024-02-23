@@ -4,22 +4,288 @@
 import os
 import numpy as np
 from numpy import conj
+from nbodykit.source.catalog import FITSCatalog
+from nbodykit.lab import cosmology, transform
+import dask.array as da
+import itertools as itt
+
+from nbodykit import set_options
+set_options(global_cache_size=2e9)
 
 from CovNet.config import CovaPT_data_dir
 
+class Survey_Window_Kernels():
+    """
+    Class that handles both Super-Sample Covariance (SSC) window function and FFT 
+    """
+    def __init__ (self, h:float, Om0:float, key="HighZ_NGC", data_dir=CovaPT_data_dir):
+        """Constructs Survey_Window_Kernels object
+
+        Args:
+            h: Hubble parameter for the catalog cosmology
+            Om0: Present matter density parameter for the catalog cosmology
+            key: One of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]
+            data_dir: location of survey random catalogs. Default the directory specified in config.py
+        
+        Raises:
+            AssertionError: If key is invalid
+            IOError: If random catalog doesn't exist in the specified directory
+        """
+
+        assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
+        'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
+
+        # load in random catalog
+        self.randoms = self.load_survey_randoms(key, data_dir)
+
+        # convert redshifts to physical distances based on some catalog cosmology
+        self.convert_to_distances(h, Om0)
+
+        # self.I22 = np.sum(self.randoms['NZ']**1 * self.randoms['WEIGHT_FKP']**2)
+        # self.I22 = self.I22.compute()    
+
+    def load_survey_randoms(self, key, data_dir):
+        """Loads random survey catalog from file and
+        
+        Args:
+            key: One of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]
+            data_dir: location of survey random catalogs. Default the directory specified in config.py
+        
+        Raises:
+            IOError: If random catalog doesn't exist in the specified directory
+
+        """
+        if key == "HighZ_NGC":
+            random_file = 'random0_DR12v5_CMASS_North.fits'
+        elif key == "HighZ_SGC":
+            random_file = 'random0_DR12v5_CMASS_South.fits'
+        elif key == "LowZ_NGC":
+            random_file = 'random0_DR12v5_LOWZ_North.fits'
+        elif key == "LowZ_SGC":
+            random_file = 'random0_DR12v5_LOWZ_South.fits'
+
+        if not os.path.exists(data_dir+random_file):
+            raise IOError("Could not find survey randoms catalog! You can download the necesary files from https://data.sdss.org/sas/dr12/boss/lss/")
+        randoms = FITSCatalog(data_dir+random_file)
+
+        if "LowZ" in key:
+            randoms = randoms[(randoms['Z'] > 0.2) * (randoms['Z'] < 0.5)]
+        else:
+            randoms = randoms[(randoms['Z'] > 0.5) * (randoms['Z'] < 0.75)]
+        return randoms
+
+    def convert_to_distances(self, h:float, Om0:float):
+        """Converts catalog redshifts to physical distances
+        
+        To convert to distances this function uses an assumed "catalog" cosmology
+        that is specified by the user.
+
+        Args:
+            h: Hubble parameter for the catalog cosmology
+            Om0: present matter density parameter for the catalog cosmology
+        """
+
+        cosmo = cosmology.Cosmology(h=h).match(Omega0_m=Om0)
+
+        self.randoms['OriginalPosition'] = transform.SkyToCartesian(
+            self.randoms['RA'], self.randoms['DEC'], self.randoms['Z'], 
+            degrees=True, cosmo=cosmo)
+
+    def num_ffts(self, n):
+        """Returns the number of FFTs to do at a given order n"""
+        return int((n+1)*(n+2)/2)
+
+    def shift_positions(self, BoxSize):
+        """Shifts positions to be centered on the box"""
+        self.randoms['Position'] = self.randoms['OriginalPosition'] + da.array(3*[BoxSize/2])
+
+    def PowerCalc(self, arr, nBins, sort):
+        """Calculates window power spectrum from FFT array"""
+        window_p=np.zeros(nBins,dtype='<c8')
+        for i in range(nBins):
+            ind=(sort==i)
+            window_p[i]=np.average(arr[ind])
+        return(np.real(window_p))
+
+    def calc_FFTs(self, Nmesh:int, BoxSize, names):
+        """Calculates and returns Fast Fourier Transforms of the random catalog
+
+        NOTE: This function is computationally expensive.
+        
+        Args:
+            Nmesh: The size of the FFT mesh
+            BoxSize: The survey box size in Mpc/h. Should encompass all galaxies in the survey
+        """
+
+        r = self.randoms['OriginalPosition'].T
+        export=np.zeros((2*(1+self.num_ffts(2)+self.num_ffts(4)),Nmesh,Nmesh,Nmesh),dtype='complex128')
+
+        ind=0
+        for w in names:
+            print(f'Computing FFTs of {w}')
+            
+            print('Computing 0th order FFTs')
+            Wij = np.fft.fftn(self.randoms.to_mesh(Nmesh=Nmesh, BoxSize=BoxSize, value=w, resampler='tsc', interlaced=True, compensated=True).paint())
+            Wij *= (da.sum(self.randoms[w]).compute())/np.real(Wij[0,0,0]) #Fixing normalization, e.g., zero mode should be I22 for 'W22'
+            export[ind]=Wij; ind+=1
+            
+            print('Computing 2nd order FFTs')
+            for (i,i_label),(j,j_label) in itt.combinations_with_replacement(enumerate(['x', 'y', 'z']), r=2):
+                label = w + i_label + j_label
+                self.randoms[label] = self.randoms[w] * r[i]*r[j] /(r[0]**2 + r[1]**2 + r[2]**2)
+                Wij = np.fft.fftn(self.randoms.to_mesh(Nmesh=Nmesh, BoxSize=BoxSize, value=label, resampler='tsc', interlaced=True, compensated=True).paint())
+                Wij *= (da.sum(self.randoms[label]).compute())/np.real(Wij[0,0,0])
+                export[ind]=Wij; ind+=1
+
+            print('Computing 4th order FFTs')
+            for (i,i_label),(j,j_label),(k,k_label),(l,l_label) in itt.combinations_with_replacement(enumerate(['x', 'y', 'z']), r=4):
+                label = w + i_label + j_label + k_label + l_label
+                self.randoms[label] = self.randoms[w] * r[i]*r[j]*r[k]*r[l] /(r[0]**2 + r[1]**2 + r[2]**2)**2
+                Wij = np.fft.fftn(self.randoms.to_mesh(Nmesh=Nmesh, BoxSize=BoxSize, value=label, resampler='tsc', interlaced=True, compensated=True).paint())
+                Wij *= (da.sum(self.randoms[label]).compute())/np.real(Wij[0,0,0])
+                export[ind]=Wij; ind+=1
+
+        return export
+
+    def calc_gaussian_kernels(self, Nmesh=48, BoxSize=3750):
+        """Calculates the gaussian kernels required for the Gaussian window function.
+        
+        This object only needs to be calculated once per data chunk
+        
+        Args:
+            Nmesh: The size of the FFT mesh
+            BoxSize: The survey box size in Mpc/h. Should encompass all galaxies in the survey
+        """
+
+        # Shifting the points such that the survey center is in the center of the box
+        self.shift_positions(BoxSize)
+        self.randoms['W12'] = self.randoms['WEIGHT_FKP']**2 
+        self.randoms['W22'] = (self.randoms['WEIGHT_FKP']**2) * self.randoms['NZ']
+
+        return self.calc_FFTs(Nmesh, BoxSize, ["W22", "W12"])
+    
+    def calc_SSC_window_function(self, Nmesh=300, BoxSize=7200):
+        """Calculates the SSC window functions
+        
+        This object only needs to be calculated once per data chunk
+        
+        Args:
+            Nmesh: The size of the FFT mesh
+            BoxSize: The survey box size in Mpc/h. Should encompass all galaxies in the survey
+        """
+
+        # Fundamental k-mode
+        kfun=2.*np.pi/BoxSize
+        nBins=int(Nmesh/2) # Number of bins in which power spectrum will be calculated
+
+        # Shifting the points such that the survey center is in the center of the box
+        self.shift_positions(BoxSize)
+        self.randoms['W22'] = (self.randoms['WEIGHT_FKP']**2) * self.randoms['NZ']
+        self.randoms['W10'] = self.randoms['W22']/self.randoms['W22']
+
+        export = self.calc_FFTs(Nmesh, BoxSize, ["W22", "W10"])
+
+        # For shifting the zero-frequency component to the center of the FFT array
+        for i in range(len(export)):
+            export[i]=np.fft.fftshift(export[i])
+
+        # Recording the k-modes in different shells
+        # Bin_kmodes contains [kx,ky,kz,radius] values of all the modes in the bin
+        [kx,ky,kz] = np.zeros((3,Nmesh,Nmesh,Nmesh));
+
+        for i in range(len(kx)):
+            kx[i,:,:]+=i-Nmesh/2; ky[:,i,:]+=i-Nmesh/2; kz[:,:,i]+=i-Nmesh/2
+
+        rk=np.sqrt(kx**2+ky**2+kz**2)
+        sort=(rk).astype(int)
+
+        rk[nBins,nBins,nBins]=1e10; kx/=rk; ky/=rk; kz/=rk; rk[nBins,nBins,nBins]=0 #rk being zero at the center causes issues so fixed that
+
+        # Reading the FFT files for W22 (referred to as W hereafter for brevity) and W10
+        [W, Wxx, Wxy, Wxz, Wyy, Wyz, Wzz, Wxxxx, Wxxxy, Wxxxz, Wxxyy, Wxxyz, Wxxzz, Wxyyy, Wxyyz, Wxyzz,\
+        Wxzzz, Wyyyy, Wyyyz, Wyyzz, Wyzzz, Wzzzz, W10, W10xx, W10xy, W10xz, W10yy, W10yz, W10zz, W10xxxx,\
+        W10xxxy, W10xxxz, W10xxyy, W10xxyz, W10xxzz, W10xyyy, W10xyyz, W10xyzz, W10xzzz, W10yyyy, W10yyyz,\
+        W10yyzz, W10yzzz, W10zzzz] = export
+
+        W_L0 = W
+                
+        W_L2=1.5*(Wxx*kx**2+Wyy*ky**2+Wzz*kz**2+2.*Wxy*kx*ky+2.*Wyz*ky*kz+2.*Wxz*kz*kx)-0.5*W
+                
+        W_L4=35./8.*(Wxxxx*kx**4 +Wyyyy*ky**4+Wzzzz*kz**4 \
+            +4.*Wxxxy*kx**3*ky +4.*Wxxxz*kx**3*kz +4.*Wxyyy*ky**3*kx \
+            +4.*Wyyyz*ky**3*kz +4.*Wxzzz*kz**3*kx +4.*Wyzzz*kz**3*ky \
+            +6.*Wxxyy*kx**2*ky**2+6.*Wxxzz*kx**2*kz**2+6.*Wyyzz*ky**2*kz**2 \
+            +12.*Wxxyz*kx**2*ky*kz+12.*Wxyyz*ky**2*kx*kz +12.*Wxyzz*kz**2*kx*ky) \
+            -5./2.*W_L2 -7./8.*W_L0
+
+        W10_L0 = W10
+                
+        W10_L2=1.5*(W10xx*kx**2+W10yy*ky**2+W10zz*kz**2+2.*W10xy*kx*ky+2.*W10yz*ky*kz+2.*W10xz*kz*kx)-0.5*W10
+                
+        W10_L4=35./8.*(W10xxxx*kx**4 +W10yyyy*ky**4+W10zzzz*kz**4 \
+            +4.*W10xxxy*kx**3*ky +4.*W10xxxz*kx**3*kz +4.*W10xyyy*ky**3*kx \
+            +4.*W10yyyz*ky**3*kz +4.*W10xzzz*kz**3*kx +4.*W10yzzz*kz**3*ky \
+            +6.*W10xxyy*kx**2*ky**2+6.*W10xxzz*kx**2*kz**2+6.*W10yyzz*ky**2*kz**2 \
+            +12.*W10xxyz*kx**2*ky*kz+12.*W10xyyz*ky**2*kx*kz +12.*W10xyzz*kz**2*kx*ky) \
+            -5./2.*W10_L2 -7./8.*W10_L0
+
+        P_W=np.zeros((22,nBins))
+        P_W[0]=self.PowerCalc(rk, nBins, sort)*kfun # Mean |k| in the bin
+
+        P_W[1]=self.PowerCalc(W_L0*conj(W_L0), nBins, sort) - da.sum(self.randoms['NZ']**2*self.randoms['WEIGHT_FKP']**4).compute() # P00 with shot noise subtracted
+        P_W[2]=self.PowerCalc(W_L0*conj(W_L2), nBins, sort)*5 # P02
+        P_W[3]=self.PowerCalc(W_L0*conj(W_L4), nBins, sort)*9 # P04
+        P_W[4]=self.PowerCalc(W_L2*conj(W_L2), nBins, sort)*25 # P22
+        P_W[5]=self.PowerCalc(W_L2*conj(W_L4), nBins, sort)*45 # P24
+        P_W[6]=self.PowerCalc(W_L4*conj(W_L4), nBins, sort)*81 # P44
+
+        P_W[7]=self.PowerCalc(W10_L0*conj(W10_L0), nBins, sort) - da.sum(self.randoms['NZ']**0*self.randoms['WEIGHT_FKP']**0).compute() # P00 with shot noise subtracted
+        P_W[8]=self.PowerCalc(W10_L0*conj(W10_L2), nBins, sort)*5 # P02
+        P_W[9]=self.PowerCalc(W10_L0*conj(W10_L4), nBins, sort)*9 # P04
+        P_W[10]=self.PowerCalc(W10_L2*conj(W10_L2), nBins, sort)*25 # P22
+        P_W[11]=self.PowerCalc(W10_L2*conj(W10_L4), nBins, sort)*45 # P24
+        P_W[12]=self.PowerCalc(W10_L4*conj(W10_L4), nBins, sort)*81 # P44
+
+        P_W[13]=self.PowerCalc(W_L0*conj(W10_L0), nBins, sort) - da.sum(self.randoms['NZ']**1*self.randoms['WEIGHT_FKP']**2).compute() # P00 with shot noise subtracted
+        P_W[14]=self.PowerCalc(W_L0*conj(W10_L2), nBins, sort)*5 # P02
+        P_W[15]=self.PowerCalc(W_L0*conj(W10_L4), nBins, sort)*9 # P04
+        P_W[16]=self.PowerCalc(W_L2*conj(W10_L0), nBins, sort)*5 # P20
+        P_W[17]=self.PowerCalc(W_L2*conj(W10_L2), nBins, sort)*25 # P22
+        P_W[18]=self.PowerCalc(W_L2*conj(W10_L4), nBins, sort)*45 # P24
+        P_W[19]=self.PowerCalc(W_L4*conj(W10_L0), nBins, sort)*9 # P40
+        P_W[20]=self.PowerCalc(W_L4*conj(W10_L2), nBins, sort)*45 # P42
+        P_W[21]=self.PowerCalc(W_L4*conj(W10_L4), nBins, sort)*81 # P44
+
+        P_W[1:7]/=(da.sum(self.randoms['W22']).compute())**2
+        P_W[7:13]/=(da.sum(self.randoms['W10']).compute())**2
+        P_W[13:]/=(da.sum(self.randoms['W10']).compute()*da.sum(self.randoms['W22']).compute())
+
+        # Minor point: setting k=0 modes by hand to avoid spurious values
+        P_W[1:7,0]=[1,0,0,1,0,1]; P_W[7:13,0]=[1,0,0,1,0,1]; P_W[13:,0]=[1,0,0,0,1,0,0,0,1]
+        return P_W
+
+# ------------------------------------------------------------------
 class Gaussian_Window_Kernels():
+    """Defines the kernels and calculations for calculating the window function for the
+    Gaussian term of the covariance matrix.
+
+    NOTE: This constructor needs FFT randoms to be pre-calculated, which you can do with the Survey_Window_Kernels class
+    """
 
     def __init__(self, k_centers, key="HighZ_NGC"):
-        """
-        Constructs window kernel object for calculating the gaussian covariance window kernels
-        NOTE: This constructor needs FFT randoms to be pre-calculated, otherwise it won't work
-        @param {np array} array of k bin centers
+        """ Gaussian window function constructor
+        
+        Args:
+            k_centers: np array of k bin centers
+            key: one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]
+
+        Raises:
+            AssertionError: If key is invalid, or if the box size is too small
         """
 
         # sanity checks 
         assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
                'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
-
 
         assert os.path.exists(CovaPT_data_dir+"FFTWinFun_"+key+".npy")
         # the total number of kbins
@@ -45,11 +311,20 @@ class Gaussian_Window_Kernels():
         assert self.icut < self.Lm2
 
         # Load survey random FFTs
-        # TODO: Update this with code to calculate FFTs
         self.fft_file = CovaPT_data_dir+'FFTWinFun_HighZ_NGC.npy'
         self.Wij2 = self.load_fft_file()
 
     def get_k_bin_edges(self, k_centers):
+        """calculates bin edges from an array of bin centers
+
+        Args:
+            k_centers: An np array of evenly-spaced bin centers
+        
+        Returns:
+            kbin_width: the width of each bin
+            kbin_edges: np array of bin edges (size of centers + 1)
+        """
+
         kbin_width = k_centers[-1] - k_centers[-2]
         kbin_half_width = kbin_width / 2.
         kbin_edges = np.zeros(len(k_centers)+1)
@@ -62,9 +337,8 @@ class Gaussian_Window_Kernels():
         return kbin_width, kbin_edges
 
     def fft(self, temp):
-        """
-        Does some shifting of the fft arrays
-        """
+        """Does some shifting of the fft arrays"""
+
         ia=self.Lm//2-1; ib=self.Lm//2+1
         temp2=np.zeros((self.Lm,self.Lm,self.Lm),dtype='<c8')
         temp2[ia:self.Lm,ia:self.Lm,ia:self.Lm]=temp[0:ib,0:ib,0:ib]; temp2[0:ia,ia:self.Lm,ia:self.Lm]=temp[ib:self.Lm,0:ib,0:ib]
@@ -91,8 +365,10 @@ class Gaussian_Window_Kernels():
         return Bin_kmodes, Bin_ModeNum
 
     def load_fft_file(self):
-        """
-        Loads and organizes information from the random catalog FFTs
+        """Loads and organizes information from the random catalog FFTs
+
+        Returns:
+            Wij2: FFT object calculated by the Survey_Window_kernels class
         """
         Wij = np.load(self.fft_file)
         self.Lm=len(Wij[0]) #size of FFT
@@ -106,10 +382,14 @@ class Gaussian_Window_Kernels():
 
         return Wij2
     
-    def calc_gaussian_window_function(self, bin_idx, kmodes_sampled=400):
-        """
-        Returns the window function kernels for l=0,2,and 4 auto + cross covariance
-        NOTE: This function is computationally expensive and should be run on a cluster in parralel
+    def calc_gaussian_window_function(self, bin_idx : int, kmodes_sampled : int =400):
+        """Returns the window function of a specific k-bin for l=0,2,and 4 auto + cross covariance
+        
+        NOTE: This function is computationally expensive and should be run in parralel
+        
+        Args:
+            bin_idx: the specific k-bin index to calculate the window function for
+            kmodes_sampled: The number of random samples to use
         """
 
         Bin_kmodes, Bin_ModeNum = self.get_shell_modes()
