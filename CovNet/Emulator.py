@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
-import pickle as pkl
 import yaml
 
 import CovNet.Blocks as Blocks

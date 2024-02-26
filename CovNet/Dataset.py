@@ -2,11 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
-import pickle as pkl
 import os, yaml
 from easydict import EasyDict
-
-from sklearn.decomposition import PCA
 
 torch.set_default_dtype(torch.float32)
 
@@ -147,7 +144,7 @@ class MatrixDataset(torch.utils.data.Dataset):
         # compress matrices first to save memory
         self.matrices = rearange_to_half(self.matrices)
         self.matrices = symmetric_log(self.matrices, self.norm_pos, self.norm_neg)
-        self.matrices = rearange_to_full(self.matrices, self.N, self.cholesky)
+        self.matrices = rearange_to_full(self.matrices, self.cholesky)
 
     def get_full_matrix(self, idx:int):
         """reverses all data pre-processing to return the full covariance matrix
@@ -190,7 +187,7 @@ def rearange_to_half(C):
 
     return L1 + L2
 
-def rearange_to_full(C_half, N, lower_triangular=False):
+def rearange_to_full(C_half, lower_triangular=False):
     """Un-Compresses batch of lower-triangular matrices
     
     Takes a batch of half matrices (B, N+1, N/2) and reverses the rearangment to return full,
