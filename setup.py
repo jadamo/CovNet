@@ -18,6 +18,6 @@ setup(
                       "classy",
                       "mpi4py",
                       "six",
-                      "nbodykit",
+                      #"nbodykit", #<- not an official requirnment due to not workng on mac M1
     ],
 )
