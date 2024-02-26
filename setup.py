@@ -7,7 +7,7 @@ setup(
     author_email="jadamo@arizona.edu",
     description="Neural network emulator to generate covariance matrices for cosmological data analysis",
     packages=find_packages(),
-    python_requires='>=3.8,<=3.9',
+    python_requires='>=3.5,<3.9',
     install_requires=["build",
                       "numpy",
                       "scipy",
