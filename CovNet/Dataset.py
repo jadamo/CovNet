@@ -303,6 +303,7 @@ def get_avg_loss(net, data):
     """
     avg_loss = 0
     net.eval()
+    device = net.get_device()
     net = net.to("cpu")
 
     loader = torch.utils.data.DataLoader(data, batch_size=net.config_dict.batch_size, shuffle=True)
@@ -311,7 +312,7 @@ def get_avg_loss(net, data):
         avg_loss += F.l1_loss(prediction, matrix, reduction="sum").item()
 
     avg_loss /= len(data)
-    net = net.to(try_gpu())
+    if device != torch.device("cpu"): net = net.to(try_gpu())
     return avg_loss
 
 def organize_training_set(training_dir:str, train_frac:float, valid_frac:float, test_frac:float, 

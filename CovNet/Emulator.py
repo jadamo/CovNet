@@ -30,7 +30,7 @@ class CovNet():
 
         # NOTE: Currently loads everything onto the cpu, which shouldn't matter
         # for using in an actual analysis
-        self.net = Network_Emulator(self.config_dict).to(try_gpu())
+        self.net = Network_Emulator(self.config_dict).to("cpu")
         self.net.eval()
         self.net.load_state_dict(torch.load(net_dir+'network.params', map_location=torch.device("cpu")))
 
@@ -63,6 +63,7 @@ class CovNet():
             data: the dataset (as a MatrixDataset object) to generate loss values for
         """
         return Dataset.get_avg_loss(self.net, data)
+
 
 
 class Network_Emulator(nn.Module):
@@ -137,20 +138,24 @@ class Network_Emulator(nn.Module):
             #self.out2 = nn.Linear(2*sequence_len, sequence_len)
 
             if self.embedding == True:
-                pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
+                pos_embed = self.get_positional_embedding(num_sequences, sequence_len)
                 pos_embed.requires_grad = False
                 self.register_buffer("pos_embed", pos_embed)
 
-            self.pos_embed = self.get_positional_embedding(num_sequences, sequence_len).to(try_gpu())
+            self.pos_embed = self.get_positional_embedding(num_sequences, sequence_len)
             self.pos_embed.requires_grad = False
         else:
             print("ERROR! Invalid architecture specified")
 
-        bounds = torch.tensor(config_dict.parameter_bounds).to(try_gpu())
+        bounds = torch.tensor(config_dict.parameter_bounds)
         self.register_buffer("bounds", bounds)
 
         # initialize weights
         self.apply(self.init_weights)
+
+    def get_device(self):
+        """returns the device that the network parameters are savec on"""
+        return self.bounds.device
 
     def init_weights(self, m):
         """Initializes weights using a specific scheme set in the input yaml file
@@ -393,7 +398,7 @@ class Network_Emulator(nn.Module):
 
         # re-load the save state or previous best network
         if save_dir != "":
-            self.load_state_dict(torch.load(save_dir+'network.params', map_location=Dataset.try_gpu()))
+            self.load_state_dict(torch.load(save_dir+'network.params'))
         else: self.load_state_dict(self.save_state)
 
         print("lr {:0.3e}, bsize {:0.0f}: Best validation loss was {:0.3f} after {:0.0f} epochs".format(
