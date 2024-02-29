@@ -15,8 +15,8 @@ setup(
                       "PyYAML",
                       "easydict",
                       "Cython",
-                      "classy",
-                      "mpi4py",
+                      "classy", #<- if CLASS-PT is not installed, this will install base CLASS instead
+                      #"mpi4py", #<- only a requirnment to run some of the scripts
                       "six",
                       #"nbodykit", #<- not an official requirnment due to not workng on mac M1
     ],
