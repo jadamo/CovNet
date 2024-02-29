@@ -197,22 +197,21 @@ class LSS_Model():
         return pdata
 
     #-------------------------------------------------------------------
-    def trispIntegrand(self, u12,k1,k2,Plin):
+    def trispIntegrand(self, u12,k1, k2, l1, l2, Plin):
         """Integrand function for use when calculating the trispectrum"""
-        return( (8*self.i44*(Plin(k1)**2*T0.e44o44_1(u12,k1,k2) + Plin(k2)**2*T0.e44o44_1(u12,k2,k1))
-                +16*self.i44*Plin(k1)*Plin(k2)*T0.e44o44_2(u12,k1,k2)
-                +8*self.i34*(Plin(k1)*T0.e34o44_2(u12,k1,k2)+Plin(k2)*T0.e34o44_2(u12,k2,k1))
-                +2*self.i24*T0.e24o44(u12,k1,k2))
+        return( (8*self.i44*(Plin(k1)**2*T0.e44o44_1(u12,k1,k2,l1,l2) + Plin(k2)**2*T0.e44o44_1(u12,k2,k1,l1,l2))
+                +16*self.i44*Plin(k1)*Plin(k2)*T0.e44o44_2(u12,k1,k2,l1,l2)
+                +8*self.i34*(Plin(k1)*T0.e34o44_2(u12,k1,k2,l1,l2)+Plin(k2)*T0.e34o44_2(u12,k2,k1,l1,l2))
+                +2*self.i24*T0.e24o44(u12,k1,k2,l1,l2))
                 *Plin(np.sqrt(k1**2+k2**2+2*k1*k2*u12)) )
 
     #-------------------------------------------------------------------
     def trisp(self, l1:int, l2:int, k1:float, k2:float, Plin):
         """Returns the tree-level trispectrum as a function of multipoles and k1, k2"""
-        T0.l1=l1; T0.l2=l2
-        expr = self.i44*(Plin(k1)**2*Plin(k2)*T0.ez3(k1,k2) + Plin(k2)**2*Plin(k1)*T0.ez3(k2,k1))\
-            +8*self.i34*Plin(k1)*Plin(k2)*T0.e34o44_1(k1,k2)
+        expr = self.i44*(Plin(k1)**2*Plin(k2)*T0.ez3(k1,k2,l1,l2) + Plin(k2)**2*Plin(k1)*T0.ez3(k2,k1,l1,l2))\
+            +8*self.i34*Plin(k1)*Plin(k2)*T0.e34o44_1(k1,k2,l1,l2)
 
-        T_kk = (quad(self.trispIntegrand, -1, 1,args=(k1,k2,Plin), limit=150)[0]/2. + expr)/self.i22**2
+        T_kk = (quad(self.trispIntegrand, -1, 1,args=(k1,k2,l1,l2,Plin), limit=150)[0]/2. + expr)/self.i22**2
         return(T_kk)
 
     #-------------------------------------------------------------------
@@ -594,14 +593,17 @@ class LSS_Model():
         #(e.g., sigma22Sq which was defined in Eq. (33) and later calculated in Eq.(65)
         [temp,temp2]=np.zeros((2,6)); temp3 = np.zeros(9)
         for i in range(9):
-            Pwin=InterpolatedUnivariateSpline(kwin, self.powW22x10[:,1+i])
-            temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
+            #Pwin=InterpolatedUnivariateSpline(self.kwin, self.powW22x10[:,1+i])
+            Pwin=InterpolatedUnivariateSpline(self.kwin, self.powW22x10[i])
+            temp3[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, self.kwin[-1], limit=100)[0]
 
             if(i<6):
-                Pwin=InterpolatedUnivariateSpline(kwin, self.powW22[:,1+i])
-                temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
-                Pwin=InterpolatedUnivariateSpline(kwin, self.powW10[:,1+i])
-                temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, kwin[-1], limit=100)[0]
+                #Pwin=InterpolatedUnivariateSpline(self.kwin, self.powW22[:,1+i])
+                Pwin=InterpolatedUnivariateSpline(self.kwin, self.powW22[i])
+                temp[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, self.kwin[-1], limit=100)[0]
+                #Pwin=InterpolatedUnivariateSpline(self.kwin, self.powW10[:,1+i])
+                Pwin=InterpolatedUnivariateSpline(self.kwin, self.powW10[i])
+                temp2[i]=quad(lambda q: q**2*Plin(q)*Pwin(q)/2/pi**2, 0, self.kwin[-1], limit=100)[0]
             else:
                 continue
         

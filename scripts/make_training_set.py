@@ -143,16 +143,16 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -2
     
     #return C_G, np.zeros((dim, dim)), params_save, 0
-    C_SSC, C_T0 = Analytic_Model.get_non_gaussian_covariance(params)
+    C_NG = Analytic_Model.get_non_gaussian_covariance(params)
     del Analytic_Model 
 
     # Test that the matrix we calculated is positive definite. It it isn't, then skip
     try:
-        L = np.linalg.cholesky(C_G + C_SSC + C_T0)
+        L = np.linalg.cholesky(C_G + C_NG)
         # save results to a file for training
         #idx = f'{i:06d}'
         #np.savez(home_dir+"CovA-"+idx+".npz", params=params_save, C_G=C_G, C_NG=C_SSC + C_T0)
-        return C_G, C_SSC + C_T0, params_save, 0
+        return C_G, C_NG, params_save, 0
     except:
         print("idx", i, "is not positive definite! skipping...")
         return np.zeros((dim, dim)), np.zeros((dim, dim)), params_save, -2

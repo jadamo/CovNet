@@ -1,8 +1,8 @@
 # This script is basically CovaPT's jupyter notebook, but in script form so you can more easily run it
+# NOTE: you need to generate a sample of parameters seperately from this script!
 
 import time, os, sys, warnings, math
 import numpy as np
-from scipy.stats import qmc
 
 from multiprocessing import Pool
 from itertools import repeat
@@ -10,7 +10,7 @@ from mpi4py import MPI
 
 sys.path.append('/home/u12/jadamo/')
 #sys.path.append("/home/joeadamo/Research")
-import src.CovaPT as CovaPT
+from CovNet import CovaPT
 
 #-------------------------------------------------------------------
 # GLOBAL VARIABLES
@@ -46,7 +46,7 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
     """
 
     params = np.array([H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot])
-    Mat_Calc = CovaPT.Analytic_Covmat(z, window_dir="/home/u12/jadamo/CovaPT/Example-Data/")
+    Mat_Calc = CovaPT.LSS_Model(z)
 
     # calculate the covariance matrix
     C_G = Mat_Calc.get_gaussian_covariance(params, return_Pk=False)
@@ -54,7 +54,7 @@ def CovAnalytic(H0, omch2, As, b1, b2, bG2, cs0, cs2, cbar, Pshot, z, i):
         print("idx", i, "failed to compute power spectrum! skipping...")
         return -1
 
-    C_SSC, C_T0 = Mat_Calc.get_non_gaussian_covariance(params)
+    C_SSC, C_T0 = Mat_Calc.get_non_gaussian_covariance(params, True)
 
     # Test that the matrix we calculated is positive definite. It it isn't, then skip
     try:

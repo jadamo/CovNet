@@ -27,13 +27,13 @@ def main():
     k = np.linspace(0.01, 0.19, 10)
 
     Analytic_Model = CovaPT.LSS_Model(0.61, k)
-    C_G, C_SSC, C_T0 = Analytic_Model.get_full_covariance(params)
-    C = C_G + C_SSC + C_T0
+    C_G, C_NG = Analytic_Model.get_full_covariance(params, seperate_terms=True)
+    C = C_G + C_NG
 
     t2 = time.time()
     print("Matrix generated in {:0.2f} s".format(t2 - t1))
 
-    print("cond(C) = {:0.3e}".format(np.linalg.cond(C)))
+    print("cond(C) = {:0.3e}".format(np.linalg.cond(C_G + C_NG)))
     try:
         L = np.linalg.cholesky(C)
         print("Covariance matrix is positive-definite :)")
@@ -41,12 +41,15 @@ def main():
     except np.linalg.LinAlgError as err:
         print("Covariance matrix is NOT positive-definite!")
 
-    np.savez(save_file, C_G=C_G, C_SSC=C_SSC, C_T0=C_T0)
+    np.savez(save_file, C_G=C_G, C_NG=C_NG)
 
     if plot_matrix:
         plt.figure()
         plt.imshow(C, cmap="RdBu", norm=colors.SymLogNorm(linthresh=1., vmin=np.amin(C), vmax=np.amax(C)))
         plt.colorbar()
+        plt.xticks([])
+        plt.yticks([])
+        plt.show()
 
 if __name__ == "__main__":
     main()
