@@ -17,4 +17,4 @@ NOTE: In order to calculate your own covariance window functions, you'll also ne
 A description of how to use CovNet is given [here](https://github.com/jadamo/CovNet/wiki/Covariance-Matrix-Emulator-Workflow). 
 
 ## Citing the Code
-Users of this code must cite the authors (TODO: update with paper link), CovaPT (https://arxiv.org/abs/1910.02914), and CLASS-PT (https://arxiv.org/abs/2004.10607)
+Users of this code should cite the authors (http://arxiv.org/abs/2405.00125), CovaPT (https://arxiv.org/abs/1910.02914), and CLASS-PT (https://arxiv.org/abs/2004.10607)
