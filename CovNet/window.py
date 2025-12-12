@@ -18,7 +18,7 @@ class Survey_Window_Kernels():
     """
     Class that handles both Super-Sample Covariance (SSC) window function and FFT 
     """
-    def __init__ (self, h:float, Om0:float, key="HighZ_NGC", data_dir=CovaPT_data_dir):
+    def __init__ (self, h:float, Om0:float, key="HighZ_NGC", data_dir=CovaPT_data_dir, z_bounds=None):
         """Constructs Survey_Window_Kernels object
 
         Args:
@@ -32,19 +32,35 @@ class Survey_Window_Kernels():
             IOError: If random catalog doesn't exist in the specified directory
         """
 
-        assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
-        'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
+        # assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
+        # 'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
+
+        self.cosmo = cosmology.Cosmology(h=h).match(Omega0_m=Om0)
 
         # load in random catalog
-        self.randoms = self.load_survey_randoms(key, data_dir)
+        self.randoms = self.load_survey_randoms(key, data_dir, z_bounds)
 
         # convert redshifts to physical distances based on some catalog cosmology
         self.convert_to_distances(h, Om0)
 
         # self.I22 = np.sum(self.randoms['NZ']**1 * self.randoms['WEIGHT_FKP']**2)
         # self.I22 = self.I22.compute()    
+    
+    @property
+    def I22(self):
+        i22 = np.sum(self.randoms['NZ']**1 * self.randoms['WEIGHT_FKP']**2)
+        return i22.compute()
+    
+    @property
+    def box_size(self):
+        return (max(da.max(self.randoms["OriginalPosition"][0]),
+                    da.max(self.randoms["OriginalPosition"][1]),
+                    da.max(self.randoms["OriginalPosition"][2])) \
+              - min(da.min(self.randoms["OriginalPosition"][0]),
+                    da.min(self.randoms["OriginalPosition"][1]),
+                    da.min(self.randoms["OriginalPosition"][2]))).compute()
 
-    def load_survey_randoms(self, key, data_dir):
+    def load_survey_randoms(self, key, data_dir, z_bounds=None):
         """Loads random survey catalog from file and
         
         Args:
@@ -63,15 +79,32 @@ class Survey_Window_Kernels():
             random_file = 'random0_DR12v5_LOWZ_North.fits'
         elif key == "LowZ_SGC":
             random_file = 'random0_DR12v5_LOWZ_South.fits'
+        else:
+            random_file = "random_"+key+".fits"
 
         if not os.path.exists(data_dir+random_file):
-            raise IOError("Could not find survey randoms catalog! You can download the necesary files from https://data.sdss.org/sas/dr12/boss/lss/")
+            raise IOError(f"Could not find survey randoms catalog ({data_dir+random_file})! You can download the necesary files from https://data.sdss.org/sas/dr12/boss/lss/")
         randoms = FITSCatalog(data_dir+random_file)
 
         if "LowZ" in key:
             randoms = randoms[(randoms['Z'] > 0.2) * (randoms['Z'] < 0.5)]
-        else:
+        elif "HighZ" in key:
             randoms = randoms[(randoms['Z'] > 0.5) * (randoms['Z'] < 0.75)]
+        elif z_bounds != None:
+            randoms = randoms[(randoms['Z'] > z_bounds[0]) * (randoms['Z'] < z_bounds[1])]
+        else:
+            raise ValueError("No redshift bounds specified!")
+
+        if "NZ" not in randoms:
+            print("'NZ' not in randoms! Estimating it with RedshiftInterpolator...")
+            from nbodykit.algorithms import RedshiftHistogram
+            nz_hist = RedshiftHistogram(randoms, fsky=1.0, cosmo=self.cosmo, redshift="Z")
+            randoms["NZ"] = nz_hist.interpolate(randoms["Z"])
+
+        if "WEIGHT_FKP" not in randoms:
+            print("'WEIGHT_FKP' not found in randoms! Estimating it from NZ...")
+            randoms["WEIGHT_FKP"] = 1. / (1 + randoms["NZ"] * 1e4)
+        
         return randoms
 
     def convert_to_distances(self, h:float, Om0:float):
@@ -85,11 +118,9 @@ class Survey_Window_Kernels():
             Om0: present matter density parameter for the catalog cosmology
         """
 
-        cosmo = cosmology.Cosmology(h=h).match(Omega0_m=Om0)
-
         self.randoms['OriginalPosition'] = transform.SkyToCartesian(
             self.randoms['RA'], self.randoms['DEC'], self.randoms['Z'], 
-            degrees=True, cosmo=cosmo)
+            degrees=True, cosmo=self.cosmo)
 
     def num_ffts(self, n):
         """Returns the number of FFTs to do at a given order n"""
@@ -262,6 +293,10 @@ class Survey_Window_Kernels():
 
         # Minor point: setting k=0 modes by hand to avoid spurious values
         P_W[1:7,0]=[1,0,0,1,0,1]; P_W[7:13,0]=[1,0,0,1,0,1]; P_W[13:,0]=[1,0,0,0,1,0,0,0,1]
+        
+        if np.any(np.isnan(P_W)):
+            raise RuntimeError("SSC Window function calculation returned NaN values!")
+        
         return P_W
 
 # ------------------------------------------------------------------
@@ -272,7 +307,7 @@ class Gaussian_Window_Kernels():
     NOTE: This constructor needs FFT randoms to be pre-calculated, which you can do with the Survey_Window_Kernels class
     """
 
-    def __init__(self, k_centers, key="HighZ_NGC"):
+    def __init__(self, k_centers, key="HighZ_NGC", data_dir=None, sampling_mode="linear", lbox=None):
         """ Gaussian window function constructor
         
         Args:
@@ -284,21 +319,32 @@ class Gaussian_Window_Kernels():
         """
 
         # sanity checks 
-        assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
-               'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
+        # assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
+        #        'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
 
-        assert os.path.exists(CovaPT_data_dir+"FFTWinFun_"+key+".npy")
+
+        if data_dir != None: self.data_dir = data_dir
+        else:                self.data_dir = CovaPT_data_dir
+
+        self.fft_file = os.path.join(self.data_dir, "FFTWinFun_"+key+".npy")
+        if not os.path.exists(self.fft_file):
+            raise IOError(f"Could not find fft file at {self.fft_file}")
+        
         # the total number of kbins
         self.nBins = len(k_centers)
 
         # calculate bin edges and width from the k centers
-        self.kbin_width, self.kbin_edges = self.get_k_bin_edges(k_centers)
+        print(f"Using {sampling_mode} for k-bin sampling")
+        self.sampling_mode = sampling_mode
+        self.kbin_width, self.kbin_edges = self.get_k_bin_edges(k_centers, mode=sampling_mode)
 
         # length of box when computing FFTs
-        self.Lbox = 3750.
+        if lbox != None: self.Lbox = lbox
+        else:            self.Lbox = 3750.
 
         # fundamental k mode
         self.kfun=2.*np.pi/self.Lbox
+        print(f"Using a box size of {self.Lbox} Mpc/h and kfun of {self.kfun} h/Mpc")
 
         # As the window falls steeply with k, only low-k regions are needed for the calculation.
         # Therefore cutting out the high-k modes in the FFTs using the self.icut parameter
@@ -307,14 +353,19 @@ class Gaussian_Window_Kernels():
         # from eq 3 of ??
         self.I22=437.183365
 
-        self.Lm2 = int(self.kbin_width*self.nBins/self.kfun)+1
+        if sampling_mode == "linear":
+            self.Lm2 = int(self.kbin_width*self.nBins/self.kfun)+1
+        else:
+            self.Lm2 = int((self.kbin_edges[-1] - self.kbin_edges[0])/self.kfun)+1
         assert self.icut < self.Lm2
 
         # Load survey random FFTs
-        self.fft_file = CovaPT_data_dir+'FFTWinFun_HighZ_NGC.npy'
         self.Wij2 = self.load_fft_file()
 
-    def get_k_bin_edges(self, k_centers):
+    def set_I22(self, i22):
+        self.I22 = i22
+
+    def get_k_bin_edges(self, k_centers, mode="linear"):
         """calculates bin edges from an array of bin centers
 
         Args:
@@ -325,14 +376,25 @@ class Gaussian_Window_Kernels():
             kbin_edges: np array of bin edges (size of centers + 1)
         """
 
-        kbin_width = k_centers[-1] - k_centers[-2]
-        kbin_half_width = kbin_width / 2.
-        kbin_edges = np.zeros(len(k_centers)+1)
-        kbin_edges[0] = k_centers[0] - kbin_half_width
+        if mode == "linear":
+            kbin_width = k_centers[-1] - k_centers[-2]
+            kbin_half_width = kbin_width / 2.
+            kbin_edges = np.zeros(len(k_centers)+1)
+            kbin_edges[0] = k_centers[0] - kbin_half_width
 
-        assert kbin_edges[0] > 0.
-        for i in range(1, len(kbin_edges)):
-            kbin_edges[i] = k_centers[i-1] + kbin_half_width
+            assert kbin_edges[0] > 0.
+            for i in range(1, len(kbin_edges)):
+                kbin_edges[i] = k_centers[i-1] + kbin_half_width
+
+        elif mode == "log":
+
+            kbin_width = k_centers[1] / k_centers[0]
+            kbin_edges = np.zeros(len(k_centers)+1)
+            kbin_edges[0] = 10 ** (np.log10(k_centers[0]) - (np.log10(kbin_width) / 2))
+
+            assert kbin_edges[0] > 0.
+            for i in range(1, len(kbin_edges)):
+                kbin_edges[i] = kbin_edges[i-1] * (kbin_width)
 
         return kbin_width, kbin_edges
 
@@ -349,19 +411,35 @@ class Gaussian_Window_Kernels():
         return(temp2[ia-self.icut:ia+self.icut+1,ia-self.icut:ia+self.icut+1,ia-self.icut:ia+self.icut+1])
 
     def get_shell_modes(self):
+        """Calculates the k-modes in each k-shell bin"""
         [ix,iy,iz] = np.zeros((3,2*self.Lm2+1,2*self.Lm2+1,2*self.Lm2+1));
         Bin_kmodes=[]; Bin_ModeNum=np.zeros(self.nBins,dtype=int)
 
         for i in range(self.nBins): Bin_kmodes.append([])
         for i in range(len(ix)):
-            ix[i,:,:]+=i-self.Lm2; iy[:,i,:]+=i-self.Lm2; iz[:,:,i]+=i-self.Lm2
+            ix[i,:,:]+=i-self.Lm2
+            iy[:,i,:]+=i-self.Lm2
+            iz[:,:,i]+=i-self.Lm2
 
         rk=np.sqrt(ix**2+iy**2+iz**2)
-        sort=(rk*self.kfun/self.kbin_width).astype(int)
+        # Here, sort is an array with the associated k-shell each mode is in
+        if self.sampling_mode == "linear":
+            sort=(rk*self.kfun/self.kbin_width).astype(int)
+        # NOTE: This code might not be the correct way to do this...
+        elif self.sampling_mode == "log":
+            sort = np.ones_like(rk) * -1
+            for kbin in range(self.nBins):
+                idx = np.where((rk*self.kfun > self.kbin_edges[kbin]) & 
+                               (rk*self.kfun <= self.kbin_edges[kbin+1]))
+                
+                sort[idx] = kbin
+            sort = sort.astype(int)
 
         for i in range(self.nBins):
-            ind=(sort==i); Bin_ModeNum[i]=len(ix[ind]); \
+            ind=(sort==i)
+            Bin_ModeNum[i]=len(ix[ind])
             Bin_kmodes[i]=np.hstack((ix[ind].reshape(-1,1),iy[ind].reshape(-1,1),iz[ind].reshape(-1,1),rk[ind].reshape(-1,1)))
+
         return Bin_kmodes, Bin_ModeNum
 
     def load_fft_file(self):
@@ -392,6 +470,7 @@ class Gaussian_Window_Kernels():
             kmodes_sampled: The number of random samples to use
         """
 
+        print(f"sampling kmodes from shells in {self.sampling_mode} space, bin_idx = {bin_idx}")
         Bin_kmodes, Bin_ModeNum = self.get_shell_modes()
 
         [W, Wxx, Wxy, Wxz, Wyy, Wyz, Wzz, Wxxxx, Wxxxy, Wxxxz, Wxxyy, Wxxyz, Wxxzz, Wxyyy, Wxyyz, Wxyzz,\
@@ -403,6 +482,10 @@ class Gaussian_Window_Kernels():
         avgW22=avgW00.copy(); avgW44=avgW00.copy(); avgW20=avgW00.copy(); avgW40=avgW00.copy(); avgW42=avgW00.copy()
         [ix,iy,iz,k2xh,k2yh,k2zh]=np.zeros((6,2*self.icut+1,2*self.icut+1,2*self.icut+1))
         
+        if Bin_ModeNum[bin_idx]==0:
+            print(f"No modes found in bin {bin_idx}, returning zeros")
+            return avgWij
+
         for i in range(2*self.icut+1): 
             ix[i,:,:]+=i-self.icut; iy[:,i,:]+=i-self.icut; iz[:,:,i]+=i-self.icut
             
@@ -422,7 +505,15 @@ class Gaussian_Window_Kernels():
         # Build a 3D array of modes around the selected mode   
             k2xh=ik1x-ix; k2yh=ik1y-iy; k2zh=ik1z-iz
             rk2=np.sqrt(k2xh**2+k2yh**2+k2zh**2)
-            sort=(rk2*self.kfun/self.kbin_width).astype(int)-bin_idx # to decide later which shell the k2 mode belongs to
+            if self.sampling_mode == "linear":
+                sort=(rk2*self.kfun/self.kbin_width).astype(int)-bin_idx # to decide later which shell the k2 mode belongs to
+            elif self.sampling_mode == "log":
+                sort = np.ones_like(rk2) * -1
+                for kbin in range(self.nBins):
+                    idx = np.where((rk2*self.kfun >= self.kbin_edges[kbin]) & 
+                                   (rk2*self.kfun < self.kbin_edges[kbin+1]))
+                    sort[idx] = kbin - bin_idx
+                sort = sort.astype(int)
             ind=(rk2==0)
             if (ind.any()>0): rk2[ind]=1e10
             k2xh/=rk2; k2yh/=rk2; k2zh/=rk2;
@@ -638,8 +729,31 @@ class Gaussian_Window_Kernels():
             avgW20[i]=avgW20[i]/(norm*Bin_ModeNum[bin_idx+i-3]*self.I22**2)
             avgW40[i]=avgW40[i]/(norm*Bin_ModeNum[bin_idx+i-3]*self.I22**2)
             avgW42[i]=avgW42[i]/(norm*Bin_ModeNum[bin_idx+i-3]*self.I22**2)
-            
-        avgWij[:,:,0]=2.*np.real(avgW00); avgWij[:,:,1]=25.*np.real(avgW22); avgWij[:,:,2]=81.*np.real(avgW44);
-        avgWij[:,:,3]=5.*2.*np.real(avgW20); avgWij[:,:,4]=9.*2.*np.real(avgW40); avgWij[:,:,5]=45.*np.real(avgW42);
         
+        # if np.any(np.isnan(avgW00)):
+        #     raise ValueError(f"NaN values encountered in W00. bin_idx: {bin_idx}")
+        # if np.any(np.isnan(avgW22)):
+        #     raise ValueError(f"NaN values encountered in W22. bin_idx: {bin_idx}")
+        # if np.any(np.isnan(avgW44)):
+        #     raise ValueError(f"NaN values encountered in W44. bin_idx: {bin_idx}")
+        # if np.any(np.isnan(avgW20)):
+        #     raise ValueError(f"NaN values encountered in W20. bin_idx: {bin_idx}")
+        # if np.any(np.isnan(avgW40)):
+        #     raise ValueError(f"NaN values encountered in W40. bin_idx: {bin_idx}")
+        # if np.any(np.isnan(avgW42)):
+        #     raise ValueError(f"NaN values encountered in W42. bin_idx: {bin_idx}")
+
+        avgWij[:,:,0]=2.*np.real(avgW00)
+        avgWij[:,:,1]=25.*np.real(avgW22)
+        avgWij[:,:,2]=81.*np.real(avgW44)
+        avgWij[:,:,3]=5.*2.*np.real(avgW20)
+        avgWij[:,:,4]=9.*2.*np.real(avgW40)
+        avgWij[:,:,5]=45.*np.real(avgW42)
+        
+        if np.any(np.isnan(avgWij)):
+            print("WARNING! NaNs found in avgWij! Setting to 0...")
+            avgWij[(np.isnan(avgWij))]=0.
+        else:
+            print(f"avgWij computed for bin {bin_idx} successfully without NaNs.")
+
         return(avgWij)

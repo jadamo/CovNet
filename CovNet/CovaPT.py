@@ -8,8 +8,8 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from numpy import pi
 from scipy.misc import derivative
-
 from classy import Class
+import camb
 
 from CovNet.config import CovaPT_data_dir
 from CovNet import T0
@@ -36,13 +36,14 @@ class LSS_Model():
             window_dir: location of precomputed window functions. Detault directory provided by the repo
             key: specific data sample to model. Must be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]
         """
-        assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
-        'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
+        # assert key in ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"], \
+        # 'ERROR: invalid key specified! Should be one of ["HighZ_NGC", "HighZ_SGC", "LowZ_NGZ", "LowZ_SGC"]'
 
         self.k = k
         self.kbins=len(k)
         self.z = z
 
+        self.alpha=alpha
         self.load_window_functions(key, window_dir)
 
         # A, ns, ombh2 from Planck best-fit
@@ -94,6 +95,22 @@ class LSS_Model():
                             'n_s':self.ns_planck
                             }
 
+    def set_normalizations(self, random):
+        # The following parameters are calculated from the survey random catalog
+        # Using Iij convention in Eq.(3)
+        self.i22 = np.sum(random['NZ']**1 * random['WEIGHT_FKP']**2).compute()*self.alpha
+        self.i11 = np.sum(random['NZ']**0 * random['WEIGHT_FKP']**1).compute()*self.alpha
+        self.i12 = np.sum(random['NZ']**0 * random['WEIGHT_FKP']**2).compute()*self.alpha
+        self.i10 = np.sum(random['NZ']**0 * random['WEIGHT_FKP']**0).compute()*self.alpha
+        self.i24 = np.sum(random['NZ']**1 * random['WEIGHT_FKP']**4).compute()*self.alpha
+        self.i14 = np.sum(random['NZ']**0 * random['WEIGHT_FKP']**4).compute()*self.alpha
+        self.i34 = np.sum(random['NZ']**2 * random['WEIGHT_FKP']**4).compute()*self.alpha
+        self.i44 = np.sum(random['NZ']**3 * random['WEIGHT_FKP']**4).compute()*self.alpha
+        self.i32 = np.sum(random['NZ']**2 * random['WEIGHT_FKP']**2).compute()*self.alpha
+        self.i12oi22 = self.i12 / self.i22
+        print(f"Normalizations set!")
+        print(f"I22 = {self.i22:0.2f}, I11 = {self.i11:0.2f}, I12 = {self.i12:0.2f}, I10 = {self.i10:0.2f}")
+
     #-------------------------------------------------------------------
     def load_window_functions(self, key:str, window_dir:str):
         """Loads window power spectra and gaussian window functions from file"""
@@ -119,6 +136,7 @@ class LSS_Model():
             raise IOError("ERROR! Couldn't find", window_file)
         
         self.WijFile = np.load(window_dir+'Wij_k'+str(self.kbins)+'_'+key+'.npy')
+        print(f"Wij has shape {self.WijFile.shape}")
 
     #-------------------------------------------------------------------
     def get_k_bins(self):
@@ -145,10 +163,10 @@ class LSS_Model():
             Wij[i+3,6]*Pfit[4][kt]*Pfit[0][kt+i]+\
             Wij[i+3,7]*Pfit[4][kt]*Pfit[2][kt+i]+\
             Wij[i+3,8]*Pfit[4][kt]*Pfit[4][kt+i]+\
-            1.01*(Wij[i+3,9]*(Pfit[0][kt]+Pfit[0][kt+i])/2.+\
+            (1 + self.alpha)*(Wij[i+3,9]*(Pfit[0][kt]+Pfit[0][kt+i])/2.+\
             Wij[i+3,10]*Pfit[2][kt]+Wij[i+3,11]*Pfit[4][kt]+\
             Wij[i+3,12]*Pfit[2][kt+i]+Wij[i+3,13]*Pfit[4][kt+i])+\
-            1.01**2*Wij[i+3,14]
+            (1 + self.alpha)**2*Wij[i+3,14]
         return(temp)
 
     #-------------------------------------------------------------------
@@ -173,6 +191,21 @@ class LSS_Model():
         return(1. + 6*(Om0-1)*scipy.special.hyp2f1(4/3., 2, 17/6., (1-1/Om0)/(1+z)**3)
                     /( 11*Om0*(1+z)**3*scipy.special.hyp2f1(1/3., 1, 11/6., (1-1/Om0)/(1+z)**3) ))
 
+    def Pk_lin_CAMB(self, H0:float, omch2:float, ombh2:float, As:float, ns:float):
+        """Generates a linear initial matter power spectrum with CAMB"""
+        
+        camb_pars = camb.set_params(H0=H0, ombh2=ombh2,omch2=omch2, mnu=0.06, As=As, ns=ns,
+                                    w=-1, wa=0, dark_energy_model='DarkEnergyPPF')
+        camb_pars.NonLinear = camb.model.NonLinear_none
+        camb_pars.set_matter_power(redshifts=[self.z], kmax=10.0 / (H0 / 100))
+        k = np.linspace(np.amin(self.k), np.amax(self.k), len(self.k)*3)
+
+        results = camb.get_results(camb_pars)
+        _, _, pk_lin = results.get_matter_power_spectrum(minkh=np.amin(self.k), maxkh=np.amax(self.k), npoints = len(self.k)*3)
+
+        pdata = np.vstack((k, pk_lin[0])).T
+        return pdata
+
     #-------------------------------------------------------------------
     def Pk_lin_CLASS(self, H0:float, omch2:float, ombh2:float, As:float, ns:float):
         """Generates a linear initial matter power spectrum with CLASS"""
@@ -185,7 +218,7 @@ class LSS_Model():
                 'omega_cdm':omch2,
                 'H0':H0,
                 'z_pk':self.z
-                })  
+                })
         cosmo.compute()
         k = np.linspace(np.amin(self.k), np.amax(self.k), len(self.k)*3)
         khvec = k * cosmo.h()
@@ -553,7 +586,7 @@ class LSS_Model():
 
         # non-local bias terms
         g2 = params[5] #<- bG2
-        g3 = 0.  #<- bG3 (third order?)
+        g3 = 0.  #<- bG3 (third order)
         g2x = 0. #<- bdG2 (third order)
         g21 = 0. #<- bGamma3*
 
@@ -577,7 +610,9 @@ class LSS_Model():
         T0.InitParameters([b1,be,g2,b2,g3,g2x,g21,b3])
 
         # Get initial power spectrum
-        pdata = self.Pk_lin_CLASS(H0, omch2, ombh2, As, ns)
+        #pdata = self.Pk_lin_CLASS(H0, omch2, ombh2, As, ns)
+        pdata = self.Pk_lin_CAMB(H0, omch2, ombh2, As, ns)
+
         Plin=InterpolatedUnivariateSpline(pdata[:,0], self.Dz(self.z, Omega_m)**2*b1**2*pdata[:,1])
 
         # Get the derivative of the linear power spectrum
@@ -611,6 +646,7 @@ class LSS_Model():
         sigma10Sq  = self.MatrixForm(temp2)
         sigma22x10 = self.MatrixForm(temp3)
     
+        print(sigma22Sq, sigma10Sq, sigma22x10)
         # Calculate SSC covariance    
         covaSSCmult=np.zeros((2*self.kbins,2*self.kbins))
         covaSSCmult[:self.kbins,:self.kbins]=self.covaSSC(0,0, sigma22Sq, sigma10Sq, sigma22x10, rsd, be,b1,b2,g2, Plin, dlnPk)
@@ -628,6 +664,12 @@ class LSS_Model():
 
         covaT0mult[self.kbins:,:self.kbins]=np.transpose(covaT0mult[:self.kbins,self.kbins:])
 
+        if np.any(np.isnan(covaSSCmult)):
+            print("ERROR! SSC covariance calculation returned NaN values! \
+                                This likely indicates an issue with the window function integration.")
+        if np.any(np.isnan(covaT0mult)):
+            print("ERROR! Non-Gaussian covariance calculation returned NaN values! \
+                                This likely indicates an issue with the trispectrum calculation.")
         #return covaNG
         return covaSSCmult + covaT0mult
 

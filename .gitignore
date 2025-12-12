@@ -1,0 +1,25 @@
+# Ignore compiled Python files
+*.pyc
+__pycache__/
+
+# Ignore build directories and files created by installing
+build/
+dist/
+*.egg-info/
+.DS_Store
+
+# Ignore other optional directories
+emulators/
+notebooks/
+chains/
+Plots/
+data/
+config-files/
+
+# Ignore temporary files created by editors
+*~
+*.swp
+settings.json
+.vscode/
+.pytest_cache/
+.ipynb_checkpoints/
